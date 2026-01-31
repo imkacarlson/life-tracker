@@ -44,7 +44,7 @@ function EditorPanel({
   return (
     <section className="editor-panel">
       <div className="editor-header">
-        <div>
+        <div className="title-row">
           <input
             className="title-input"
             value={title}
@@ -52,14 +52,14 @@ function EditorPanel({
             placeholder="Tracker title"
             disabled={!hasTracker}
           />
-          <div className="status-row">
-            <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
-            {message && <span className="message-inline">{message}</span>}
-          </div>
+          <button className="ghost" onClick={onDelete} disabled={!hasTracker}>
+            Delete
+          </button>
         </div>
-        <button className="secondary" onClick={onDelete} disabled={!hasTracker}>
-          Delete
-        </button>
+        <div className="status-row">
+          <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
+          {message && <span className="message-inline">{message}</span>}
+        </div>
       </div>
 
       <div className={`toolbar ${!hasTracker ? 'disabled' : ''}`}>

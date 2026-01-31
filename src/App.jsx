@@ -534,13 +534,6 @@ function App() {
       </header>
 
       <div className="workspace">
-        <Sidebar
-          trackers={trackers}
-          activeId={activeTrackerId}
-          onSelect={setActiveTrackerId}
-          onCreate={handleCreateTracker}
-          loading={dataLoading}
-        />
         <EditorPanel
           editor={editor}
           title={titleDraft}
@@ -550,6 +543,13 @@ function App() {
           onImageUpload={uploadImageAndInsert}
           hasTracker={!!activeTracker}
           message={message}
+        />
+        <Sidebar
+          trackers={trackers}
+          activeId={activeTrackerId}
+          onSelect={setActiveTrackerId}
+          onCreate={handleCreateTracker}
+          loading={dataLoading}
         />
       </div>
     </div>

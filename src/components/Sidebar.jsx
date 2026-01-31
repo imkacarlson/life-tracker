@@ -21,11 +21,6 @@ function Sidebar({ trackers, activeId, onSelect, onCreate, loading }) {
               onClick={() => onSelect(tracker.id)}
             >
               <span className="sidebar-title">{tracker.title}</span>
-              {tracker.updated_at && (
-                <span className="sidebar-date">
-                  {new Date(tracker.updated_at).toLocaleDateString()}
-                </span>
-              )}
             </button>
           ))}
         </div>
