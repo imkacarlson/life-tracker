@@ -248,6 +248,7 @@ function App() {
           types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'],
           generateID: () =>
             crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10),
+          filterTransaction: (transaction) => !transaction.getMeta('preventUpdate'),
         }),
         SecureImage.configure({ inline: false, allowBase64: false }),
         Table.configure({ resizable: true }),
@@ -388,7 +389,12 @@ function App() {
       const rawContent = normalizeContent(activeTracker?.content)
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
       if (!mounted) return
-      editor.commands.setContent(hydrated, false)
+      editor.commands.setContent(hydrated, {
+        emitUpdate: false,
+        parseOptions: {
+          preserveWhitespace: 'full',
+        },
+      })
       requestAnimationFrame(() => {
         syncBlockIdsToDom()
         console.log('pending blockId:', pendingNavRef.current?.blockId)
@@ -540,6 +546,7 @@ function App() {
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
+        console.log('saved content sample:', JSON.stringify(editor.getJSON().content?.[0]))
         const payload = {
           title: titleDraftRef.current?.trim() || 'Untitled Tracker',
           content: sanitizeContentForSave(nextContent),
