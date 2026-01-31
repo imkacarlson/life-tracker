@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
-import { Plugin, TextSelection } from '@tiptap/pm/state'
+import { Extension } from '@tiptap/core'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
@@ -16,7 +17,8 @@ import OrderedList from '@tiptap/extension-ordered-list'
 import ListItem from '@tiptap/extension-list-item'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
-import UniqueID from '@tiptap/extension-unique-id'
+import Paragraph from '@tiptap/extension-paragraph'
+import Heading from '@tiptap/extension-heading'
 import { supabase } from './lib/supabase'
 import Sidebar from './components/Sidebar'
 import EditorPanel from './components/EditorPanel'
@@ -31,6 +33,86 @@ const normalizeContent = (content) => {
   if (content && typeof content === 'object' && content.type) return content
   return EMPTY_DOC
 }
+
+const withIdAttribute = (parentAttributes = {}) => ({
+  ...parentAttributes,
+  id: {
+    default: null,
+    parseHTML: (element) => element.getAttribute('id'),
+    renderHTML: (attributes) => {
+      if (!attributes.id) return {}
+      return { id: attributes.id }
+    },
+  },
+})
+
+const ParagraphWithId = Paragraph.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const HeadingWithId = Heading.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const BulletListWithId = BulletList.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const OrderedListWithId = OrderedList.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const TaskListWithId = TaskList.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const TableWithId = Table.extend({
+  addAttributes() {
+    return withIdAttribute(this.parent?.())
+  },
+})
+
+const EnsureNodeIds = Extension.create({
+  name: 'ensureNodeIds',
+  addProseMirrorPlugins() {
+    const types = ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table']
+    return [
+      new Plugin({
+        key: new PluginKey('ensureNodeIds'),
+        appendTransaction: (transactions, _oldState, newState) => {
+          const hasChanges = transactions.some((tr) => tr.docChanged)
+          const hasMeta = transactions.some((tr) => tr.getMeta('ensureNodeIds'))
+          if (!hasChanges || hasMeta) return
+
+          const tr = newState.tr
+          let updated = false
+
+          newState.doc.descendants((node, pos) => {
+            if (!types.includes(node.type.name)) return
+            if (node.attrs?.id) return
+            const id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
+            tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
+            updated = true
+          })
+
+          if (!updated) return
+          tr.setMeta('ensureNodeIds', true)
+          return tr
+        },
+      }),
+    ]
+  },
+})
 
 const SecureImage = Image.extend({
   addAttributes() {
@@ -221,11 +303,15 @@ function App() {
           listItem: false,
           link: false,
           underline: false,
+          paragraph: false,
+          heading: false,
         }),
-        BulletList,
-        OrderedList,
+        ParagraphWithId,
+        HeadingWithId,
+        BulletListWithId,
+        OrderedListWithId,
         ListItem,
-        TaskList.configure({ nested: true }),
+        TaskListWithId.configure({ nested: true }),
         TaskItem.configure({ nested: true }),
         Underline,
         Highlight.configure({ multicolor: true }),
@@ -243,15 +329,9 @@ function App() {
             rel: 'noopener noreferrer',
           },
         }),
-        UniqueID.configure({
-          attributeName: 'id',
-          types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'],
-          generateID: () =>
-            crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10),
-          filterTransaction: (transaction) => !transaction.getMeta('preventUpdate'),
-        }),
+        EnsureNodeIds,
         SecureImage.configure({ inline: false, allowBase64: false }),
-        Table.configure({ resizable: true }),
+        TableWithId.configure({ resizable: true }),
         TableRow,
         TableHeader,
         TableCell,
@@ -397,11 +477,6 @@ function App() {
       })
       requestAnimationFrame(() => {
         syncBlockIdsToDom()
-        console.log('pending blockId:', pendingNavRef.current?.blockId)
-        console.log(
-          'all block IDs in doc:',
-          Array.from(document.querySelectorAll('[data-id]')).map((el) => el.getAttribute('data-id')),
-        )
         const pending = pendingNavRef.current
         if (pending?.pageId === activeTrackerId && pending.blockId) {
           const target = document.getElementById(pending.blockId)
@@ -546,7 +621,6 @@ function App() {
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
-        console.log('saved content sample:', JSON.stringify(editor.getJSON().content?.[0]))
         const payload = {
           title: titleDraftRef.current?.trim() || 'Untitled Tracker',
           content: sanitizeContentForSave(nextContent),

@@ -28,7 +28,6 @@
     "@tiptap/extension-text-align": "^3.18.0",
     "@tiptap/extension-text-style": "^3.18.0",
     "@tiptap/extension-underline": "^3.18.0",
-    "@tiptap/extension-unique-id": "^3.18.0",
     "@tiptap/pm": "^3.18.0",
     "@tiptap/react": "^3.18.0",
     "@tiptap/starter-kit": "^3.18.0",
