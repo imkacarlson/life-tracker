@@ -400,6 +400,19 @@ function App() {
       if (!targetNode || targetPos === null) return
 
       try {
+        if (targetNode.type?.name === 'table') {
+          const target = document.getElementById(blockId)
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+          try {
+            editor.chain().focus().setTextSelection(targetPos + 2).run()
+          } catch (error) {
+            console.error('Unable to focus table cell', error)
+          }
+          return
+        }
+
         if (targetNode.isTextblock) {
           const from = targetPos + 1
           const to = targetPos + targetNode.content.size + 1
