@@ -54,17 +54,6 @@ function App() {
     if (error) setMessage(error.message)
   }
 
-  async function handleSignUp(event) {
-    event.preventDefault()
-    setMessage('')
-    const { error } = await supabase.auth.signUp({ email, password })
-    if (error) {
-      setMessage(error.message)
-    } else {
-      setMessage('Check your email for a confirmation link.')
-    }
-  }
-
   async function handleSignOut() {
     setMessage('')
     await supabase.auth.signOut()
@@ -162,9 +151,6 @@ function App() {
             </label>
             <div className="actions">
               <button type="submit">Sign in</button>
-              <button type="button" className="secondary" onClick={handleSignUp}>
-                Sign up
-              </button>
             </div>
           </form>
           {message && <p className="message">{message}</p>}
