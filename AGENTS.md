@@ -8,47 +8,91 @@ Building a personal task/notes tracker web app to replace OneNote. Single-user a
 
 - **Frontend:** React with Vite
 - **Backend/Database:** Supabase (Postgres + Auth + Realtime)
+- **Rich Text Editor:** Tiptap (ProseMirror-based)
 - **Hosting:** Vercel (later)
 - **AI:** Claude API (Phase 5)
 
 ## Core Workflow to Replicate
 
-The user organizes tasks in monthly "trackers":
-- Each month has a tracker (e.g., "January 2026 Tracker")
-- Tracker is a single-column structure where each row is a **category** (Running, Finance, Wedding, etc.)
-- Each category contains **bullet point items** (tasks/notes)
-- Daily, user creates a **daily task list** by linking to items from the tracker
+The user organizes tasks in monthly "trackers" that are rich text documents:
+- Each month has a tracker page (e.g., "January 2026 Tracker")
+- Tracker contains **categories** as sections (Running, Finance, Wedding, etc.)
+- Each category contains rich content: bullet lists, numbered lists, nested lists, tables, images, links, etc.
+- The editor should feel like OneNote/Google Docs - a full rich text editing experience
+- Daily, user creates a **daily task list** by linking to items within tracker documents
 - Completing an item crosses it off in both places
 
 ## Development Phases
 
-### Phase 1: Foundation (START HERE)
-1. Scaffold React app with Vite: `npm create vite@latest . -- --template react`
-2. Install Supabase client: `npm install @supabase/supabase-js`
-3. Create `src/lib/supabase.js` with client config (will need project URL and anon key)
-4. Implement Supabase Auth with email/password login
-5. Build simple login page, protect main route, add logout button
-6. Create a test table and verify read/write works when authenticated
+### Phase 1: Foundation ✅ COMPLETE
+- React + Vite scaffolded
+- Supabase Auth working (email/password, single user)
+- Test table verified read/write
+- Sign up removed from UI
 
-**Phase 1 complete when:** User can log in, see data from database, add items, log out.
+### Phase 2: Rich Text Editor & Document Storage (CURRENT PHASE)
 
-### Phase 2: Core Data Model & UI
-- Schema: months → categories → items (with nesting support)
-- Build tracker view: display categories and bullet points
-- CRUD operations for items
-- Realtime sync (test in two browser tabs)
+**Goal:** Replace the test items UI with a full rich text editor that saves tracker documents to Supabase.
+
+1. Install Tiptap and extensions:
+   - `@tiptap/react` `@tiptap/starter-kit` `@tiptap/pm`
+   - Extensions: `@tiptap/extension-table` `@tiptap/extension-table-row` `@tiptap/extension-table-cell` `@tiptap/extension-table-header`
+   - Extensions: `@tiptap/extension-image` `@tiptap/extension-link` `@tiptap/extension-highlight` `@tiptap/extension-underline` `@tiptap/extension-text-align` `@tiptap/extension-color` `@tiptap/extension-text-style` `@tiptap/extension-placeholder`
+   - Extensions for lists: `@tiptap/extension-bullet-list` `@tiptap/extension-ordered-list` `@tiptap/extension-list-item` `@tiptap/extension-task-list` `@tiptap/extension-task-item`
+
+2. Create the database schema in Supabase:
+   ```sql
+   -- Drop the test table
+   drop table if exists public.test_items;
+
+   -- Tracker documents
+   create table public.trackers (
+     id uuid primary key default gen_random_uuid(),
+     user_id uuid not null references auth.users(id),
+     title text not null,
+     content jsonb default '{}',
+     created_at timestamptz default now(),
+     updated_at timestamptz default now()
+   );
+
+   alter table public.trackers enable row level security;
+
+   create policy "Users can read their trackers"
+     on public.trackers for select using (auth.uid() = user_id);
+   create policy "Users can insert their trackers"
+     on public.trackers for insert with check (auth.uid() = user_id);
+   create policy "Users can update their trackers"
+     on public.trackers for update using (auth.uid() = user_id);
+   create policy "Users can delete their trackers"
+     on public.trackers for delete using (auth.uid() = user_id);
+   ```
+
+3. Build the UI:
+   - **Sidebar/nav:** List of tracker documents with "New Tracker" button
+   - **Main area:** Tiptap editor with toolbar
+   - **Toolbar features:** Bold, italic, underline, strikethrough, highlight, text color, headings, bullet list, numbered list, task list (checkboxes), table (insert, add/remove rows/cols, cell color), image (paste or upload), link, undo/redo
+   - Keep toolbar clean and standard - use an icon-based toolbar similar to Google Docs/Notion
+
+4. Auto-save: Save document content (Tiptap JSON) to Supabase on changes with debounce (e.g., 2 seconds after last edit)
+
+5. Image handling: Upload pasted/dropped images to Supabase Storage, store the URL in the document
+
+**Phase 2 complete when:** User can create tracker documents, edit them with rich text features (lists, tables, images, links), and content persists across page reloads.
 
 ### Phase 3: Daily Task List & Linking
 - Daily view page
-- Link items from tracker to daily list
-- Cross-off syncs between views
+- Link to specific items/sections within tracker documents
+- Cross-off syncs between daily list and tracker
+- Tiptap supports node IDs for anchoring links
 
-### Phase 4: Mobile Polish
+### Phase 4: Mobile Polish & Touch
 - Responsive CSS for phone browser
-- Touch/scroll UX fixes
+- Touch-friendly toolbar
+- Drawing/annotation support (Tiptap has extensions for this)
 
 ### Phase 5: AI Integration
 - Claude API connection
+- AI reads Tiptap JSON to understand tracker content
 - "Generate today's tasks" feature
 - Chat interface for querying tracker
 
@@ -57,6 +101,7 @@ The user organizes tasks in monthly "trackers":
 - Keep code simple and readable - user is not experienced in JavaScript/React
 - Prefer clear patterns over clever abstractions
 - Comment non-obvious logic
+- Break components into separate files when they get large (e.g., Toolbar, Sidebar, Editor should be separate components)
 - This is a personal project - working beats perfect
 
 ## Commands
