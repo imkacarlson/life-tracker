@@ -63,12 +63,10 @@ const InternalLink = Link.extend({
           const link = target?.closest?.('a')
           const href = link?.getAttribute?.('href')
           if (!href) return false
-          console.log('link plugin handleClick', href)
           event.preventDefault()
           event.stopPropagation()
           if (href.startsWith('#nb=')) {
             window.location.hash = href
-            console.log('navigateRef.current', getNavigateRef?.()?.current)
             onNavigateHash?.(href)
             return true
           }
@@ -824,7 +822,6 @@ function App() {
 
   const navigateToHash = useCallback(
     (hash) => {
-      console.log('navigateToHash called', hash)
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
       if (!parsed) return
       pendingNavRef.current = parsed
@@ -840,11 +837,27 @@ function App() {
         })
         return
       }
+      if (parsed.notebookId === activeNotebookId) {
+        if (parsed.sectionId === activeSectionId) {
+          setActiveTrackerId(parsed.pageId)
+        } else {
+          setActiveSectionId(parsed.sectionId)
+        }
+        return
+      }
       if (notebooks.some((item) => item.id === parsed.notebookId)) {
         setActiveNotebookId(parsed.notebookId)
       }
     },
-    [parseDeepLink, notebooks, activeTrackerId, syncBlockIdsToDom, selectBlockById],
+    [
+      parseDeepLink,
+      notebooks,
+      activeTrackerId,
+      activeNotebookId,
+      activeSectionId,
+      syncBlockIdsToDom,
+      selectBlockById,
+    ],
   )
 
   useEffect(() => {
