@@ -419,6 +419,7 @@ h2 {
 .editor-shell a {
   color: #2563eb;
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .editor-shell ul[data-type='taskList'] {

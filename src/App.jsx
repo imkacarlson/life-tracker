@@ -60,11 +60,16 @@ const InternalLink = Link.extend({
           const target = event.target
           const link = target?.closest?.('a')
           const href = link?.getAttribute?.('href')
-          if (!href || !href.startsWith('#nb=')) return false
+          if (!href) return false
+          console.log('link plugin handleClick', href)
           event.preventDefault()
           event.stopPropagation()
-          window.location.hash = href
-          onNavigateHash?.(href)
+          if (href.startsWith('#nb=')) {
+            window.location.hash = href
+            onNavigateHash?.(href)
+            return true
+          }
+          window.open(href, '_blank', 'noopener,noreferrer')
           return true
         },
       },
@@ -226,7 +231,7 @@ function App() {
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
         InternalLink.configure({
           autolink: true,
-          openOnClick: true,
+          openOnClick: false,
           linkOnPaste: true,
           onNavigateHash: (href) => navigateRef.current?.(href),
           HTMLAttributes: {
