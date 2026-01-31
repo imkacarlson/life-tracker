@@ -337,8 +337,41 @@ h2 {
   cursor: pointer;
 }
 
+.table-context-item.disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 .table-context-item:hover {
   background: #f1f5f9;
+}
+
+.table-context-item.disabled:hover {
+  background: transparent;
+}
+
+.table-context-parent {
+  position: relative;
+}
+
+.table-submenu {
+  position: absolute;
+  top: 0;
+  min-width: 190px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.35rem;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  z-index: 50;
+}
+
+.table-submenu.right {
+  left: calc(100% + 6px);
+}
+
+.table-submenu.left {
+  right: calc(100% + 6px);
 }
 
 .editor-shell {

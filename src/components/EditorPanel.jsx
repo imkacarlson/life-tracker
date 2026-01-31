@@ -10,15 +10,28 @@ function EditorPanel({
   onImageUpload,
   hasTracker,
   message,
+  notebookId,
+  sectionId,
+  trackerId,
+  onNavigateHash,
 }) {
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
   const tablePickerRef = useRef(null)
   const contextMenuRef = useRef(null)
+  const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
-  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0 })
+  const [contextMenu, setContextMenu] = useState({
+    open: false,
+    x: 0,
+    y: 0,
+    blockId: null,
+    inTable: false,
+  })
+  const [submenuOpen, setSubmenuOpen] = useState(false)
+  const [submenuDirection, setSubmenuDirection] = useState('right')
   const gridSize = 5
 
   const handlePickImage = () => {
@@ -49,12 +62,21 @@ function EditorPanel({
     editor?.chain().focus().setTextAlign(alignment).run()
   }
 
-  const openContextMenu = useCallback((x, y) => {
-    setContextMenu({ open: true, x, y })
+  const openContextMenu = useCallback((next) => {
+    setTablePickerOpen(false)
+    setContextMenu({
+      open: true,
+      x: next.x,
+      y: next.y,
+      blockId: next.blockId ?? null,
+      inTable: next.inTable ?? false,
+    })
+    setSubmenuOpen(false)
   }, [])
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
+    setSubmenuOpen(false)
   }, [])
 
   const closeTablePicker = useCallback(() => {
@@ -77,27 +99,57 @@ function EditorPanel({
     }
   }
 
+  const focusFromCoords = (coords) => {
+    if (!editor) return
+    const pos = editor.view?.posAtCoords(coords)
+    if (pos?.pos !== undefined) {
+      editor.chain().focus().setTextSelection(pos.pos).run()
+    }
+  }
+
+  const getActiveBlockId = () => {
+    if (!editor) return null
+    const { $from } = editor.state.selection
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth)
+      if (node?.attrs?.id) {
+        return node.attrs.id
+      }
+    }
+    return null
+  }
+
   useEffect(() => {
     if (!editor) return
     const dom = editor.view.dom
 
     const handleContextMenu = (event) => {
-      if (!getCellFromEvent(event)) return
       event.preventDefault()
-      focusCellFromEvent(event)
-      openContextMenu(event.clientX, event.clientY)
+      const inTable = Boolean(getCellFromEvent(event))
+      if (inTable) {
+        focusCellFromEvent(event)
+      } else {
+        focusFromCoords({ left: event.clientX, top: event.clientY })
+      }
+      const blockId = getActiveBlockId()
+      openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
     }
 
     const handleTouchStart = (event) => {
-      if (!getCellFromEvent(event)) return
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current)
       }
       const touch = event.touches?.[0]
       if (!touch) return
+      const inTable = Boolean(getCellFromEvent(event))
       longPressTimerRef.current = setTimeout(() => {
-        focusCellFromEvent(event)
-        openContextMenu(touch.clientX, touch.clientY)
+        if (inTable) {
+          focusCellFromEvent(event)
+        } else {
+          focusFromCoords({ left: touch.clientX, top: touch.clientY })
+        }
+        const blockId = getActiveBlockId()
+        openContextMenu({ x: touch.clientX, y: touch.clientY, blockId, inTable })
       }, 550)
     }
 
@@ -137,6 +189,18 @@ function EditorPanel({
       setContextMenu((prev) => ({ ...prev, x: nextX, y: nextY }))
     }
   }, [contextMenu.open, contextMenu.x, contextMenu.y])
+
+  useEffect(() => {
+    if (!submenuOpen) return
+    const menu = contextMenuRef.current
+    const submenu = submenuRef.current
+    if (!menu || !submenu) return
+    const padding = 12
+    const menuRect = menu.getBoundingClientRect()
+    const submenuRect = submenu.getBoundingClientRect()
+    const openRight = menuRect.right + submenuRect.width + padding < window.innerWidth
+    setSubmenuDirection(openRight ? 'right' : 'left')
+  }, [submenuOpen])
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -196,6 +260,32 @@ function EditorPanel({
     ],
     [editor],
   )
+
+  const deepLinkHash = useMemo(() => {
+    if (!contextMenu.blockId || !notebookId || !sectionId || !trackerId) return null
+    return `#nb=${notebookId}&sec=${sectionId}&pg=${trackerId}&block=${contextMenu.blockId}`
+  }, [contextMenu.blockId, notebookId, sectionId, trackerId])
+
+  const handleCopyLink = async () => {
+    if (!deepLinkHash) return
+    await navigator.clipboard.writeText(deepLinkHash)
+    closeContextMenu()
+  }
+
+  useEffect(() => {
+    if (!editor) return
+    const dom = editor.view.dom
+    const handleClick = (event) => {
+      const link = event.target.closest?.('a')
+      if (!link) return
+      const href = link.getAttribute('href')
+      if (!href || !href.startsWith('#nb=')) return
+      event.preventDefault()
+      onNavigateHash?.(href)
+    }
+    dom.addEventListener('click', handleClick)
+    return () => dom.removeEventListener('click', handleClick)
+  }, [editor, onNavigateHash])
 
   return (
     <section className="editor-panel">
@@ -453,19 +543,49 @@ function EditorPanel({
           className="table-context-menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          {contextMenuItems.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className="table-context-item"
-              onClick={() => {
-                item.action()
-                closeContextMenu()
-              }}
+          <button
+            type="button"
+            className={`table-context-item ${!deepLinkHash ? 'disabled' : ''}`}
+            onClick={handleCopyLink}
+            disabled={!deepLinkHash}
+          >
+            Copy link to paragraph
+          </button>
+          {contextMenu.inTable && (
+            <div
+              className="table-context-parent"
+              onMouseEnter={() => setSubmenuOpen(true)}
+              onMouseLeave={() => setSubmenuOpen(false)}
             >
-              {item.label}
-            </button>
-          ))}
+              <button
+                type="button"
+                className="table-context-item"
+                onClick={() => setSubmenuOpen((prev) => !prev)}
+              >
+                Table
+              </button>
+              {submenuOpen && (
+                <div
+                  ref={submenuRef}
+                  className={`table-submenu ${submenuDirection === 'left' ? 'left' : 'right'}`}
+                >
+                  {contextMenuItems.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className="table-context-item"
+                      onClick={() => {
+                        item.action()
+                        closeContextMenu()
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>

@@ -15,6 +15,7 @@ import OrderedList from '@tiptap/extension-ordered-list'
 import ListItem from '@tiptap/extension-list-item'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import UniqueID from '@tiptap/extension-unique-id'
 import { supabase } from './lib/supabase'
 import Sidebar from './components/Sidebar'
 import EditorPanel from './components/EditorPanel'
@@ -120,6 +121,7 @@ function App() {
   const [saveStatus, setSaveStatus] = useState('Saved')
   const [dataLoading, setDataLoading] = useState(false)
 
+  const pendingNavRef = useRef(null)
   const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -194,6 +196,12 @@ function App() {
           openOnClick: false,
           linkOnPaste: true,
         }),
+        UniqueID.configure({
+          attributeName: 'id',
+          types: ['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'],
+          generateID: () =>
+            crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10),
+        }),
         SecureImage.configure({ inline: false, allowBase64: false }),
         Table.configure({ resizable: true }),
         TableRow,
@@ -232,6 +240,19 @@ function App() {
     [session?.user?.id],
   )
 
+  const syncBlockIdsToDom = useCallback(() => {
+    if (!editor) return
+    const root = editor.view?.dom
+    if (!root) return
+    const nodes = root.querySelectorAll('[data-id]')
+    nodes.forEach((node) => {
+      const id = node.getAttribute('data-id')
+      if (id && node.id !== id) {
+        node.id = id
+      }
+    })
+  }, [editor])
+
   const hydrateContentWithSignedUrls = useCallback(
     async (content) => {
       if (!session) return content
@@ -267,12 +288,23 @@ function App() {
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
       if (!mounted) return
       editor.commands.setContent(hydrated, false)
+      requestAnimationFrame(() => {
+        syncBlockIdsToDom()
+        const pending = pendingNavRef.current
+        if (pending?.pageId === activeTrackerId && pending.blockId) {
+          const target = document.getElementById(pending.blockId)
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+          pendingNavRef.current = null
+        }
+      })
     }
     setContent()
     return () => {
       mounted = false
     }
-  }, [editor, activeTrackerId, hydrateContentWithSignedUrls])
+  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, syncBlockIdsToDom])
 
   useEffect(() => {
     if (activeTracker) {
@@ -298,7 +330,12 @@ function App() {
     }
 
     setNotebooks(data ?? [])
-    setActiveNotebookId((prev) => prev ?? (data?.[0]?.id ?? null))
+    const pending = pendingNavRef.current
+    if (pending?.notebookId && data?.some((item) => item.id === pending.notebookId)) {
+      setActiveNotebookId(pending.notebookId)
+    } else {
+      setActiveNotebookId((prev) => prev ?? (data?.[0]?.id ?? null))
+    }
   }, [session])
 
   const loadSections = useCallback(
@@ -318,7 +355,12 @@ function App() {
       }
 
       setSections(data ?? [])
-      setActiveSectionId((prev) => prev ?? (data?.[0]?.id ?? null))
+      const pending = pendingNavRef.current
+      if (pending?.sectionId && data?.some((item) => item.id === pending.sectionId)) {
+        setActiveSectionId(pending.sectionId)
+      } else {
+        setActiveSectionId((prev) => prev ?? (data?.[0]?.id ?? null))
+      }
     },
     [session],
   )
@@ -341,7 +383,12 @@ function App() {
       }
 
       setTrackers(data ?? [])
-      setActiveTrackerId((prev) => prev ?? (data?.[0]?.id ?? null))
+      const pending = pendingNavRef.current
+      if (pending?.pageId && data?.some((item) => item.id === pending.pageId)) {
+        setActiveTrackerId(pending.pageId)
+      } else {
+        setActiveTrackerId((prev) => prev ?? (data?.[0]?.id ?? null))
+      }
       setDataLoading(false)
     },
     [session],
@@ -414,10 +461,11 @@ function App() {
     const handleUpdate = () => {
       if (!activeTrackerRef.current) return
       scheduleSave(editor.getJSON())
+      syncBlockIdsToDom()
     }
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
-  }, [editor, scheduleSave])
+  }, [editor, scheduleSave, syncBlockIdsToDom])
 
   const handleTitleChange = (value) => {
     setTitleDraft(value)
@@ -610,6 +658,7 @@ function App() {
     setNotebooks([])
     setActiveNotebookId(null)
     setTitleDraft('')
+    pendingNavRef.current = null
   }
 
   const uploadImageAndInsert = useCallback(
@@ -654,6 +703,59 @@ function App() {
   useEffect(() => {
     uploadImageRef.current = uploadImageAndInsert
   }, [uploadImageAndInsert])
+
+  const parseDeepLink = useCallback((hash) => {
+    if (!hash || !hash.startsWith('#nb=')) return null
+    const params = new URLSearchParams(hash.slice(1))
+    const notebookId = params.get('nb')
+    const sectionId = params.get('sec')
+    const pageId = params.get('pg')
+    const blockId = params.get('block')
+    if (!notebookId || !sectionId || !pageId || !blockId) return null
+    return { notebookId, sectionId, pageId, blockId }
+  }, [])
+
+  const navigateToHash = useCallback(
+    (hash) => {
+      const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
+      if (!parsed) return
+      pendingNavRef.current = parsed
+      if (parsed.pageId === activeTrackerId) {
+        requestAnimationFrame(() => {
+          syncBlockIdsToDom()
+          const target = document.getElementById(parsed.blockId)
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+          pendingNavRef.current = null
+        })
+        return
+      }
+      if (notebooks.some((item) => item.id === parsed.notebookId)) {
+        setActiveNotebookId(parsed.notebookId)
+      }
+    },
+    [parseDeepLink, notebooks, activeTrackerId, syncBlockIdsToDom],
+  )
+
+  useEffect(() => {
+    if (!session) return
+    const initial = parseDeepLink(window.location.hash)
+    if (initial) {
+      pendingNavRef.current = initial
+      if (notebooks.some((item) => item.id === initial.notebookId)) {
+        setActiveNotebookId(initial.notebookId)
+      }
+    }
+  }, [session, parseDeepLink, notebooks])
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      navigateToHash(window.location.hash)
+    }
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [navigateToHash])
 
   if (missingEnv) {
     return (
@@ -757,7 +859,10 @@ function App() {
             <label className="subtle">Notebook</label>
             <select
               value={activeNotebookId ?? ''}
-              onChange={(event) => setActiveNotebookId(event.target.value)}
+              onChange={(event) => {
+                pendingNavRef.current = null
+                setActiveNotebookId(event.target.value)
+              }}
             >
               {notebooks.map((notebook) => (
                 <option key={notebook.id} value={notebook.id}>
@@ -776,10 +881,10 @@ function App() {
             </button>
           </div>
         </div>
-        <button className="secondary" onClick={handleSignOut}>
-          Log out
-        </button>
-      </header>
+          <button className="secondary" onClick={handleSignOut}>
+            Log out
+          </button>
+        </header>
 
       <div className="section-tabs">
         {sections.map((section) => (
@@ -789,11 +894,15 @@ function App() {
             tabIndex={0}
             className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
             style={{ backgroundColor: section.color || '#eef2ff' }}
-            onClick={() => setActiveSectionId(section.id)}
+            onClick={() => {
+              pendingNavRef.current = null
+              setActiveSectionId(section.id)
+            }}
             onDoubleClick={() => handleRenameSection(section)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
+                pendingNavRef.current = null
                 setActiveSectionId(section.id)
               }
             }}
@@ -826,11 +935,18 @@ function App() {
           onImageUpload={uploadImageAndInsert}
           hasTracker={!!activeTracker}
           message={message}
+          notebookId={activeNotebookId}
+          sectionId={activeSectionId}
+          trackerId={activeTrackerId}
+          onNavigateHash={navigateToHash}
         />
         <Sidebar
           trackers={trackers}
           activeId={activeTrackerId}
-          onSelect={setActiveTrackerId}
+          onSelect={(id) => {
+            pendingNavRef.current = null
+            setActiveTrackerId(id)
+          }}
           onCreate={handleCreateTracker}
           loading={dataLoading}
           disabled={!activeSectionId}
