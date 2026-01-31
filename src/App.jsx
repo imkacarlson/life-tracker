@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
-import { Extension } from '@tiptap/core'
+import { Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { Table, TableCell, TableHeader, TableRow, TableView, createColGroup } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Highlight from '@tiptap/extension-highlight'
@@ -62,11 +62,23 @@ const BulletListWithId = BulletList.extend({
   addAttributes() {
     return withIdAttribute(this.parent?.())
   },
+  renderHTML({ HTMLAttributes }) {
+    const parent = this.parent?.({ HTMLAttributes }) ?? ['ul', HTMLAttributes, 0]
+    if (!HTMLAttributes?.id) return parent
+    const [tag, attrs, content] = parent
+    return [tag, { ...attrs, id: HTMLAttributes.id }, content]
+  },
 })
 
 const OrderedListWithId = OrderedList.extend({
   addAttributes() {
     return withIdAttribute(this.parent?.())
+  },
+  renderHTML({ HTMLAttributes }) {
+    const parent = this.parent?.({ HTMLAttributes }) ?? ['ol', HTMLAttributes, 0]
+    if (!HTMLAttributes?.id) return parent
+    const [tag, attrs, content] = parent
+    return [tag, { ...attrs, id: HTMLAttributes.id }, content]
   },
 })
 
@@ -74,11 +86,66 @@ const TaskListWithId = TaskList.extend({
   addAttributes() {
     return withIdAttribute(this.parent?.())
   },
+  renderHTML({ HTMLAttributes }) {
+    const parent = this.parent?.({ HTMLAttributes }) ?? ['ul', HTMLAttributes, 0]
+    if (!HTMLAttributes?.id) return parent
+    const [tag, attrs, content] = parent
+    return [tag, { ...attrs, id: HTMLAttributes.id }, content]
+  },
 })
 
+class TableViewWithId extends TableView {
+  constructor(node, cellMinWidth) {
+    super(node, cellMinWidth)
+    this.updateId(node)
+  }
+
+  update(node) {
+    const result = super.update(node)
+    if (result) {
+      this.updateId(node)
+    }
+    return result
+  }
+
+  updateId(node) {
+    const id = node?.attrs?.id
+    if (id) {
+      this.table.id = id
+      return
+    }
+    this.table.removeAttribute('id')
+  }
+}
+
 const TableWithId = Table.extend({
+  addOptions() {
+    const parent = this.parent?.()
+    return {
+      ...(parent ?? {}),
+      View: TableViewWithId,
+    }
+  },
   addAttributes() {
     return withIdAttribute(this.parent?.())
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const { colgroup, tableWidth, tableMinWidth } = createColGroup(
+      node,
+      this.options.cellMinWidth,
+    )
+    const userStyles = HTMLAttributes.style
+    const style = userStyles || (tableWidth ? `width: ${tableWidth}` : `min-width: ${tableMinWidth}`)
+    const table = [
+      'table',
+      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
+        style,
+        id: HTMLAttributes.id || null,
+      }),
+      colgroup,
+      ['tbody', 0],
+    ]
+    return this.options.renderWrapper ? ['div', { class: 'tableWrapper' }, table] : table
   },
 })
 
@@ -369,16 +436,7 @@ function App() {
   )
 
   const syncBlockIdsToDom = useCallback(() => {
-    if (!editor) return
-    const root = editor.view?.dom
-    if (!root) return
-    const nodes = root.querySelectorAll('[data-id]')
-    nodes.forEach((node) => {
-      const id = node.getAttribute('data-id')
-      if (id && node.id !== id) {
-        node.id = id
-      }
-    })
+    return
   }, [editor])
 
   const selectBlockById = useCallback(
