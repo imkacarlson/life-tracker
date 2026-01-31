@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
-import { NodeSelection, Plugin, TextSelection } from '@tiptap/pm/state'
+import { Plugin, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
@@ -347,9 +347,6 @@ function App() {
           return
         }
 
-        const selection = NodeSelection.create(doc, targetPos)
-        editor.view.dispatch(editor.state.tr.setSelection(selection))
-        editor.view.focus()
       } catch (error) {
         console.error('Unable to select block', error)
       }
@@ -394,6 +391,11 @@ function App() {
       editor.commands.setContent(hydrated, false)
       requestAnimationFrame(() => {
         syncBlockIdsToDom()
+        console.log('pending blockId:', pendingNavRef.current?.blockId)
+        console.log(
+          'all block IDs in doc:',
+          Array.from(document.querySelectorAll('[data-id]')).map((el) => el.getAttribute('data-id')),
+        )
         const pending = pendingNavRef.current
         if (pending?.pageId === activeTrackerId && pending.blockId) {
           const target = document.getElementById(pending.blockId)
