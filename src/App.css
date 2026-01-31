@@ -263,6 +263,84 @@ h2 {
   background: #e2e8f0;
 }
 
+.table-picker-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.table-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: transparent;
+}
+
+.table-picker {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.5rem;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  z-index: 20;
+}
+
+.table-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 18px);
+  gap: 4px;
+}
+
+.table-picker-cell {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5f5;
+  background: #f8fafc;
+  border-radius: 4px;
+}
+
+.table-picker-cell.active {
+  background: #bfdbfe;
+  border-color: #2563eb;
+}
+
+.table-picker-label {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  text-align: center;
+}
+
+.table-context-menu {
+  position: fixed;
+  z-index: 40;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  min-width: 190px;
+  padding: 0.35rem;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+}
+
+.table-context-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.85rem;
+  color: #0f172a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.table-context-item:hover {
+  background: #f1f5f9;
+}
+
 .editor-shell {
   background: transparent;
   border: none;
