@@ -274,17 +274,9 @@ function EditorPanel({
 
   useEffect(() => {
     if (!editor) return
-    const dom = editor.view.dom
-    const handleClick = (event) => {
-      const link = event.target.closest?.('a')
-      if (!link) return
-      const href = link.getAttribute('href')
-      if (!href || !href.startsWith('#nb=')) return
-      event.preventDefault()
-      onNavigateHash?.(href)
+    if (typeof onNavigateHash === 'function') {
+      // no-op: handled by Link extension plugin
     }
-    dom.addEventListener('click', handleClick)
-    return () => dom.removeEventListener('click', handleClick)
   }, [editor, onNavigateHash])
 
   return (

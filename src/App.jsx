@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
+import { NodeSelection, Plugin, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
@@ -39,6 +40,37 @@ const SecureImage = Image.extend({
         default: null,
       },
     }
+  },
+})
+
+const InternalLink = Link.extend({
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      onNavigateHash: null,
+    }
+  },
+  addProseMirrorPlugins() {
+    const plugins = this.parent?.() ?? []
+    const onNavigateHash = this.options.onNavigateHash
+
+    const internalLinkPlugin = new Plugin({
+      props: {
+        handleClick: (_view, _pos, event) => {
+          const target = event.target
+          const link = target?.closest?.('a')
+          const href = link?.getAttribute?.('href')
+          if (!href || !href.startsWith('#nb=')) return false
+          event.preventDefault()
+          event.stopPropagation()
+          window.location.hash = href
+          onNavigateHash?.(href)
+          return true
+        },
+      },
+    })
+
+    return [internalLinkPlugin, ...plugins]
   },
 })
 
@@ -122,6 +154,7 @@ function App() {
   const [dataLoading, setDataLoading] = useState(false)
 
   const pendingNavRef = useRef(null)
+  const navigateRef = useRef(null)
   const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -191,10 +224,15 @@ function App() {
         TextStyle,
         Color,
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
-        Link.configure({
+        InternalLink.configure({
           autolink: true,
-          openOnClick: false,
+          openOnClick: true,
           linkOnPaste: true,
+          onNavigateHash: (href) => navigateRef.current?.(href),
+          HTMLAttributes: {
+            target: '_self',
+            rel: 'noopener noreferrer',
+          },
         }),
         UniqueID.configure({
           attributeName: 'id',
@@ -253,6 +291,63 @@ function App() {
     })
   }, [editor])
 
+  const selectBlockById = useCallback(
+    (blockId) => {
+      if (!editor || !blockId) return
+      const { doc } = editor.state
+      let targetNode = null
+      let targetPos = null
+
+      doc.descendants((node, pos) => {
+        if (node.attrs?.id === blockId) {
+          targetNode = node
+          targetPos = pos
+          return false
+        }
+        return true
+      })
+
+      if (!targetNode || targetPos === null) return
+
+      try {
+        if (targetNode.isTextblock) {
+          const from = targetPos + 1
+          const to = targetPos + targetNode.content.size + 1
+          const selection = TextSelection.create(doc, from, to)
+          editor.view.dispatch(editor.state.tr.setSelection(selection))
+          editor.view.focus()
+          return
+        }
+
+        let found = null
+        targetNode.descendants((child, pos) => {
+          if (child.isTextblock && !found) {
+            found = { node: child, pos }
+            return false
+          }
+          return true
+        })
+
+        if (found) {
+          const absolutePos = targetPos + found.pos + 1
+          const from = absolutePos + 1
+          const to = absolutePos + found.node.content.size + 1
+          const selection = TextSelection.create(doc, from, to)
+          editor.view.dispatch(editor.state.tr.setSelection(selection))
+          editor.view.focus()
+          return
+        }
+
+        const selection = NodeSelection.create(doc, targetPos)
+        editor.view.dispatch(editor.state.tr.setSelection(selection))
+        editor.view.focus()
+      } catch (error) {
+        console.error('Unable to select block', error)
+      }
+    },
+    [editor],
+  )
+
   const hydrateContentWithSignedUrls = useCallback(
     async (content) => {
       if (!session) return content
@@ -296,6 +391,7 @@ function App() {
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
+          selectBlockById(pending.blockId)
           pendingNavRef.current = null
         }
       })
@@ -304,7 +400,7 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, syncBlockIdsToDom])
+  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, syncBlockIdsToDom, selectBlockById])
 
   useEffect(() => {
     if (activeTracker) {
@@ -727,6 +823,7 @@ function App() {
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
+          selectBlockById(parsed.blockId)
           pendingNavRef.current = null
         })
         return
@@ -735,8 +832,12 @@ function App() {
         setActiveNotebookId(parsed.notebookId)
       }
     },
-    [parseDeepLink, notebooks, activeTrackerId, syncBlockIdsToDom],
+    [parseDeepLink, notebooks, activeTrackerId, syncBlockIdsToDom, selectBlockById],
   )
+
+  useEffect(() => {
+    navigateRef.current = navigateToHash
+  }, [navigateToHash])
 
   useEffect(() => {
     if (!session) return
