@@ -1,17 +1,19 @@
-function Sidebar({ trackers, activeId, onSelect, onCreate, loading }) {
+function Sidebar({ trackers, activeId, onSelect, onCreate, loading, disabled }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <h2>Trackers</h2>
-        <button className="secondary" onClick={onCreate}>
+        <h2>Pages</h2>
+        <button className="secondary" onClick={onCreate} disabled={disabled}>
           New
         </button>
       </div>
 
       {loading ? (
-        <p className="subtle">Loading trackers...</p>
+        <p className="subtle">Loading pages...</p>
+      ) : disabled ? (
+        <p className="subtle">Select a section to view pages.</p>
       ) : trackers.length === 0 ? (
-        <p className="subtle">No trackers yet.</p>
+        <p className="subtle">No pages yet.</p>
       ) : (
         <div className="sidebar-list">
           {trackers.map((tracker) => (

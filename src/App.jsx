@@ -110,6 +110,10 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState('')
+  const [notebooks, setNotebooks] = useState([])
+  const [sections, setSections] = useState([])
+  const [activeNotebookId, setActiveNotebookId] = useState(null)
+  const [activeSectionId, setActiveSectionId] = useState(null)
   const [trackers, setTrackers] = useState([])
   const [activeTrackerId, setActiveTrackerId] = useState(null)
   const [titleDraft, setTitleDraft] = useState('')
@@ -121,6 +125,8 @@ function App() {
   const activeTrackerRef = useRef(null)
   const uploadImageRef = useRef(null)
 
+  const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
+  const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
 
   useEffect(() => {
@@ -277,30 +283,96 @@ function App() {
     setSaveStatus('Saved')
   }, [activeTrackerId])
 
-  const loadTrackers = useCallback(async () => {
+  const loadNotebooks = useCallback(async () => {
     if (!session) return
-    setDataLoading(true)
     setMessage('')
     const { data, error } = await supabase
-      .from('trackers')
-      .select('id, title, content, created_at, updated_at')
-      .order('updated_at', { ascending: false })
+      .from('notebooks')
+      .select('id, title, sort_order, created_at, updated_at')
+      .order('sort_order', { ascending: true, nullsFirst: true })
+      .order('created_at', { ascending: true })
 
     if (error) {
       setMessage(error.message)
-      setDataLoading(false)
       return
     }
 
-    setTrackers(data ?? [])
-    setActiveTrackerId((prev) => prev ?? (data?.[0]?.id ?? null))
-    setDataLoading(false)
+    setNotebooks(data ?? [])
+    setActiveNotebookId((prev) => prev ?? (data?.[0]?.id ?? null))
   }, [session])
+
+  const loadSections = useCallback(
+    async (notebookId) => {
+      if (!session || !notebookId) return
+      setMessage('')
+      const { data, error } = await supabase
+        .from('sections')
+        .select('id, title, color, sort_order, created_at, updated_at')
+        .eq('notebook_id', notebookId)
+        .order('sort_order', { ascending: true, nullsFirst: true })
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        setMessage(error.message)
+        return
+      }
+
+      setSections(data ?? [])
+      setActiveSectionId((prev) => prev ?? (data?.[0]?.id ?? null))
+    },
+    [session],
+  )
+
+  const loadTrackers = useCallback(
+    async (sectionId) => {
+      if (!session || !sectionId) return
+      setDataLoading(true)
+      setMessage('')
+      const { data, error } = await supabase
+        .from('trackers')
+        .select('id, title, content, created_at, updated_at, section_id')
+        .eq('section_id', sectionId)
+        .order('updated_at', { ascending: false })
+
+      if (error) {
+        setMessage(error.message)
+        setDataLoading(false)
+        return
+      }
+
+      setTrackers(data ?? [])
+      setActiveTrackerId((prev) => prev ?? (data?.[0]?.id ?? null))
+      setDataLoading(false)
+    },
+    [session],
+  )
 
   useEffect(() => {
     if (!session) return
-    loadTrackers()
-  }, [session, loadTrackers])
+    loadNotebooks()
+  }, [session, loadNotebooks])
+
+  useEffect(() => {
+    if (!activeNotebookId) {
+      setSections([])
+      setActiveSectionId(null)
+      return
+    }
+    setSections([])
+    setActiveSectionId(null)
+    loadSections(activeNotebookId)
+  }, [activeNotebookId, loadSections])
+
+  useEffect(() => {
+    if (!activeSectionId) {
+      setTrackers([])
+      setActiveTrackerId(null)
+      return
+    }
+    setTrackers([])
+    setActiveTrackerId(null)
+    loadTrackers(activeSectionId)
+  }, [activeSectionId, loadTrackers])
 
   const scheduleSave = useCallback(
     (nextContent) => {
@@ -354,7 +426,7 @@ function App() {
   }
 
   const handleCreateTracker = async () => {
-    if (!session) return
+    if (!session || !activeSectionId) return
     setMessage('')
     const title = `${new Date().toLocaleString('en-US', {
       month: 'long',
@@ -367,6 +439,7 @@ function App() {
         title,
         user_id: session.user.id,
         content: EMPTY_DOC,
+        section_id: activeSectionId,
       })
       .select()
       .single()
@@ -398,6 +471,131 @@ function App() {
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
+  const handleCreateNotebook = async () => {
+    if (!session) return
+    const title = window.prompt('Notebook name', 'My Notebook')
+    if (!title) return
+    const { data, error } = await supabase
+      .from('notebooks')
+      .insert({
+        title: title.trim(),
+        user_id: session.user.id,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setNotebooks((prev) => [...prev, data])
+    setActiveNotebookId(data.id)
+  }
+
+  const handleRenameNotebook = async () => {
+    if (!activeNotebook) return
+    const nextTitle = window.prompt('Rename notebook', activeNotebook.title)
+    if (!nextTitle) return
+    const { error } = await supabase
+      .from('notebooks')
+      .update({ title: nextTitle.trim(), updated_at: new Date().toISOString() })
+      .eq('id', activeNotebook.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setNotebooks((prev) =>
+      prev.map((item) => (item.id === activeNotebook.id ? { ...item, title: nextTitle.trim() } : item)),
+    )
+  }
+
+  const handleDeleteNotebook = async () => {
+    if (!activeNotebook) return
+    const confirmDelete = window.confirm(
+      `Delete "${activeNotebook.title}"? This will delete all its sections and pages.`,
+    )
+    if (!confirmDelete) return
+
+    const { error } = await supabase.from('notebooks').delete().eq('id', activeNotebook.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    const nextNotebooks = notebooks.filter((item) => item.id !== activeNotebook.id)
+    setNotebooks(nextNotebooks)
+    setActiveNotebookId(nextNotebooks[0]?.id ?? null)
+  }
+
+  const colorPalette = ['#e0f2fe', '#ede9fe', '#fce7f3', '#fef9c3', '#dcfce7', '#ffe4e6']
+
+  const handleCreateSection = async () => {
+    if (!session || !activeNotebookId) return
+    const title = window.prompt('Section name', 'New Section')
+    if (!title) return
+    const color = colorPalette[sections.length % colorPalette.length]
+    const { data, error } = await supabase
+      .from('sections')
+      .insert({
+        title: title.trim(),
+        user_id: session.user.id,
+        notebook_id: activeNotebookId,
+        color,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setSections((prev) => [...prev, data])
+    setActiveSectionId(data.id)
+  }
+
+  const handleRenameSection = async (section) => {
+    if (!section) return
+    const nextTitle = window.prompt('Rename section', section.title)
+    if (!nextTitle) return
+    const { error } = await supabase
+      .from('sections')
+      .update({ title: nextTitle.trim(), updated_at: new Date().toISOString() })
+      .eq('id', section.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setSections((prev) =>
+      prev.map((item) => (item.id === section.id ? { ...item, title: nextTitle.trim() } : item)),
+    )
+  }
+
+  const handleDeleteSection = async (section) => {
+    if (!section) return
+    const confirmDelete = window.confirm(
+      `Delete "${section.title}"? This will delete all pages in this section.`,
+    )
+    if (!confirmDelete) return
+
+    const { error } = await supabase.from('sections').delete().eq('id', section.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    const nextSections = sections.filter((item) => item.id !== section.id)
+    setSections(nextSections)
+    setActiveSectionId((prev) => (prev === section.id ? nextSections[0]?.id ?? null : prev))
+  }
+
   const handleSignIn = async (event) => {
     event.preventDefault()
     setMessage('')
@@ -410,6 +608,10 @@ function App() {
     await supabase.auth.signOut()
     setTrackers([])
     setActiveTrackerId(null)
+    setSections([])
+    setActiveSectionId(null)
+    setNotebooks([])
+    setActiveNotebookId(null)
     setTitleDraft('')
   }
 
@@ -521,17 +723,101 @@ function App() {
     )
   }
 
+  if (notebooks.length === 0) {
+    return (
+      <div className="app">
+        <header className="topbar">
+          <div>
+            <h1>Life Tracker</h1>
+            <p className="subtle">Signed in as {session.user.email}</p>
+          </div>
+          <button className="secondary" onClick={handleSignOut}>
+            Log out
+          </button>
+        </header>
+        <div className="welcome">
+          <div className="card">
+            <h2>Create your first notebook</h2>
+            <p className="subtle">
+              Notebooks group your trackers. Create one to start organizing your sections and pages.
+            </p>
+            <button onClick={handleCreateNotebook}>New notebook</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <header className="topbar">
-        <div>
-          <h1>Life Tracker</h1>
-          <p className="subtle">Signed in as {session.user.email}</p>
+        <div className="topbar-left">
+          <div className="brand">
+            <h1>Life Tracker</h1>
+            <p className="subtle">Signed in as {session.user.email}</p>
+          </div>
+          <div className="notebook-switcher">
+            <label className="subtle">Notebook</label>
+            <select
+              value={activeNotebookId ?? ''}
+              onChange={(event) => setActiveNotebookId(event.target.value)}
+            >
+              {notebooks.map((notebook) => (
+                <option key={notebook.id} value={notebook.id}>
+                  {notebook.title}
+                </option>
+              ))}
+            </select>
+            <button className="ghost" onClick={handleCreateNotebook}>
+              New
+            </button>
+            <button className="ghost" onClick={handleRenameNotebook} disabled={!activeNotebook}>
+              Rename
+            </button>
+            <button className="ghost" onClick={handleDeleteNotebook} disabled={!activeNotebook}>
+              Delete
+            </button>
+          </div>
         </div>
         <button className="secondary" onClick={handleSignOut}>
           Log out
         </button>
       </header>
+
+      <div className="section-tabs">
+        {sections.map((section) => (
+          <div
+            key={section.id}
+            role="button"
+            tabIndex={0}
+            className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
+            style={{ backgroundColor: section.color || '#eef2ff' }}
+            onClick={() => setActiveSectionId(section.id)}
+            onDoubleClick={() => handleRenameSection(section)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setActiveSectionId(section.id)
+              }
+            }}
+          >
+            <span>{section.title}</span>
+            <button
+              type="button"
+              className="tab-delete"
+              onClick={(event) => {
+                event.stopPropagation()
+                handleDeleteSection(section)
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button className="section-add" onClick={handleCreateSection} disabled={!activeNotebookId}>
+          +
+        </button>
+      </div>
 
       <div className="workspace">
         <EditorPanel
@@ -550,6 +836,7 @@ function App() {
           onSelect={setActiveTrackerId}
           onCreate={handleCreateTracker}
           loading={dataLoading}
+          disabled={!activeSectionId}
         />
       </div>
     </div>
