@@ -48,11 +48,13 @@ const InternalLink = Link.extend({
     return {
       ...this.parent?.(),
       onNavigateHash: null,
+      getNavigateRef: null,
     }
   },
   addProseMirrorPlugins() {
     const plugins = this.parent?.() ?? []
     const onNavigateHash = this.options.onNavigateHash
+    const getNavigateRef = this.options.getNavigateRef
 
     const internalLinkPlugin = new Plugin({
       props: {
@@ -66,6 +68,7 @@ const InternalLink = Link.extend({
           event.stopPropagation()
           if (href.startsWith('#nb=')) {
             window.location.hash = href
+            console.log('navigateRef.current', getNavigateRef?.()?.current)
             onNavigateHash?.(href)
             return true
           }
@@ -218,6 +221,8 @@ function App() {
           bulletList: false,
           orderedList: false,
           listItem: false,
+          link: false,
+          underline: false,
         }),
         BulletList,
         OrderedList,
@@ -234,6 +239,7 @@ function App() {
           openOnClick: false,
           linkOnPaste: true,
           onNavigateHash: (href) => navigateRef.current?.(href),
+          getNavigateRef: () => navigateRef,
           HTMLAttributes: {
             target: '_self',
             rel: 'noopener noreferrer',
@@ -818,6 +824,7 @@ function App() {
 
   const navigateToHash = useCallback(
     (hash) => {
+      console.log('navigateToHash called', hash)
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
       if (!parsed) return
       pendingNavRef.current = parsed
