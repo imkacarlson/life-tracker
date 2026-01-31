@@ -428,10 +428,7 @@ function App() {
   const handleCreateTracker = async () => {
     if (!session || !activeSectionId) return
     setMessage('')
-    const title = `${new Date().toLocaleString('en-US', {
-      month: 'long',
-      year: 'numeric',
-    })} Tracker`
+    const title = 'Untitled'
 
     const { data, error } = await supabase
       .from('trackers')
