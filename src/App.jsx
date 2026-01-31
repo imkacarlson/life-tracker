@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import { Extension, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow, TableView, createColGroup } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
@@ -435,76 +435,13 @@ function App() {
     [session?.user?.id],
   )
 
-  const syncBlockIdsToDom = useCallback(() => {
-    return
-  }, [editor])
-
-  const selectBlockById = useCallback(
-    (blockId) => {
-      if (!editor || !blockId) return
-      const { doc } = editor.state
-      let targetNode = null
-      let targetPos = null
-
-      doc.descendants((node, pos) => {
-        if (node.attrs?.id === blockId) {
-          targetNode = node
-          targetPos = pos
-          return false
-        }
-        return true
-      })
-
-      if (!targetNode || targetPos === null) return
-
-      try {
-        if (targetNode.type?.name === 'table') {
-          const target = document.getElementById(blockId)
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-          try {
-            editor.chain().focus().setTextSelection(targetPos + 2).run()
-          } catch (error) {
-            console.error('Unable to focus table cell', error)
-          }
-          return
-        }
-
-        if (targetNode.isTextblock) {
-          const from = targetPos + 1
-          const to = targetPos + targetNode.content.size + 1
-          const selection = TextSelection.create(doc, from, to)
-          editor.view.dispatch(editor.state.tr.setSelection(selection))
-          editor.view.focus()
-          return
-        }
-
-        let found = null
-        targetNode.descendants((child, pos) => {
-          if (child.isTextblock && !found) {
-            found = { node: child, pos }
-            return false
-          }
-          return true
-        })
-
-        if (found) {
-          const absolutePos = targetPos + found.pos + 1
-          const from = absolutePos + 1
-          const to = absolutePos + found.node.content.size + 1
-          const selection = TextSelection.create(doc, from, to)
-          editor.view.dispatch(editor.state.tr.setSelection(selection))
-          editor.view.focus()
-          return
-        }
-
-      } catch (error) {
-        console.error('Unable to select block', error)
-      }
-    },
-    [editor],
-  )
+  const flashBlockById = useCallback((blockId) => {
+    if (!blockId) return
+    const target = document.getElementById(blockId)
+    if (!target) return
+    target.classList.add('deep-link-highlight')
+    window.setTimeout(() => target.classList.remove('deep-link-highlight'), 2000)
+  }, [])
 
   const hydrateContentWithSignedUrls = useCallback(
     async (content) => {
@@ -547,14 +484,13 @@ function App() {
         },
       })
       requestAnimationFrame(() => {
-        syncBlockIdsToDom()
         const pending = pendingNavRef.current
         if (pending?.pageId === activeTrackerId && pending.blockId) {
           const target = document.getElementById(pending.blockId)
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            flashBlockById(pending.blockId)
           }
-          selectBlockById(pending.blockId)
           pendingNavRef.current = null
         }
       })
@@ -563,7 +499,7 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, syncBlockIdsToDom, selectBlockById])
+  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, flashBlockById])
 
   useEffect(() => {
     if (activeTracker) {
@@ -720,11 +656,10 @@ function App() {
     const handleUpdate = () => {
       if (!activeTrackerRef.current) return
       scheduleSave(editor.getJSON())
-      syncBlockIdsToDom()
     }
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
-  }, [editor, scheduleSave, syncBlockIdsToDom])
+  }, [editor, scheduleSave])
 
   const handleTitleChange = (value) => {
     setTitleDraft(value)
@@ -981,12 +916,11 @@ function App() {
       pendingNavRef.current = parsed
       if (parsed.pageId === activeTrackerId) {
         requestAnimationFrame(() => {
-          syncBlockIdsToDom()
           const target = document.getElementById(parsed.blockId)
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            flashBlockById(parsed.blockId)
           }
-          selectBlockById(parsed.blockId)
           pendingNavRef.current = null
         })
         return
@@ -1009,8 +943,7 @@ function App() {
       activeTrackerId,
       activeNotebookId,
       activeSectionId,
-      syncBlockIdsToDom,
-      selectBlockById,
+      flashBlockById,
     ],
   )
 
