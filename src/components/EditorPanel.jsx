@@ -18,11 +18,15 @@ function EditorPanel({
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
   const tablePickerRef = useRef(null)
+  const highlightButtonRef = useRef(null)
+  const highlightPickerRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
+  const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
+  const [highlightColor, setHighlightColor] = useState('#fef08a')
   const [contextMenu, setContextMenu] = useState({
     open: false,
     x: 0,
@@ -81,6 +85,10 @@ function EditorPanel({
 
   const closeTablePicker = useCallback(() => {
     setTablePickerOpen(false)
+  }, [])
+
+  const closeHighlightPicker = useCallback(() => {
+    setHighlightPickerOpen(false)
   }, [])
 
   const getCellFromEvent = (event) => {
@@ -215,6 +223,12 @@ function EditorPanel({
         if (picker?.contains(event.target) || button?.contains(event.target)) return
         setTablePickerOpen(false)
       }
+      if (highlightPickerOpen) {
+        const picker = highlightPickerRef.current
+        const button = highlightButtonRef.current
+        if (picker?.contains(event.target) || button?.contains(event.target)) return
+        setHighlightPickerOpen(false)
+      }
       if (contextMenu.open) {
         const menu = contextMenuRef.current
         if (menu?.contains(event.target)) return
@@ -225,6 +239,7 @@ function EditorPanel({
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setTablePickerOpen(false)
+        setHighlightPickerOpen(false)
         closeContextMenu()
       }
     }
@@ -236,7 +251,7 @@ function EditorPanel({
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [tablePickerOpen, contextMenu.open, closeContextMenu])
+  }, [tablePickerOpen, highlightPickerOpen, contextMenu.open, closeContextMenu])
 
   const tableGrid = useMemo(() => {
     return Array.from({ length: gridSize }, (_, rowIndex) =>
@@ -252,6 +267,89 @@ function EditorPanel({
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
     closeTablePicker()
   }
+
+  const handleApplyHighlight = () => {
+    if (!editor) return
+    if (!highlightColor) {
+      editor.chain().focus().unsetHighlight().run()
+      return
+    }
+    editor.chain().focus().setHighlight({ color: highlightColor }).run()
+  }
+
+  const handlePickHighlight = (color) => {
+    if (!editor) return
+    if (!color) {
+      setHighlightColor(null)
+      editor.chain().focus().unsetHighlight().run()
+    } else {
+      setHighlightColor(color)
+      editor.chain().focus().setHighlight({ color }).run()
+    }
+    closeHighlightPicker()
+  }
+
+  const highlightColors = useMemo(
+    () => [
+      [
+        { label: 'Yellow', value: '#fef08a' },
+        { label: 'Green', value: '#86efac' },
+        { label: 'Cyan', value: '#67e8f9' },
+        { label: 'Magenta', value: '#f0abfc' },
+        { label: 'Blue', value: '#93c5fd' },
+      ],
+      [
+        { label: 'Red', value: '#fca5a5' },
+        { label: 'Dark Navy', value: '#0f172a' },
+        { label: 'Teal', value: '#0d9488' },
+        { label: 'Dark Green', value: '#166534' },
+        { label: 'Purple', value: '#7c3aed' },
+      ],
+      [
+        { label: 'Dark Maroon', value: '#7f1d1d' },
+        { label: 'Olive', value: '#a16207' },
+        { label: 'Gray', value: '#6b7280' },
+        { label: 'Light Gray', value: '#d1d5db' },
+        { label: 'Black', value: '#000000' },
+      ],
+      [
+        { label: 'Light Yellow', value: '#fef9c3' },
+        { label: 'Light Green', value: '#dcfce7' },
+        { label: 'Light Cyan', value: '#cffafe' },
+        { label: 'Pink', value: '#fbcfe8' },
+        { label: 'Light Blue', value: '#dbeafe' },
+      ],
+      [
+        { label: 'Orange', value: '#fdba74' },
+        { label: 'Medium Light Green', value: '#bbf7d0' },
+        { label: 'Medium Cyan', value: '#99f6e4' },
+        { label: 'Lavender', value: '#e9d5ff' },
+        { label: 'Bright Cyan', value: '#22d3ee' },
+      ],
+      [
+        { label: 'Light Orange', value: '#fed7aa' },
+        { label: 'Pale Green', value: '#ecfccb' },
+        { label: 'Pale Teal', value: '#ccfbf1' },
+        { label: 'Pale Lavender', value: '#f3e8ff' },
+        { label: 'Pale Blue', value: '#e0f2fe' },
+      ],
+    ],
+    [],
+  )
+
+  useEffect(() => {
+    if (!editor) return
+    const syncHighlight = () => {
+      const color = editor.getAttributes('highlight')?.color
+      if (color) setHighlightColor(color)
+    }
+    editor.on('selectionUpdate', syncHighlight)
+    editor.on('transaction', syncHighlight)
+    return () => {
+      editor.off('selectionUpdate', syncHighlight)
+      editor.off('transaction', syncHighlight)
+    }
+  }, [editor])
 
   const contextMenuItems = useMemo(
     () => [
@@ -338,14 +436,52 @@ function EditorPanel({
         >
           S
         </button>
-        <button
-          type="button"
-          className={editor?.isActive('highlight') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleHighlight({ color: '#fff3a3' }).run()}
-          disabled={!hasTracker}
-        >
-          Highlight
-        </button>
+        <div className="highlight-control" ref={highlightButtonRef}>
+          <button
+            type="button"
+            className={editor?.isActive('highlight') ? 'active' : ''}
+            onClick={handleApplyHighlight}
+            disabled={!hasTracker}
+          >
+            <span className="highlight-icon">
+              HL
+              <span
+                className="highlight-indicator"
+                style={{ backgroundColor: highlightColor ?? 'transparent' }}
+              />
+            </span>
+          </button>
+          <button
+            type="button"
+            className="highlight-dropdown"
+            onClick={() => setHighlightPickerOpen((prev) => !prev)}
+            disabled={!hasTracker}
+            aria-label="Highlight colors"
+          >
+            ▾
+          </button>
+          {highlightPickerOpen && (
+            <div className="highlight-picker" ref={highlightPickerRef}>
+              <div className="highlight-grid">
+                {highlightColors.flatMap((row) =>
+                  row.map((swatch) => (
+                    <button
+                      key={swatch.label}
+                      type="button"
+                      className="highlight-swatch"
+                      style={{ backgroundColor: swatch.value }}
+                      onClick={() => handlePickHighlight(swatch.value)}
+                      aria-label={swatch.label}
+                    />
+                  )),
+                )}
+              </div>
+              <button type="button" className="highlight-none" onClick={() => handlePickHighlight(null)}>
+                No Color
+              </button>
+            </div>
+          )}
+        </div>
         <input
           type="color"
           aria-label="Text color"

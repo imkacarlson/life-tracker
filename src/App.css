@@ -249,6 +249,73 @@ h2 {
   background: #e0edff;
 }
 
+.highlight-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.highlight-control > button {
+  padding: 0.2rem 0.45rem;
+}
+
+.highlight-dropdown {
+  width: 26px;
+  padding: 0.2rem 0;
+}
+
+.highlight-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.highlight-indicator {
+  display: inline-block;
+  width: 16px;
+  height: 4px;
+  border-radius: 0;
+}
+
+.highlight-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  z-index: 40;
+  min-width: 220px;
+}
+
+.highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 24px);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.highlight-swatch {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 0;
+  padding: 0;
+}
+
+.highlight-none {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 0.35rem 0.5rem;
+}
+
 .toolbar input[type='color'] {
   width: 24px;
   height: 24px;
