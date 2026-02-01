@@ -163,13 +163,17 @@ const EnsureNodeIds = Extension.create({
 
           const tr = newState.tr
           let updated = false
+          const seen = new Set()
 
           newState.doc.descendants((node, pos) => {
             if (!types.includes(node.type.name)) return
-            if (node.attrs?.id) return
-            const id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
-            tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
-            updated = true
+            let id = node.attrs?.id
+            if (!id || seen.has(id)) {
+              id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
+              updated = true
+            }
+            seen.add(id)
           })
 
           if (!updated) return
@@ -215,7 +219,6 @@ const InternalLink = Link.extend({
           event.preventDefault()
           event.stopPropagation()
           if (href.startsWith('#nb=')) {
-            window.location.hash = href
             onNavigateHash?.(href)
             return true
           }
@@ -483,17 +486,22 @@ function App() {
           preserveWhitespace: 'full',
         },
       })
-      requestAnimationFrame(() => {
+      const attemptScroll = (attempts = 0) => {
+        if (!mounted) return
         const pending = pendingNavRef.current
-        if (pending?.pageId === activeTrackerId && pending.blockId) {
-          const target = document.getElementById(pending.blockId)
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            flashBlockById(pending.blockId)
-          }
+        if (!pending?.blockId || pending.pageId !== activeTrackerId) return
+        const target = document.getElementById(pending.blockId)
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          flashBlockById(pending.blockId)
+          pendingNavRef.current = null
+        } else if (attempts < 10) {
+          setTimeout(() => attemptScroll(attempts + 1), 50)
+        } else {
           pendingNavRef.current = null
         }
-      })
+      }
+      requestAnimationFrame(() => attemptScroll())
     }
     setContent()
     return () => {
