@@ -208,6 +208,28 @@ const SecureImage = Image.extend({
   },
 })
 
+const LinkShortcut = Extension.create({
+  name: 'linkShortcut',
+  addKeyboardShortcuts() {
+    return {
+      'Mod-k': () => {
+        const previous = this.editor.getAttributes('link')?.href ?? ''
+        const nextUrl = window.prompt('Enter link URL', previous)
+        if (nextUrl === null) return true
+        const trimmed = nextUrl.trim()
+        if (!trimmed) {
+          this.editor.chain().focus().unsetLink().run()
+          return true
+        }
+        const href =
+          /^https?:\/\//i.test(trimmed) || trimmed.startsWith('#') ? trimmed : `https://${trimmed}`
+        this.editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
+        return true
+      },
+    }
+  },
+})
+
 const InternalLink = Link.extend({
   addOptions() {
     return {
@@ -424,6 +446,7 @@ function App() {
             rel: 'noopener noreferrer',
           },
         }),
+        LinkShortcut,
         EnsureNodeIds,
         SecureImage.configure({ inline: false, allowBase64: false }),
         TableWithId.configure({ resizable: true }),
