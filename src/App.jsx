@@ -713,8 +713,9 @@ function App() {
       setMessage('')
       const { data, error } = await supabase
         .from('trackers')
-        .select('id, title, content, created_at, updated_at, section_id')
+        .select('id, title, content, created_at, updated_at, section_id, sort_order')
         .eq('section_id', sectionId)
+        .order('sort_order', { ascending: true, nullsLast: true })
         .order('updated_at', { ascending: false })
 
       if (error) {
@@ -838,6 +839,11 @@ function App() {
     if (!session || !activeSectionId) return
     setMessage('')
     const title = 'Untitled'
+    const existingOrders = trackers
+      .map((item) => item.sort_order)
+      .filter((value) => typeof value === 'number')
+    const nextSortOrder =
+      existingOrders.length > 0 ? Math.min(...existingOrders) - 1 : 1
 
     const { data, error } = await supabase
       .from('trackers')
@@ -846,6 +852,7 @@ function App() {
         user_id: session.user.id,
         content: EMPTY_DOC,
         section_id: activeSectionId,
+        sort_order: nextSortOrder,
       })
       .select()
       .single()
@@ -855,9 +862,29 @@ function App() {
       return
     }
 
-    setTrackers((prev) => [data, ...prev])
+    setTrackers((prev) => [{ ...data, sort_order: nextSortOrder }, ...prev])
     setActiveTrackerId(data.id)
   }
+
+  const handleReorderTrackers = useCallback(
+    async (nextTrackers) => {
+      if (!userId) return
+      const reordered = nextTrackers.map((item, index) => ({
+        ...item,
+        sort_order: index + 1,
+      }))
+      setTrackers(reordered)
+      const updates = reordered.map((item) =>
+        supabase.from('trackers').update({ sort_order: item.sort_order }).eq('id', item.id),
+      )
+      const results = await Promise.all(updates)
+      const error = results.find((result) => result.error)?.error
+      if (error) {
+        setMessage(error.message)
+      }
+    },
+    [userId],
+  )
 
   const handleDeleteTracker = async () => {
     const tracker = activeTrackerRef.current
@@ -1331,6 +1358,7 @@ function App() {
             setActiveTrackerId(id)
           }}
           onCreate={handleCreateTracker}
+          onReorder={handleReorderTrackers}
           loading={dataLoading}
           disabled={!activeSectionId}
         />

@@ -170,6 +170,11 @@ h2 {
   background: #eff6ff;
 }
 
+.sidebar-item.drag-over {
+  border-color: #2563eb;
+  background: #eef2ff;
+}
+
 .sidebar-title {
   font-weight: 500;
   font-size: 0.9rem;
