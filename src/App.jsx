@@ -1309,6 +1309,10 @@ function App() {
               setActiveSectionId(section.id)
             }}
             onDoubleClick={() => handleRenameSection(section)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              handleRenameSection(section)
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
