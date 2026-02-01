@@ -352,8 +352,20 @@ const ListSelectShortcut = Extension.create({
 
         const list = findAncestor(['listItem', 'taskItem'])
         if (list) {
-          const listFrom = list.pos + 1
-          const listTo = list.pos + list.node.nodeSize - 1
+          let paragraphPos = null
+          let paragraphSize = null
+          list.node.content?.forEach((child, offset) => {
+            if (paragraphPos !== null) return
+            if (child.type?.name === 'paragraph') {
+              paragraphPos = list.pos + 1 + offset
+              paragraphSize = child.nodeSize
+            }
+          })
+          const listFrom = paragraphPos !== null ? paragraphPos + 1 : list.pos + 1
+          const listTo =
+            paragraphPos !== null && paragraphSize
+              ? paragraphPos + paragraphSize - 1
+              : list.pos + list.node.nodeSize - 1
           if (!selectionCovers(listFrom, listTo)) {
             return selectRange(listFrom, listTo)
           }
