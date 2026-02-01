@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { supabase } from '../lib/supabase'
+import { serializeDocToText } from '../lib/serializeDoc'
 
 function EditorPanel({
   editor,
@@ -14,6 +16,7 @@ function EditorPanel({
   sectionId,
   trackerId,
   onNavigateHash,
+  allTrackers,
 }) {
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
@@ -32,6 +35,7 @@ function EditorPanel({
   const [highlightColor, setHighlightColor] = useState('#fef08a')
   const [shadingPickerOpen, setShadingPickerOpen] = useState(false)
   const [shadingColor, setShadingColor] = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
   const [inTable, setInTable] = useState(false)
   const [contextMenu, setContextMenu] = useState({
     open: false,
@@ -225,6 +229,74 @@ function EditorPanel({
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
+  }
+
+  const handleGenerateToday = async () => {
+    if (!editor || aiLoading) return
+    setAiLoading(true)
+    try {
+      const provider = localStorage.getItem('ai-provider') || 'anthropic'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+      const now = new Date()
+      const today = now.toISOString().split('T')[0]
+      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' })
+      const trackerPages = (allTrackers || [])
+        .filter((t) => t.id !== trackerId)
+        .map((t) => ({
+          title: t.title,
+          pageId: t.id,
+          textContent: serializeDocToText(t.content || { type: 'doc', content: [] }),
+        }))
+      const { data, error } = await supabase.functions.invoke('generate-daily', {
+        body: { provider, model, trackerPages, today, dayOfWeek },
+      })
+      if (error) throw error
+      if (!data?.tasks?.length) {
+        alert('No tasks generated. Check your tracker pages have content.')
+        return
+      }
+      const heading = {
+        type: 'heading',
+        attrs: { level: 2 },
+        content: [
+          {
+            type: 'text',
+            text: new Date().toLocaleDateString('en-US', {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric',
+            }),
+          },
+        ],
+      }
+      const listItems = data.tasks.map((task) => {
+        const content = [{ type: 'text', text: task.task }]
+        if (task.block_ids?.length) {
+          task.block_ids.forEach((blockId, i) => {
+            const sourcePage = (allTrackers || []).find((t) => {
+              return JSON.stringify(t.content || {}).includes(blockId)
+            })
+            if (sourcePage) {
+              const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourcePage.id}&block=${blockId}`
+              content.push({ type: 'text', text: ' ' })
+              content.push({
+                type: 'text',
+                text: `[${i + 1}]`,
+                marks: [{ type: 'link', attrs: { href: hash, target: '_self' } }],
+              })
+            }
+          })
+        }
+        return { type: 'listItem', content: [{ type: 'paragraph', content }] }
+      })
+      const bulletList = { type: 'bulletList', content: listItems }
+      editor.chain().focus('end').insertContent([heading, bulletList]).run()
+    } catch (err) {
+      console.error('AI generation failed:', err)
+      alert('Failed to generate tasks: ' + (err.message || String(err)))
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   const openContextMenu = useCallback((next) => {
@@ -881,6 +953,9 @@ function EditorPanel({
         </button>
         <button type="button" onClick={handleExportText} disabled={!hasTracker}>
           Export
+        </button>
+        <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
+          {aiLoading ? 'Generating...' : 'AI Daily'}
         </button>
 
         <div className="toolbar-divider" />

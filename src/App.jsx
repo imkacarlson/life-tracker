@@ -1466,6 +1466,7 @@ function App() {
           sectionId={activeSectionId}
           trackerId={activeTrackerId}
           onNavigateHash={navigateToHash}
+          allTrackers={trackers}
         />
         <Sidebar
           trackers={trackers}
