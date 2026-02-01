@@ -438,22 +438,6 @@ function App() {
     [session?.user?.id],
   )
 
-  const flashBlockById = useCallback((blockId) => {
-    if (!blockId) return
-    const target = document.getElementById(blockId)
-    if (!target) return
-    const rect = target.getBoundingClientRect()
-    const overlay = document.createElement('div')
-    overlay.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;background:rgba(254,240,138,0.6);border-left:3px solid #eab308;z-index:999999;pointer-events:none;transition:opacity 1.5s ease`
-    document.body.appendChild(overlay)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        overlay.style.opacity = '0'
-      })
-    })
-    setTimeout(() => overlay.remove(), 2000)
-  }, [])
-
   const hydrateContentWithSignedUrls = useCallback(
     async (content) => {
       if (!session) return content
@@ -501,7 +485,11 @@ function App() {
         const target = document.getElementById(pending.blockId)
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          setTimeout(() => flashBlockById(pending.blockId), 600)
+          const range = document.createRange()
+          range.selectNodeContents(target)
+          const sel = window.getSelection()
+          sel.removeAllRanges()
+          sel.addRange(range)
           pendingNavRef.current = null
         } else if (attempts < 10) {
           setTimeout(() => attemptScroll(attempts + 1), 50)
@@ -515,7 +503,7 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [editor, activeTrackerId, hydrateContentWithSignedUrls, flashBlockById])
+  }, [editor, activeTrackerId, hydrateContentWithSignedUrls])
 
   useEffect(() => {
     if (activeTracker) {
@@ -935,7 +923,11 @@ function App() {
           const target = document.getElementById(parsed.blockId)
           if (target) {
             target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            flashBlockById(parsed.blockId)
+            const range = document.createRange()
+            range.selectNodeContents(target)
+            const sel = window.getSelection()
+            sel.removeAllRanges()
+            sel.addRange(range)
           }
           pendingNavRef.current = null
         })
@@ -959,7 +951,6 @@ function App() {
       activeTrackerId,
       activeNotebookId,
       activeSectionId,
-      flashBlockById,
     ],
   )
 
