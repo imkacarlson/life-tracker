@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
+import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 const PROVIDERS: Record<string, {
   url: string
@@ -59,6 +60,28 @@ Deno.serve(async (req) => {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
       },
+    })
+  }
+
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+    })
+  }
+
+  const supabaseClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } },
+  )
+
+  const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: 'Invalid token' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     })
   }
 
