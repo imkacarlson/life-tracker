@@ -597,6 +597,25 @@ h2 {
   text-align: left;
 }
 
+.editor-shell td ul,
+.editor-shell td ol,
+.editor-shell th ul,
+.editor-shell th ol {
+  margin: 0.2rem 0;
+  padding-left: 1.1rem;
+}
+
+.editor-shell td li,
+.editor-shell th li {
+  margin: 0.1rem 0;
+  padding: 0;
+}
+
+.editor-shell td li > p,
+.editor-shell th li > p {
+  margin: 0;
+}
+
 .ProseMirror .tableWrapper {
   position: relative;
 }
