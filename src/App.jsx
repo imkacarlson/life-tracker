@@ -227,9 +227,13 @@ const LinkShortcut = Extension.create({
         return true
       },
       'Mod-Alt-h': () => {
+        const isHighlighted = this.editor.isActive('highlight')
+        if (isHighlighted) {
+          this.editor.chain().focus().unsetHighlight().run()
+          return true
+        }
         const storedColor = this.editor.storage?.highlightColor
         if (storedColor === null) {
-          this.editor.chain().focus().unsetHighlight().run()
           return true
         }
         const currentColor =
