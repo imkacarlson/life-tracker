@@ -29,6 +29,18 @@ const EMPTY_DOC = {
   content: [{ type: 'paragraph' }],
 }
 
+const STORAGE_KEY = 'life-tracker:lastSelection'
+
+const readStoredSelection = () => {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 const normalizeContent = (content) => {
   if (content && typeof content === 'object' && content.type) return content
   return EMPTY_DOC
@@ -295,6 +307,7 @@ function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
   const missingEnv = !supabaseUrl || !supabaseAnonKey
+  const getUserId = (value) => value?.user?.id ?? null
 
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -310,9 +323,11 @@ function App() {
   const [titleDraft, setTitleDraft] = useState('')
   const [saveStatus, setSaveStatus] = useState('Saved')
   const [dataLoading, setDataLoading] = useState(false)
+  const userId = getUserId(session)
 
   const pendingNavRef = useRef(null)
   const navigateRef = useRef(null)
+  const savedSelectionRef = useRef(readStoredSelection())
   const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -349,12 +364,22 @@ function App() {
     supabase.auth.getSession().then(({ data, error }) => {
       if (!mounted) return
       if (error) setMessage(error.message)
-      setSession(data.session)
+      setSession((prev) => {
+        const prevId = getUserId(prev)
+        const nextId = getUserId(data.session)
+        if (prevId === nextId) return prev
+        return data.session
+      })
       setLoading(false)
     })
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
+      setSession((prev) => {
+        const prevId = getUserId(prev)
+        const nextId = getUserId(nextSession)
+        if (prevId === nextId) return prev
+        return nextSession
+      })
       setLoading(false)
     })
 
@@ -515,7 +540,7 @@ function App() {
   }, [activeTrackerId])
 
   const loadNotebooks = useCallback(async () => {
-    if (!session) return
+    if (!userId) return
     setMessage('')
     const { data, error } = await supabase
       .from('notebooks')
@@ -530,16 +555,23 @@ function App() {
 
     setNotebooks(data ?? [])
     const pending = pendingNavRef.current
+    const saved = savedSelectionRef.current ?? readStoredSelection()
     if (pending?.notebookId && data?.some((item) => item.id === pending.notebookId)) {
       setActiveNotebookId(pending.notebookId)
     } else {
-      setActiveNotebookId((prev) => prev ?? (data?.[0]?.id ?? null))
+      setActiveNotebookId((prev) => {
+        if (prev && data?.some((item) => item.id === prev)) return prev
+        if (saved?.notebookId && data?.some((item) => item.id === saved.notebookId)) {
+          return saved.notebookId
+        }
+        return data?.[0]?.id ?? null
+      })
     }
-  }, [session])
+  }, [userId])
 
   const loadSections = useCallback(
     async (notebookId) => {
-      if (!session || !notebookId) return
+      if (!userId || !notebookId) return
       setMessage('')
       const { data, error } = await supabase
         .from('sections')
@@ -555,18 +587,25 @@ function App() {
 
       setSections(data ?? [])
       const pending = pendingNavRef.current
+      const saved = savedSelectionRef.current ?? readStoredSelection()
       if (pending?.sectionId && data?.some((item) => item.id === pending.sectionId)) {
         setActiveSectionId(pending.sectionId)
       } else {
-        setActiveSectionId((prev) => prev ?? (data?.[0]?.id ?? null))
+        setActiveSectionId((prev) => {
+          if (prev && data?.some((item) => item.id === prev)) return prev
+          if (saved?.sectionId && data?.some((item) => item.id === saved.sectionId)) {
+            return saved.sectionId
+          }
+          return data?.[0]?.id ?? null
+        })
       }
     },
-    [session],
+    [userId],
   )
 
   const loadTrackers = useCallback(
     async (sectionId) => {
-      if (!session || !sectionId) return
+      if (!userId || !sectionId) return
       setDataLoading(true)
       setMessage('')
       const { data, error } = await supabase
@@ -583,20 +622,27 @@ function App() {
 
       setTrackers(data ?? [])
       const pending = pendingNavRef.current
+      const saved = savedSelectionRef.current ?? readStoredSelection()
       if (pending?.pageId && data?.some((item) => item.id === pending.pageId)) {
         setActiveTrackerId(pending.pageId)
       } else {
-        setActiveTrackerId((prev) => prev ?? (data?.[0]?.id ?? null))
+        setActiveTrackerId((prev) => {
+          if (prev && data?.some((item) => item.id === prev)) return prev
+          if (saved?.pageId && data?.some((item) => item.id === saved.pageId)) {
+            return saved.pageId
+          }
+          return data?.[0]?.id ?? null
+        })
       }
       setDataLoading(false)
     },
-    [session],
+    [userId],
   )
 
   useEffect(() => {
-    if (!session) return
+    if (!userId) return
     loadNotebooks()
-  }, [session, loadNotebooks])
+  }, [userId, loadNotebooks])
 
   useEffect(() => {
     if (!activeNotebookId) {
@@ -664,6 +710,18 @@ function App() {
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
   }, [editor, scheduleSave])
+
+  useEffect(() => {
+    if (!session) return
+    if (typeof window === 'undefined') return
+    const selection = {
+      notebookId: activeNotebookId ?? null,
+      sectionId: activeSectionId ?? null,
+      pageId: activeTrackerId ?? null,
+    }
+    savedSelectionRef.current = selection
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(selection))
+  }, [session, activeNotebookId, activeSectionId, activeTrackerId])
 
   const handleTitleChange = (value) => {
     setTitleDraft(value)
