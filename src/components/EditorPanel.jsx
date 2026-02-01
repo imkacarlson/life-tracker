@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
-import TurndownService from 'turndown'
-import { gfm } from '@joplin/turndown-plugin-gfm'
 
 function EditorPanel({
   editor,
@@ -74,49 +72,155 @@ function EditorPanel({
     editor?.chain().focus().setTextAlign(alignment).run()
   }
 
-  const handleExportMarkdown = () => {
+  const handleExportText = () => {
     if (!editor || !hasTracker) return
     const rawTitle = title?.trim() || 'Untitled'
     const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
-    const turndown = new TurndownService({
-      headingStyle: 'atx',
-      bulletListMarker: '-',
-      codeBlockStyle: 'fenced',
-    })
-    turndown.use(gfm)
-    turndown.addRule('highlight', {
-      filter: 'mark',
-      replacement: (content) => `==${content}==`,
-    })
-    turndown.addRule('imagePlaceholder', {
-      filter: 'img',
-      replacement: () => '[image]',
-    })
+    const doc = editor.getJSON()
+    const lines = []
 
-    const rawHtml = editor.getHTML()
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(rawHtml, 'text/html')
+    const serializeInline = (content) => {
+      if (!content) return ''
+      return content
+        .map((node) => {
+          if (node.type === 'text') {
+            let text = node.text || ''
+            const marks = node.marks || []
+            const hasBold = marks.some((m) => m.type === 'bold')
+            const hasItalic = marks.some((m) => m.type === 'italic')
+            const hasStrike = marks.some((m) => m.type === 'strike')
+            const hasHighlight = marks.some((m) => m.type === 'highlight')
+            if (hasBold) text = `**${text}**`
+            if (hasItalic) text = `_${text}_`
+            if (hasStrike) text = `~~${text}~~`
+            if (hasHighlight) text = `[${text}]`
+            return text
+          }
+          if (node.type === 'hardBreak') return '\n'
+          if (node.type === 'image') return '[image]'
+          return ''
+        })
+        .join('')
+    }
 
-    doc.querySelectorAll('div').forEach((div) => {
-      div.replaceWith(...div.childNodes)
-    })
+    const serializeNode = (node, indent = 0, listIndex = null) => {
+      const prefix = '  '.repeat(indent)
 
-    doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'))
-    doc.querySelectorAll('[colwidth]').forEach((el) => el.removeAttribute('colwidth'))
-    doc.querySelectorAll('[backgroundcolor]').forEach((el) => el.removeAttribute('backgroundcolor'))
-    doc.querySelectorAll('[data-color]').forEach((el) => el.removeAttribute('data-color'))
-    doc.querySelectorAll('colgroup').forEach((el) => el.remove())
-    doc.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
-    doc.querySelectorAll('[colspan="1"]').forEach((el) => el.removeAttribute('colspan'))
-    doc.querySelectorAll('[rowspan="1"]').forEach((el) => el.removeAttribute('rowspan'))
+      switch (node.type) {
+        case 'doc':
+          node.content?.forEach((child) => serializeNode(child, indent))
+          break
 
-    const cleanHtml = doc.body.innerHTML
-    const markdown = turndown.turndown(cleanHtml)
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+        case 'paragraph': {
+          const text = serializeInline(node.content)
+          lines.push(prefix + text)
+          break
+        }
+
+        case 'heading': {
+          const text = serializeInline(node.content)
+          if (lines.length > 0) lines.push('')
+          lines.push(prefix + text.toUpperCase())
+          lines.push('')
+          break
+        }
+
+        case 'bulletList':
+          node.content?.forEach((child) => serializeNode(child, indent, 'bullet'))
+          break
+
+        case 'orderedList': {
+          let counter = 1
+          node.content?.forEach((child) => {
+            serializeNode(child, indent, counter)
+            counter += 1
+          })
+          break
+        }
+
+        case 'taskList':
+          node.content?.forEach((child) => serializeNode(child, indent, 'task'))
+          break
+
+        case 'listItem':
+        case 'taskItem': {
+          const marker =
+            listIndex === 'bullet'
+              ? '- '
+              : listIndex === 'task'
+                ? node.attrs?.checked
+                  ? '[x] '
+                  : '[ ] '
+                : `${listIndex}. `
+          const children = node.content || []
+          children.forEach((child, i) => {
+            if (i === 0 && child.type === 'paragraph') {
+              lines.push(prefix + marker + serializeInline(child.content))
+            } else {
+              serializeNode(child, indent + 1)
+            }
+          })
+          break
+        }
+
+        case 'table':
+          node.content?.forEach((row, rowIdx) => {
+            row.content?.forEach((cell) => {
+              cell.content?.forEach((child) => serializeNode(child, indent))
+            })
+            if (rowIdx < (node.content?.length || 0) - 1) {
+              const cellText =
+                row.content
+                  ?.map((c) => c.content?.map((n) => serializeInline(n.content)).join(''))
+                  .join('') || ''
+              if (cellText.trim()) lines.push(prefix + '---')
+            }
+          })
+          break
+
+        case 'tableRow':
+        case 'tableCell':
+        case 'tableHeader':
+          node.content?.forEach((child) => serializeNode(child, indent))
+          break
+
+        case 'blockquote':
+          node.content?.forEach((child) => serializeNode(child, indent + 1))
+          break
+
+        case 'codeBlock': {
+          lines.push(prefix + '```')
+          const text = node.content?.map((n) => n.text || '').join('') || ''
+          text.split('\n').forEach((line) => lines.push(prefix + line))
+          lines.push(prefix + '```')
+          break
+        }
+
+        case 'horizontalRule':
+          lines.push(prefix + '---')
+          break
+
+        default:
+          if (node.content) {
+            node.content.forEach((child) => serializeNode(child, indent))
+          }
+          break
+      }
+    }
+
+    serializeNode(doc)
+
+    const text = lines
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .trim()
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${safeTitle}.md`
+    link.download = `${safeTitle}.txt`
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -774,8 +878,8 @@ function EditorPanel({
         <button type="button" onClick={() => editor?.chain().focus().redo().run()} disabled={!hasTracker}>
           Redo
         </button>
-        <button type="button" onClick={handleExportMarkdown} disabled={!hasTracker}>
-          Export .md
+        <button type="button" onClick={handleExportText} disabled={!hasTracker}>
+          Export
         </button>
 
         <div className="toolbar-divider" />
