@@ -134,12 +134,8 @@ function EditorPanel({
 
     const handleContextMenu = (event) => {
       event.preventDefault()
+      focusFromCoords({ left: event.clientX, top: event.clientY })
       const inTable = Boolean(getCellFromEvent(event))
-      if (inTable) {
-        focusCellFromEvent(event)
-      } else {
-        focusFromCoords({ left: event.clientX, top: event.clientY })
-      }
       const blockId = getActiveBlockId()
       openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
     }
