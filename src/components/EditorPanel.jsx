@@ -95,7 +95,11 @@ function EditorPanel({
     if (!cell) return
     const pos = editor.view?.posAtDOM(cell, 0)
     if (pos !== null && pos !== undefined) {
-      editor.chain().focus().setTextSelection(pos).run()
+      try {
+        editor.chain().focus().setTextSelection(pos + 2).run()
+      } catch {
+        editor.chain().focus().setTextSelection(pos).run()
+      }
     }
   }
 
