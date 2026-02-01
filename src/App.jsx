@@ -279,6 +279,10 @@ const LinkShortcut = Extension.create({
         view.focus()
         return true
       },
+      'Mod-.': () => {
+        this.editor.chain().focus().toggleBulletList().run()
+        return true
+      },
       'Mod-Alt-h': () => {
         const isHighlighted = this.editor.isActive('highlight')
         if (isHighlighted) {
