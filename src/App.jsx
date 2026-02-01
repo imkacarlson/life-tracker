@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import { Extension, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow, TableView, createColGroup } from '@tiptap/extension-table'
 import Image from '@tiptap/extension-image'
@@ -313,6 +313,32 @@ const ListIndentShortcut = Extension.create({
   },
 })
 
+const ListSelectShortcut = Extension.create({
+  name: 'listSelectShortcut',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    return {
+      'Mod-a': () => {
+        const { state, view } = this.editor
+        const { $from } = state.selection
+        for (let depth = $from.depth; depth > 0; depth -= 1) {
+          const node = $from.node(depth)
+          if (node.type?.name === 'listItem' || node.type?.name === 'taskItem') {
+            const pos = $from.before(depth)
+            const from = pos + 1
+            const to = pos + node.nodeSize - 1
+            const selection = TextSelection.create(state.doc, from, to)
+            view.dispatch(state.tr.setSelection(selection))
+            view.focus()
+            return true
+          }
+        }
+        return false
+      },
+    }
+  },
+})
+
 const InternalLink = Link.extend({
   addOptions() {
     return {
@@ -531,6 +557,7 @@ function App() {
         }),
         LinkShortcut,
         ListIndentShortcut,
+        ListSelectShortcut,
         EnsureNodeIds,
         SecureImage.configure({ inline: false, allowBase64: false }),
         TableWithId.configure({ resizable: true }),
