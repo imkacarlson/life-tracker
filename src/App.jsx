@@ -285,6 +285,30 @@ const LinkShortcut = Extension.create({
   },
 })
 
+const ListIndentShortcut = Extension.create({
+  name: 'listIndentShortcut',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const indent = () => {
+      if (this.editor.isActive('taskList') || this.editor.isActive('taskItem')) {
+        return this.editor.chain().focus().sinkListItem('taskItem').run()
+      }
+      if (
+        this.editor.isActive('bulletList') ||
+        this.editor.isActive('orderedList') ||
+        this.editor.isActive('listItem')
+      ) {
+        return this.editor.chain().focus().sinkListItem('listItem').run()
+      }
+      return false
+    }
+
+    return {
+      Tab: () => indent(),
+    }
+  },
+})
+
 const InternalLink = Link.extend({
   addOptions() {
     return {
@@ -502,6 +526,7 @@ function App() {
           },
         }),
         LinkShortcut,
+        ListIndentShortcut,
         EnsureNodeIds,
         SecureImage.configure({ inline: false, allowBase64: false }),
         TableWithId.configure({ resizable: true }),
