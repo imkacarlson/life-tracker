@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import TurndownService from 'turndown'
+import { gfm } from '@joplin/turndown-plugin-gfm'
 
 function EditorPanel({
   editor,
@@ -76,14 +78,24 @@ function EditorPanel({
     if (!editor || !hasTracker) return
     const rawTitle = title?.trim() || 'Untitled'
     const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
-    const markdown =
-      editor.getMarkdown?.() ??
-      editor.storage?.markdown?.getMarkdown?.() ??
-      editor.getText({ blockSeparator: '\n\n' })
-    const withPlaceholders = markdown
-      .replace(/!\[[^\]]*]\([^)]+\)/g, '[image]')
-      .replace(/<img [^>]*>/g, '[image]')
-    const blob = new Blob([withPlaceholders], { type: 'text/markdown;charset=utf-8' })
+    const turndown = new TurndownService({
+      headingStyle: 'atx',
+      bulletListMarker: '-',
+      codeBlockStyle: 'fenced',
+    })
+    turndown.use(gfm)
+    turndown.addRule('highlight', {
+      filter: 'mark',
+      replacement: (content) => `==${content}==`,
+    })
+    turndown.addRule('imagePlaceholder', {
+      filter: 'img',
+      replacement: () => '[image]',
+    })
+
+    const html = editor.getHTML()
+    const markdown = turndown.turndown(html)
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
