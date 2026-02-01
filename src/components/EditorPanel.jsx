@@ -20,6 +20,9 @@ function EditorPanel({
   const tablePickerRef = useRef(null)
   const highlightButtonRef = useRef(null)
   const highlightPickerRef = useRef(null)
+  const shadingButtonRef = useRef(null)
+  const shadingPickerRef = useRef(null)
+  const shadingInputRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
@@ -27,6 +30,9 @@ function EditorPanel({
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
   const [highlightColor, setHighlightColor] = useState('#fef08a')
+  const [shadingPickerOpen, setShadingPickerOpen] = useState(false)
+  const [shadingColor, setShadingColor] = useState(null)
+  const [inTable, setInTable] = useState(false)
   const [contextMenu, setContextMenu] = useState({
     open: false,
     x: 0,
@@ -89,6 +95,10 @@ function EditorPanel({
 
   const closeHighlightPicker = useCallback(() => {
     setHighlightPickerOpen(false)
+  }, [])
+
+  const closeShadingPicker = useCallback(() => {
+    setShadingPickerOpen(false)
   }, [])
 
   const getCellFromEvent = (event) => {
@@ -229,6 +239,12 @@ function EditorPanel({
         if (picker?.contains(event.target) || button?.contains(event.target)) return
         setHighlightPickerOpen(false)
       }
+      if (shadingPickerOpen) {
+        const picker = shadingPickerRef.current
+        const button = shadingButtonRef.current
+        if (picker?.contains(event.target) || button?.contains(event.target)) return
+        setShadingPickerOpen(false)
+      }
       if (contextMenu.open) {
         const menu = contextMenuRef.current
         if (menu?.contains(event.target)) return
@@ -240,6 +256,7 @@ function EditorPanel({
       if (event.key === 'Escape') {
         setTablePickerOpen(false)
         setHighlightPickerOpen(false)
+        setShadingPickerOpen(false)
         closeContextMenu()
       }
     }
@@ -251,7 +268,7 @@ function EditorPanel({
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [tablePickerOpen, highlightPickerOpen, contextMenu.open, closeContextMenu])
+  }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, contextMenu.open, closeContextMenu])
 
   const tableGrid = useMemo(() => {
     return Array.from({ length: gridSize }, (_, rowIndex) =>
@@ -267,6 +284,134 @@ function EditorPanel({
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
     closeTablePicker()
   }
+
+  const handleApplyShading = () => {
+    if (!editor) return
+    if (!shadingColor) {
+      editor.chain().focus().setCellAttribute('backgroundColor', null).run()
+      return
+    }
+    editor.chain().focus().setCellAttribute('backgroundColor', shadingColor).run()
+  }
+
+  const handlePickShading = (color) => {
+    if (!editor) return
+    if (!color) {
+      setShadingColor(null)
+      editor.chain().focus().setCellAttribute('backgroundColor', null).run()
+    } else {
+      setShadingColor(color)
+      editor.chain().focus().setCellAttribute('backgroundColor', color).run()
+    }
+    closeShadingPicker()
+  }
+
+  const handleCustomShading = (event) => {
+    const color = event.target.value
+    if (!color) return
+    handlePickShading(color)
+  }
+
+  const openCustomShading = () => {
+    shadingInputRef.current?.click()
+  }
+
+  const hexToRgb = (hex) => {
+    const normalized = hex.replace('#', '')
+    const value =
+      normalized.length === 3
+        ? normalized
+            .split('')
+            .map((char) => char + char)
+            .join('')
+        : normalized
+    const intValue = parseInt(value, 16)
+    return {
+      r: (intValue >> 16) & 255,
+      g: (intValue >> 8) & 255,
+      b: intValue & 255,
+    }
+  }
+
+  const toHex = (value) => value.toString(16).padStart(2, '0')
+
+  const mixColors = (base, mixWith, amount) => {
+    const a = hexToRgb(base)
+    const b = hexToRgb(mixWith)
+    const mix = (start, end) => Math.round(start * (1 - amount) + end * amount)
+    return `#${toHex(mix(a.r, b.r))}${toHex(mix(a.g, b.g))}${toHex(mix(a.b, b.b))}`
+  }
+
+  const themeBaseColors = useMemo(
+    () => [
+      { label: 'White', value: '#ffffff' },
+      { label: 'Black', value: '#000000' },
+      { label: 'Dark Blue-Gray', value: '#1f2937' },
+      { label: 'Dark Blue', value: '#1e3a8a' },
+      { label: 'Medium Blue', value: '#2563eb' },
+      { label: 'Red', value: '#ef4444' },
+      { label: 'Dark Red', value: '#7f1d1d' },
+      { label: 'Orange', value: '#f97316' },
+      { label: 'Gold/Yellow', value: '#f59e0b' },
+      { label: 'Green', value: '#16a34a' },
+    ],
+    [],
+  )
+
+  const themeRows = useMemo(() => {
+    const lightSteps = [0.2, 0.4, 0.6, 0.8]
+    return [
+      themeBaseColors.map((color) => color.value),
+      ...lightSteps.map((amount) =>
+        themeBaseColors.map((color) => {
+          const base = color.value.toLowerCase()
+          if (base === '#ffffff') {
+            return mixColors(base, '#000000', amount)
+          }
+          if (base === '#000000') {
+            return mixColors(base, '#ffffff', amount)
+          }
+          return mixColors(base, '#ffffff', amount)
+        }),
+      ),
+    ]
+  }, [themeBaseColors])
+
+  const standardColors = useMemo(
+    () => [
+      '#7f1d1d',
+      '#ef4444',
+      '#f97316',
+      '#f59e0b',
+      '#22c55e',
+      '#0f766e',
+      '#3b82f6',
+      '#1e3a8a',
+      '#0f172a',
+      '#7c3aed',
+    ],
+    [],
+  )
+
+  useEffect(() => {
+    if (!editor) return
+    const syncTableState = () => {
+      const nextInTable =
+        editor.isActive('table') || editor.isActive('tableCell') || editor.isActive('tableHeader')
+      setInTable(nextInTable)
+      if (!nextInTable) return
+      const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
+      const cellColor = editor.getAttributes('tableCell')?.backgroundColor
+      setShadingColor(headerColor || cellColor || null)
+    }
+    syncTableState()
+    editor.on('selectionUpdate', syncTableState)
+    editor.on('transaction', syncTableState)
+    return () => {
+      editor.off('selectionUpdate', syncTableState)
+      editor.off('transaction', syncTableState)
+    }
+  }, [editor])
 
   const handleApplyHighlight = () => {
     if (!editor) return
@@ -635,14 +780,84 @@ function EditorPanel({
         >
           + Col
         </button>
-        <input
-          type="color"
-          aria-label="Cell color"
-          onChange={(event) =>
-            editor?.chain().focus().setCellAttribute('backgroundColor', event.target.value).run()
-          }
-          disabled={!hasTracker}
-        />
+        {inTable && (
+          <div className="shading-control" ref={shadingButtonRef}>
+            <button
+              type="button"
+              className={shadingColor ? 'active' : ''}
+              onClick={handleApplyShading}
+              disabled={!hasTracker}
+            >
+              Shading
+            </button>
+            <button
+              type="button"
+              className="shading-dropdown"
+              onClick={() => setShadingPickerOpen((prev) => !prev)}
+              disabled={!hasTracker}
+              aria-label="Shading colors"
+            >
+              ▾
+            </button>
+            {shadingPickerOpen && (
+              <div className="shading-picker" ref={shadingPickerRef}>
+                <div className="shading-section">
+                  <p className="shading-header">Theme Colors</p>
+                  <div className="shading-grid">
+                    {themeRows.map((row, rowIndex) =>
+                      row.map((color, colIndex) => (
+                        <button
+                          key={`theme-${rowIndex}-${colIndex}`}
+                          type="button"
+                          className={`shading-swatch ${
+                            shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
+                          }`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => handlePickShading(color)}
+                          aria-label={`Theme color ${rowIndex + 1}-${colIndex + 1}`}
+                        />
+                      )),
+                    )}
+                  </div>
+                </div>
+                <div className="shading-section">
+                  <p className="shading-header">Standard Colors</p>
+                  <div className="shading-grid shading-grid-standard">
+                    {standardColors.map((color, index) => (
+                      <button
+                        key={`standard-${color}`}
+                        type="button"
+                        className={`shading-swatch ${
+                          shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
+                        }`}
+                        style={{ backgroundColor: color }}
+                        onClick={() => handlePickShading(color)}
+                        aria-label={`Standard color ${index + 1}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="shading-actions">
+                  <button type="button" className="shading-action" onClick={() => handlePickShading(null)}>
+                    <span className="shading-icon" aria-hidden="true" />
+                    No Color
+                  </button>
+                  <button type="button" className="shading-action" onClick={openCustomShading}>
+                    <span className="shading-icon palette" aria-hidden="true" />
+                    More Colors...
+                  </button>
+                  <input
+                    ref={shadingInputRef}
+                    type="color"
+                    className="shading-input"
+                    onChange={handleCustomShading}
+                    aria-label="Custom shading color"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => editor?.chain().focus().deleteTable().run()}

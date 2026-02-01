@@ -130,6 +130,46 @@ class TableViewWithId extends TableView {
   }
 }
 
+const applyBackgroundStyle = (HTMLAttributes, backgroundColor) => {
+  if (!backgroundColor) return HTMLAttributes
+  const existing = HTMLAttributes?.style ?? ''
+  const suffix = existing && !existing.trim().endsWith(';') ? ';' : ''
+  const style = `${existing}${suffix}background-color: ${backgroundColor};`
+  return { ...HTMLAttributes, style }
+}
+
+const TableCellWithBackground = TableCell.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      backgroundColor: {
+        default: null,
+        parseHTML: (element) => element.style?.backgroundColor || null,
+      },
+    }
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const attrs = applyBackgroundStyle(HTMLAttributes, node.attrs?.backgroundColor)
+    return ['td', mergeAttributes(this.options.HTMLAttributes, attrs), 0]
+  },
+})
+
+const TableHeaderWithBackground = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      backgroundColor: {
+        default: null,
+        parseHTML: (element) => element.style?.backgroundColor || null,
+      },
+    }
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    const attrs = applyBackgroundStyle(HTMLAttributes, node.attrs?.backgroundColor)
+    return ['th', mergeAttributes(this.options.HTMLAttributes, attrs), 0]
+  },
+})
+
 const TableWithId = Table.extend({
   addOptions() {
     const parent = this.parent?.()
@@ -466,8 +506,8 @@ function App() {
         SecureImage.configure({ inline: false, allowBase64: false }),
         TableWithId.configure({ resizable: true }),
         TableRow,
-        TableHeader,
-        TableCell,
+        TableHeaderWithBackground,
+        TableCellWithBackground,
         Placeholder.configure({
           placeholder: 'Start writing your tracker...',
         }),
