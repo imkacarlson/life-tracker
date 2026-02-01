@@ -601,7 +601,7 @@ h2 {
 .editor-shell td ol,
 .editor-shell th ul,
 .editor-shell th ol {
-  margin: 0.2rem 0;
+  margin: 0.05rem 0 0.1rem;
   padding-left: 3rem;
 }
 
@@ -614,6 +614,13 @@ h2 {
 .editor-shell td li > p,
 .editor-shell th li > p {
   margin: 0;
+}
+
+.editor-shell td p:has(+ ul),
+.editor-shell td p:has(+ ol),
+.editor-shell th p:has(+ ul),
+.editor-shell th p:has(+ ol) {
+  margin-bottom: 0.1rem;
 }
 
 .ProseMirror .tableWrapper {
