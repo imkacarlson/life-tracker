@@ -306,6 +306,7 @@ function EditorPanel({
     const dom = editor.view.dom
 
     const handleContextMenu = (event) => {
+      if (event.shiftKey) return
       event.preventDefault()
       focusFromCoords({ left: event.clientX, top: event.clientY })
       const inTable = Boolean(getCellFromEvent(event))
