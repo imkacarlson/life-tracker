@@ -110,13 +110,18 @@ function EditorPanel({
   const getActiveBlockId = () => {
     if (!editor) return null
     const { $from } = editor.state.selection
+    let fallbackId = null
     for (let depth = $from.depth; depth > 0; depth -= 1) {
       const node = $from.node(depth)
-      if (node?.attrs?.id) {
-        return node.attrs.id
+      const id = node?.attrs?.id
+      if (!id) continue
+      const type = node.type?.name
+      if (type === 'paragraph' || type === 'heading') {
+        return id
       }
+      if (!fallbackId) fallbackId = id
     }
-    return null
+    return fallbackId
   }
 
   useEffect(() => {

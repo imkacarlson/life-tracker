@@ -424,6 +424,9 @@ h2 {
 
 .deep-link-highlight {
   animation: deepLinkHighlight 2s ease;
+  border-left: 3px solid #eab308;
+  border-radius: 2px;
+  padding-left: 4px;
 }
 
 @keyframes deepLinkHighlight {
