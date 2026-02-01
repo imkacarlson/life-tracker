@@ -72,6 +72,28 @@ function EditorPanel({
     editor?.chain().focus().setTextAlign(alignment).run()
   }
 
+  const handleExportMarkdown = () => {
+    if (!editor || !hasTracker) return
+    const rawTitle = title?.trim() || 'Untitled'
+    const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
+    const markdown =
+      editor.getMarkdown?.() ??
+      editor.storage?.markdown?.getMarkdown?.() ??
+      editor.getText({ blockSeparator: '\n\n' })
+    const withPlaceholders = markdown
+      .replace(/!\[[^\]]*]\([^)]+\)/g, '[image]')
+      .replace(/<img [^>]*>/g, '[image]')
+    const blob = new Blob([withPlaceholders], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${safeTitle}.md`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
   const openContextMenu = useCallback((next) => {
     setTablePickerOpen(false)
     setContextMenu({
@@ -722,6 +744,9 @@ function EditorPanel({
         </button>
         <button type="button" onClick={() => editor?.chain().focus().redo().run()} disabled={!hasTracker}>
           Redo
+        </button>
+        <button type="button" onClick={handleExportMarkdown} disabled={!hasTracker}>
+          Export .md
         </button>
 
         <div className="toolbar-divider" />

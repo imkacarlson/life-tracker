@@ -8,6 +8,7 @@ import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Highlight from '@tiptap/extension-highlight'
 import Underline from '@tiptap/extension-underline'
+import { Markdown } from '@tiptap/markdown'
 import TextAlign from '@tiptap/extension-text-align'
 import Color from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -550,6 +551,7 @@ function App() {
         TaskItem.configure({ nested: true }),
         Underline,
         Highlight.configure({ multicolor: true }),
+        Markdown,
         TextStyle,
         Color,
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
