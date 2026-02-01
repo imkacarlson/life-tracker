@@ -422,22 +422,6 @@ h2 {
   cursor: pointer;
 }
 
-.deep-link-highlight {
-  animation: deepLinkHighlight 2s ease;
-  border-left: 3px solid #eab308;
-  border-radius: 2px;
-  padding-left: 4px;
-}
-
-@keyframes deepLinkHighlight {
-  from {
-    background-color: #fef08a;
-  }
-  to {
-    background-color: transparent;
-  }
-}
-
 .editor-shell ul[data-type='taskList'] {
   list-style: none;
   padding-left: 0;

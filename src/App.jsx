@@ -442,8 +442,16 @@ function App() {
     if (!blockId) return
     const target = document.getElementById(blockId)
     if (!target) return
-    target.classList.add('deep-link-highlight')
-    window.setTimeout(() => target.classList.remove('deep-link-highlight'), 2000)
+    const rect = target.getBoundingClientRect()
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;background:rgba(254,240,138,0.6);border-left:3px solid #eab308;z-index:999999;pointer-events:none;transition:opacity 1.5s ease`
+    document.body.appendChild(overlay)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        overlay.style.opacity = '0'
+      })
+    })
+    setTimeout(() => overlay.remove(), 2000)
   }, [])
 
   const hydrateContentWithSignedUrls = useCallback(
