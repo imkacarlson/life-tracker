@@ -690,7 +690,7 @@ function App() {
   }, [activeSectionId, loadTrackers])
 
   const scheduleSave = useCallback(
-    (nextContent) => {
+    (nextContent, nextTitle) => {
       const tracker = activeTrackerRef.current
       if (!tracker) return
 
@@ -698,15 +698,16 @@ function App() {
         clearTimeout(saveTimerRef.current)
       }
 
+      const title = (nextTitle ?? titleDraftRef.current)?.trim() || 'Untitled Tracker'
+      const payload = {
+        title,
+        content: sanitizeContentForSave(nextContent),
+        updated_at: new Date().toISOString(),
+      }
+
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
-        const payload = {
-          title: titleDraftRef.current?.trim() || 'Untitled Tracker',
-          content: sanitizeContentForSave(nextContent),
-          updated_at: new Date().toISOString(),
-        }
-
         const { error } = await supabase.from('trackers').update(payload).eq('id', tracker.id)
 
         if (error) {
@@ -748,8 +749,9 @@ function App() {
 
   const handleTitleChange = (value) => {
     setTitleDraft(value)
+    titleDraftRef.current = value
     if (!editor || !activeTrackerRef.current) return
-    scheduleSave(editor.getJSON())
+    scheduleSave(editor.getJSON(), value)
   }
 
   const handleCreateTracker = async () => {
