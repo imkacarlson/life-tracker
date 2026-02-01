@@ -93,8 +93,25 @@ function EditorPanel({
       replacement: () => '[image]',
     })
 
-    const html = editor.getHTML()
-    const markdown = turndown.turndown(html)
+    const rawHtml = editor.getHTML()
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(rawHtml, 'text/html')
+
+    doc.querySelectorAll('div').forEach((div) => {
+      div.replaceWith(...div.childNodes)
+    })
+
+    doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'))
+    doc.querySelectorAll('[colwidth]').forEach((el) => el.removeAttribute('colwidth'))
+    doc.querySelectorAll('[backgroundcolor]').forEach((el) => el.removeAttribute('backgroundcolor'))
+    doc.querySelectorAll('[data-color]').forEach((el) => el.removeAttribute('data-color'))
+    doc.querySelectorAll('colgroup').forEach((el) => el.remove())
+    doc.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+    doc.querySelectorAll('[colspan="1"]').forEach((el) => el.removeAttribute('colspan'))
+    doc.querySelectorAll('[rowspan="1"]').forEach((el) => el.removeAttribute('rowspan'))
+
+    const cleanHtml = doc.body.innerHTML
+    const markdown = turndown.turndown(cleanHtml)
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
