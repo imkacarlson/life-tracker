@@ -501,7 +501,7 @@ function App() {
         const target = document.getElementById(pending.blockId)
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          flashBlockById(pending.blockId)
+          setTimeout(() => flashBlockById(pending.blockId), 600)
           pendingNavRef.current = null
         } else if (attempts < 10) {
           setTimeout(() => attemptScroll(attempts + 1), 50)
