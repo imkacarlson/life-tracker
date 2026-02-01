@@ -330,18 +330,49 @@ const ListSelectShortcut = Extension.create({
       'Mod-a': () => {
         const { state, view } = this.editor
         const { $from } = state.selection
-        for (let depth = $from.depth; depth > 0; depth -= 1) {
-          const node = $from.node(depth)
-          if (node.type?.name === 'listItem' || node.type?.name === 'taskItem') {
-            const pos = $from.before(depth)
-            const from = pos + 1
-            const to = pos + node.nodeSize - 1
-            const selection = TextSelection.create(state.doc, from, to)
-            view.dispatch(state.tr.setSelection(selection))
-            view.focus()
-            return true
+        const findAncestor = (names) => {
+          for (let depth = $from.depth; depth > 0; depth -= 1) {
+            const node = $from.node(depth)
+            if (names.includes(node.type?.name)) {
+              return { node, pos: $from.before(depth) }
+            }
+          }
+          return null
+        }
+
+        const selectionCovers = (from, to) =>
+          state.selection.from <= from && state.selection.to >= to
+
+        const selectRange = (from, to) => {
+          const selection = TextSelection.create(state.doc, from, to)
+          view.dispatch(state.tr.setSelection(selection))
+          view.focus()
+          return true
+        }
+
+        const list = findAncestor(['listItem', 'taskItem'])
+        if (list) {
+          const listFrom = list.pos + 1
+          const listTo = list.pos + list.node.nodeSize - 1
+          if (!selectionCovers(listFrom, listTo)) {
+            return selectRange(listFrom, listTo)
           }
         }
+
+        const cell = findAncestor(['tableCell', 'tableHeader'])
+        if (cell) {
+          const cellFrom = cell.pos + 1
+          const cellTo = cell.pos + cell.node.nodeSize - 1
+          if (!selectionCovers(cellFrom, cellTo)) {
+            return selectRange(cellFrom, cellTo)
+          }
+        }
+
+        if (list || cell) {
+          this.editor.commands.selectAll()
+          return true
+        }
+
         return false
       },
     }
