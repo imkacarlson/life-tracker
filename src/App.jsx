@@ -226,6 +226,17 @@ const LinkShortcut = Extension.create({
         this.editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
         return true
       },
+      'Mod-Alt-h': () => {
+        const storedColor = this.editor.storage?.highlightColor
+        if (storedColor === null) {
+          this.editor.chain().focus().unsetHighlight().run()
+          return true
+        }
+        const currentColor =
+          storedColor || this.editor.getAttributes('highlight')?.color || '#fef08a'
+        this.editor.chain().focus().setHighlight({ color: currentColor }).run()
+        return true
+      },
     }
   },
 })

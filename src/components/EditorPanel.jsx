@@ -351,6 +351,11 @@ function EditorPanel({
     }
   }, [editor])
 
+  useEffect(() => {
+    if (!editor) return
+    editor.storage.highlightColor = highlightColor ?? null
+  }, [editor, highlightColor])
+
   const contextMenuItems = useMemo(
     () => [
       { label: 'Insert row above', action: () => editor?.chain().focus().addRowBefore().run() },
