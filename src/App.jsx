@@ -266,6 +266,10 @@ const LinkShortcut = Extension.create({
         this.editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
         return true
       },
+      'Mod--': () => {
+        this.editor.chain().focus().toggleStrike().run()
+        return true
+      },
       'Mod-Alt-h': () => {
         const isHighlighted = this.editor.isActive('highlight')
         if (isHighlighted) {
