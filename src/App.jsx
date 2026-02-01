@@ -267,7 +267,16 @@ const LinkShortcut = Extension.create({
         return true
       },
       'Mod--': () => {
+        const { state, view } = this.editor
+        const { from, to } = state.selection
         this.editor.chain().focus().toggleStrike().run()
+        const nextState = this.editor.state
+        const maxPos = nextState.doc.content.size
+        const safeFrom = Math.min(from, maxPos)
+        const safeTo = Math.min(to, maxPos)
+        const selection = TextSelection.create(nextState.doc, safeFrom, safeTo)
+        view.dispatch(nextState.tr.setSelection(selection))
+        view.focus()
         return true
       },
       'Mod-Alt-h': () => {
