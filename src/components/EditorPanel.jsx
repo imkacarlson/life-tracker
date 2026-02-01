@@ -273,9 +273,10 @@ function EditorPanel({
         const content = [{ type: 'text', text: task.task }]
         if (task.block_ids?.length) {
           task.block_ids.forEach((blockId, i) => {
-            const sourcePage = (allTrackers || []).find((t) => {
-              return JSON.stringify(t.content || {}).includes(blockId)
-            })
+            const sourcePageInfo = trackerPages.find((tp) => tp.textContent.includes(blockId))
+            const sourcePage = sourcePageInfo
+              ? (allTrackers || []).find((t) => t.id === sourcePageInfo.pageId)
+              : null
             if (sourcePage) {
               const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourcePage.id}&block=${blockId}`
               content.push({ type: 'text', text: ' ' })
