@@ -595,11 +595,36 @@ h2 {
   margin: 1rem 0;
 }
 
+.editor-shell .ProseMirror ::selection {
+  background: Highlight;
+  color: HighlightText;
+}
+
+.editor-shell .ProseMirror ::-moz-selection {
+  background: Highlight;
+  color: HighlightText;
+}
+
+.editor-shell .ProseMirror-hideselection ::selection {
+  background: transparent;
+  color: inherit;
+}
+
+.editor-shell .ProseMirror-hideselection ::-moz-selection {
+  background: transparent;
+  color: inherit;
+}
+
 .editor-shell th,
 .editor-shell td {
   border: 1px solid #333;
   padding: 0.5rem;
   position: relative;
+}
+
+.editor-shell td.selectedCell,
+.editor-shell th.selectedCell {
+  background: #e2e8f0;
 }
 
 .editor-shell th {

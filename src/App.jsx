@@ -4,7 +4,7 @@ import { Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow, TableView, createColGroup } from '@tiptap/extension-table'
-import { CellSelection } from '@tiptap/pm/tables'
+import { CellSelection, TableMap } from '@tiptap/pm/tables'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Highlight from '@tiptap/extension-highlight'
@@ -384,6 +384,31 @@ const ListSelectShortcut = Extension.create({
           return true
         }
 
+        const selectTable = (table) => {
+          const map = TableMap.get(table.node)
+          const tableStart = table.pos + 1
+          const firstCellPos = tableStart + map.map[0]
+          const lastCellPos = tableStart + map.map[map.map.length - 1]
+          const selection = CellSelection.create(state.doc, firstCellPos, lastCellPos)
+          view.dispatch(state.tr.setSelection(selection))
+          view.focus()
+          return true
+        }
+
+        const isFullTableSelection = (table) => {
+          if (!(state.selection instanceof CellSelection)) return false
+          const map = TableMap.get(table.node)
+          const tableStart = table.pos + 1
+          const firstCellPos = tableStart + map.map[0]
+          const lastCellPos = tableStart + map.map[map.map.length - 1]
+          const anchorPos = state.selection.$anchorCell?.pos
+          const headPos = state.selection.$headCell?.pos
+          return (
+            (anchorPos === firstCellPos && headPos === lastCellPos) ||
+            (anchorPos === lastCellPos && headPos === firstCellPos)
+          )
+        }
+
         const list = findAncestor(['listItem', 'taskItem'])
         if (list) {
           let paragraphPos = null
@@ -418,6 +443,10 @@ const ListSelectShortcut = Extension.create({
         if (cell) {
           if (!(state.selection instanceof CellSelection) || state.selection.$anchorCell?.pos !== cell.pos) {
             return selectCell(cell.pos)
+          }
+          const table = findAncestor(['table'])
+          if (table && !isFullTableSelection(table)) {
+            return selectTable(table)
           }
         }
 
