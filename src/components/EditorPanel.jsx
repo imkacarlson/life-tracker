@@ -340,7 +340,10 @@ function EditorPanel({
         })
       }
       insertContent.push(table)
-      editor.chain().focus('end').insertContent(insertContent).run()
+      if (!editor.state.selection.empty) {
+        editor.commands.setTextSelection(editor.state.selection.to)
+      }
+      editor.chain().focus().insertContent(insertContent).run()
     } catch (err) {
       console.error('AI generation failed:', err)
       alert('Failed to generate tasks: ' + (err.message || String(err)))
