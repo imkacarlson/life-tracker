@@ -4,6 +4,7 @@ import { Extension, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import { Table, TableCell, TableHeader, TableRow, TableView, createColGroup } from '@tiptap/extension-table'
+import { CellSelection } from '@tiptap/pm/tables'
 import Image from '@tiptap/extension-image'
 import Link from '@tiptap/extension-link'
 import Highlight from '@tiptap/extension-highlight'
@@ -376,6 +377,13 @@ const ListSelectShortcut = Extension.create({
           return true
         }
 
+        const selectCell = (pos) => {
+          const selection = CellSelection.create(state.doc, pos)
+          view.dispatch(state.tr.setSelection(selection))
+          view.focus()
+          return true
+        }
+
         const list = findAncestor(['listItem', 'taskItem'])
         if (list) {
           let paragraphPos = null
@@ -408,10 +416,8 @@ const ListSelectShortcut = Extension.create({
 
         const cell = findAncestor(['tableCell', 'tableHeader'])
         if (cell) {
-          const cellFrom = cell.pos + 1
-          const cellTo = cell.pos + cell.node.nodeSize - 1
-          if (!selectionCovers(cellFrom, cellTo)) {
-            return selectRange(cellFrom, cellTo)
+          if (!(state.selection instanceof CellSelection) || state.selection.$anchorCell?.pos !== cell.pos) {
+            return selectCell(cell.pos)
           }
         }
 
@@ -581,7 +587,9 @@ function App() {
     preTo: null,
     isPmSlice: false,
     ts: 0,
+    applied: false,
   })
+  const pendingPasteFixRef = useRef(false)
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
@@ -734,12 +742,14 @@ function App() {
         handlePaste: (view, event) => {
           const html = event.clipboardData?.getData('text/html') ?? ''
           pasteInfoRef.current = {
-            summary: null,
+            ...pasteInfoRef.current,
             preFrom: view.state.selection.from,
             preTo: view.state.selection.to,
             isPmSlice: html.includes('data-pm-slice'),
             ts: Date.now(),
+            applied: false,
           }
+          pendingPasteFixRef.current = pasteInfoRef.current.isPmSlice
           const files = event.clipboardData?.files
           if (files && files.length > 0) {
             const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
@@ -1020,20 +1030,39 @@ function App() {
   useEffect(() => {
     if (!editor) return
     const handleTransaction = ({ transaction }) => {
-      const isPaste =
+      const isPasteMeta =
         transaction.getMeta('paste') === true || transaction.getMeta('uiEvent') === 'paste'
-      if (!isPaste) return
+      const isPending = pendingPasteFixRef.current
+      if (!isPasteMeta && !isPending) return
       const info = pasteInfoRef.current
-      if (!info?.isPmSlice || !info.summary?.length) return
+      if (!info?.isPmSlice || !info.summary?.length) {
+        pendingPasteFixRef.current = false
+        return
+      }
+      if (info.applied) return
       const { view } = editor
+      const steps = transaction.mapping?.maps ?? []
+      const firstStep = steps[0]
+      const insertStart = firstStep ? firstStep.ranges[0] : null
+      const insertOldSize = firstStep ? firstStep.ranges[1] : null
+      const insertNewSize = firstStep ? firstStep.ranges[2] : null
+      if (insertStart === null || insertOldSize === null || insertNewSize === null) {
+        pendingPasteFixRef.current = false
+        return
+      }
+      const mappedStart = insertStart
+      const mappedEnd = insertStart + Math.max(insertNewSize, 0)
+      const expectedCount = info.summary.length
       const applyFixes = () => {
         if (!view || view.isDestroyed) return
         const { state, dispatch } = view
-        const start = info.preFrom ?? state.selection.from
-        const end = state.selection.to
         const summary = info.summary ?? []
-        const targets = collectBlockTargets(state, start, end)
-        const limit = Math.min(summary.length, targets.length)
+        const targets = []
+        state.doc.nodesBetween(mappedStart, Math.min(mappedEnd, state.doc.content.size), (node, pos) => {
+          if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+          targets.push({ node, pos })
+        })
+        const limit = Math.min(expectedCount, summary.length, targets.length)
         const tr = state.tr
         for (let i = 0; i < limit; i += 1) {
           const expectedAlign = summary[i]?.align ?? 'left'
@@ -1050,10 +1079,13 @@ function App() {
         if (tr.docChanged) dispatch(tr)
 
         let currentState = view.state
-        const desiredEnd = Math.min(end, currentState.doc.content.size)
         for (let i = 0; i < limit; i += 1) {
           const expectedDepth = summary[i]?.listDepth ?? 0
-          let currentTargets = collectBlockTargets(currentState, start, desiredEnd)
+          let currentTargets = []
+          currentState.doc.nodesBetween(mappedStart, Math.min(mappedEnd, currentState.doc.content.size), (node, pos) => {
+            if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+            currentTargets.push({ node, pos })
+          })
           let currentTarget = currentTargets[i]
           if (!currentTarget) continue
           let actualDepth = getListDepthAt(currentState, currentTarget.pos + 1)
@@ -1063,22 +1095,28 @@ function App() {
             if (!itemType) break
             editor.chain().setTextSelection(currentTarget.pos + 1).liftListItem(itemType).run()
             currentState = editor.view.state
-            currentTargets = collectBlockTargets(currentState, start, desiredEnd)
+            currentTargets = []
+            currentState.doc.nodesBetween(mappedStart, Math.min(mappedEnd, currentState.doc.content.size), (node, pos) => {
+              if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+              currentTargets.push({ node, pos })
+            })
             currentTarget = currentTargets[i]
             if (!currentTarget) break
             actualDepth = getListDepthAt(currentState, currentTarget.pos + 1)
             guard += 1
           }
         }
-        editor.commands.setTextSelection(Math.min(desiredEnd, editor.view.state.doc.content.size))
         pasteInfoRef.current = {
           summary: null,
           preFrom: null,
           preTo: null,
           isPmSlice: false,
           ts: 0,
+          applied: false,
         }
+        pendingPasteFixRef.current = false
       }
+      pasteInfoRef.current = { ...pasteInfoRef.current, applied: true }
       setTimeout(applyFixes, 0)
     }
     editor.on('transaction', handleTransaction)
