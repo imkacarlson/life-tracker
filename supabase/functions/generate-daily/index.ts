@@ -115,6 +115,9 @@ Your job: generate a prioritized daily task list based on what needs to be done 
 
 Rules:
 - Look for tasks with dates due today or overdue
+- Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
+- Assume numeric dates are MM/DD in the current year when no year is provided
+- If a task’s date is BEFORE today, include it and append " (overdue)" to the task text
 - Include recurring tasks that apply to today
 - Flag upcoming deadlines within the next 1-2 days
 - SKIP anything with strikethrough (marked with ~~text~~) - those are completed
