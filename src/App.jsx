@@ -1183,7 +1183,7 @@ function App() {
       setDataLoading(true)
       setMessage('')
       const { data, error } = await supabase
-        .from('trackers')
+        .from('pages')
         .select('id, title, content, created_at, updated_at, section_id, sort_order')
         .eq('section_id', sectionId)
         .order('sort_order', { ascending: true, nullsLast: true })
@@ -1260,7 +1260,7 @@ function App() {
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
-        const { error } = await supabase.from('trackers').update(payload).eq('id', tracker.id)
+        const { error } = await supabase.from('pages').update(payload).eq('id', tracker.id)
 
         if (error) {
           setMessage(error.message)
@@ -1413,7 +1413,7 @@ function App() {
       existingOrders.length > 0 ? Math.min(...existingOrders) - 1 : 1
 
     const { data, error } = await supabase
-      .from('trackers')
+      .from('pages')
       .insert({
         title,
         user_id: session.user.id,
@@ -1442,7 +1442,7 @@ function App() {
       }))
       setTrackers(reordered)
       const updates = reordered.map((item) =>
-        supabase.from('trackers').update({ sort_order: item.sort_order }).eq('id', item.id),
+        supabase.from('pages').update({ sort_order: item.sort_order }).eq('id', item.id),
       )
       const results = await Promise.all(updates)
       const error = results.find((result) => result.error)?.error
@@ -1459,7 +1459,7 @@ function App() {
     const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
     if (!confirmDelete) return
 
-    const { error } = await supabase.from('trackers').delete().eq('id', tracker.id)
+    const { error } = await supabase.from('pages').delete().eq('id', tracker.id)
 
     if (error) {
       setMessage(error.message)
