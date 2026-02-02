@@ -125,12 +125,14 @@ Rules:
 - For each task, include the block_id of the source paragraph so we can link back to it
 - If a task relates to multiple source paragraphs, include all relevant block_ids
 
-Respond with ONLY a JSON object, no other text. Use this shape:
+Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wrap in code fences. Use this shape:
 {"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
 
 Bucket rules:
 - ASAP: overdue tasks, tasks due today, and recurring tasks that apply today
 - FYI: deadlines within the next 1-2 days
+
+If a bucket is empty, return an empty array for it.
 
 Order each list by priority (high first), then by time sensitivity.`
 
@@ -155,42 +157,61 @@ Order each list by priority (high first), then by time sensitivity.`
       })
     }
 
-    const rawText = providerConfig.extractResponse(data)
-
-    let asap = []
-    let fyi = []
-    try {
-      const trimmed = rawText.trim()
-      let parsed = null
-      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-        parsed = JSON.parse(trimmed)
-      } else {
-        const objStart = trimmed.indexOf('{')
-        const objEnd = trimmed.lastIndexOf('}')
-        const arrStart = trimmed.indexOf('[')
-        const arrEnd = trimmed.lastIndexOf(']')
-        if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
-          parsed = JSON.parse(trimmed.slice(objStart, objEnd + 1))
-        } else if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
-          parsed = JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
+    const parseTasks = (text: string) => {
+      let asap: any[] = []
+      let fyi: any[] = []
+      let format = 'empty'
+      try {
+        const trimmed = text.trim()
+        let parsed: any = null
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          parsed = JSON.parse(trimmed)
+        } else {
+          const objStart = trimmed.indexOf('{')
+          const objEnd = trimmed.lastIndexOf('}')
+          const arrStart = trimmed.indexOf('[')
+          const arrEnd = trimmed.lastIndexOf(']')
+          if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
+            parsed = JSON.parse(trimmed.slice(objStart, objEnd + 1))
+          } else if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
+            parsed = JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
+          }
         }
-      }
 
-      if (Array.isArray(parsed)) {
-        asap = parsed
-      } else if (parsed && typeof parsed === 'object') {
-        if (Array.isArray(parsed.asap)) asap = parsed.asap
-        if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
-        if (!asap.length && !fyi.length && Array.isArray(parsed.tasks)) {
-          asap = parsed.tasks
+        if (Array.isArray(parsed)) {
+          asap = parsed
+          format = 'legacy_array'
+        } else if (parsed && typeof parsed === 'object') {
+          if (Array.isArray(parsed.asap)) asap = parsed.asap
+          if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
+          if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi)) {
+            format = 'asap_fyi'
+          } else if (Array.isArray(parsed.tasks)) {
+            asap = parsed.tasks
+            format = 'legacy_tasks'
+          }
         }
+      } catch {
+        asap = []
+        fyi = []
+        format = 'empty'
       }
-    } catch {
-      asap = []
-      fyi = []
+      return { asap, fyi, format }
     }
 
-    return new Response(JSON.stringify({ asap, fyi, rawText }), {
+    const rawText = providerConfig.extractResponse(data)
+    const parsed = parseTasks(rawText)
+    const warning =
+      parsed.format === 'asap_fyi'
+        ? null
+        : 'FYI: AI response did not follow the ASAP/FYI format. Results may be incomplete.'
+
+    return new Response(JSON.stringify({
+      asap: parsed.asap,
+      fyi: parsed.fyi,
+      rawText,
+      warning,
+    }), {
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     })
   } catch (err) {

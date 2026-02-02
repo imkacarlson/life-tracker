@@ -307,9 +307,20 @@ function EditorPanel({
             content: [{ type: 'text', text: label, marks: [{ type: 'bold' }] }],
           },
         ]
-        if (items.length) {
-          content.push({ type: 'bulletList', content: items })
-        }
+        const listContent = items.length
+          ? items
+          : [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: '...' }],
+                  },
+                ],
+              },
+            ]
+        content.push({ type: 'bulletList', content: listContent })
         return {
           type: 'tableRow',
           content: [{ type: 'tableCell', content }],
@@ -321,7 +332,15 @@ function EditorPanel({
         content: [makeRow('ASAP', asapTasks), makeRow('FYI', fyiTasks)],
       }
 
-      editor.chain().focus('end').insertContent([heading, table]).run()
+      const insertContent = [heading]
+      if (data?.warning) {
+        insertContent.push({
+          type: 'paragraph',
+          content: [{ type: 'text', text: data.warning, marks: [{ type: 'italic' }] }],
+        })
+      }
+      insertContent.push(table)
+      editor.chain().focus('end').insertContent(insertContent).run()
     } catch (err) {
       console.error('AI generation failed:', err)
       alert('Failed to generate tasks: ' + (err.message || String(err)))
