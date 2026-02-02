@@ -575,6 +575,9 @@ function App() {
   const userId = getUserId(session)
 
   const pendingNavRef = useRef(null)
+  const navIntentRef = useRef(null)
+  const ignoreNextHashChangeRef = useRef(0)
+  const hashBlockRef = useRef(null)
   const navigateRef = useRef(null)
   const savedSelectionRef = useRef(readStoredSelection())
   const saveTimerRef = useRef(null)
@@ -1399,43 +1402,77 @@ function App() {
     uploadImageRef.current = uploadImageAndInsert
   }, [uploadImageAndInsert])
 
+  const buildHash = useCallback(({ notebookId, sectionId, pageId, blockId }) => {
+    if (!notebookId) return ''
+    const params = new URLSearchParams()
+    params.set('nb', notebookId)
+    if (sectionId) params.set('sec', sectionId)
+    if (pageId) params.set('pg', pageId)
+    if (blockId) params.set('block', blockId)
+    return `#${params.toString()}`
+  }, [])
+
+  const updateHash = useCallback((hash, mode = 'replace') => {
+    if (!hash || !hash.startsWith('#')) return
+    if (window.location.hash === hash) return
+    if (mode === 'push') {
+      ignoreNextHashChangeRef.current += 1
+      window.location.hash = hash
+      return
+    }
+    window.history.replaceState(null, '', hash)
+  }, [])
+
   const parseDeepLink = useCallback((hash) => {
     if (!hash || !hash.startsWith('#nb=')) return null
     const params = new URLSearchParams(hash.slice(1))
     const notebookId = params.get('nb')
-    const sectionId = params.get('sec')
-    const pageId = params.get('pg')
-    const blockId = params.get('block')
-    if (!notebookId || !sectionId || !pageId || !blockId) return null
-    return { notebookId, sectionId, pageId, blockId }
+    if (!notebookId) return null
+    return {
+      notebookId,
+      sectionId: params.get('sec'),
+      pageId: params.get('pg'),
+      blockId: params.get('block'),
+    }
   }, [])
 
   const navigateToHash = useCallback(
     (hash) => {
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
-      if (!parsed) return
+      if (!parsed?.notebookId) return
+      if (parsed.pageId && parsed.blockId) {
+        hashBlockRef.current = { pageId: parsed.pageId, blockId: parsed.blockId }
+      } else {
+        hashBlockRef.current = null
+      }
       pendingNavRef.current = parsed
-      if (parsed.pageId === activeTrackerId) {
+      if (parsed.pageId && parsed.pageId === activeTrackerId) {
         requestAnimationFrame(() => {
-          const target = document.getElementById(parsed.blockId)
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            const range = document.createRange()
-            range.selectNodeContents(target)
-            const sel = window.getSelection()
-            sel.removeAllRanges()
-            sel.addRange(range)
+          if (parsed.blockId) {
+            const target = document.getElementById(parsed.blockId)
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              const range = document.createRange()
+              range.selectNodeContents(target)
+              const sel = window.getSelection()
+              sel.removeAllRanges()
+              sel.addRange(range)
+            }
           }
           pendingNavRef.current = null
         })
         return
       }
       if (parsed.notebookId === activeNotebookId) {
-        if (parsed.sectionId === activeSectionId) {
-          setActiveTrackerId(parsed.pageId)
-        } else {
+        if (parsed.sectionId && parsed.sectionId !== activeSectionId) {
           setActiveSectionId(parsed.sectionId)
+          return
         }
+        if (parsed.pageId && parsed.pageId !== activeTrackerId) {
+          setActiveTrackerId(parsed.pageId)
+          return
+        }
+        pendingNavRef.current = null
         return
       }
       if (notebooks.some((item) => item.id === parsed.notebookId)) {
@@ -1451,15 +1488,60 @@ function App() {
     ],
   )
 
+  const handleInternalHashNavigate = useCallback(
+    (href) => {
+      if (!href || !href.startsWith('#nb=')) return
+      if (window.location.hash === href) {
+        navigateToHash(href)
+        return
+      }
+      window.location.hash = href
+    },
+    [navigateToHash],
+  )
+
   useEffect(() => {
-    navigateRef.current = navigateToHash
-  }, [navigateToHash])
+    navigateRef.current = handleInternalHashNavigate
+  }, [handleInternalHashNavigate])
+
+  useEffect(() => {
+    if (!activeNotebookId) return
+    const blockInfo = hashBlockRef.current
+    if (blockInfo && blockInfo.pageId !== activeTrackerId) {
+      const pending = pendingNavRef.current
+      if (pending?.pageId === blockInfo.pageId) return
+      hashBlockRef.current = null
+    }
+    const blockId =
+      blockInfo && blockInfo.pageId === activeTrackerId ? blockInfo.blockId : null
+    const hash = buildHash({
+      notebookId: activeNotebookId,
+      sectionId: activeSectionId,
+      pageId: activeTrackerId,
+      blockId,
+    })
+    if (!hash) return
+    const mode = navIntentRef.current === 'push' ? 'push' : 'replace'
+    navIntentRef.current = null
+    updateHash(hash, mode)
+  }, [
+    activeNotebookId,
+    activeSectionId,
+    activeTrackerId,
+    buildHash,
+    updateHash,
+  ])
 
   useEffect(() => {
     if (!session) return
     const initial = parseDeepLink(window.location.hash)
     if (initial) {
       pendingNavRef.current = initial
+      if (initial.pageId && initial.blockId) {
+        hashBlockRef.current = { pageId: initial.pageId, blockId: initial.blockId }
+      } else {
+        hashBlockRef.current = null
+      }
       if (notebooks.some((item) => item.id === initial.notebookId)) {
         setActiveNotebookId(initial.notebookId)
       }
@@ -1468,6 +1550,10 @@ function App() {
 
   useEffect(() => {
     const handleHashChange = () => {
+      if (ignoreNextHashChangeRef.current > 0) {
+        ignoreNextHashChangeRef.current -= 1
+        return
+      }
       navigateToHash(window.location.hash)
     }
     window.addEventListener('hashchange', handleHashChange)
@@ -1577,6 +1663,8 @@ function App() {
             <select
               value={activeNotebookId ?? ''}
               onChange={(event) => {
+                navIntentRef.current = 'push'
+                hashBlockRef.current = null
                 pendingNavRef.current = null
                 setActiveNotebookId(event.target.value)
               }}
@@ -1612,6 +1700,8 @@ function App() {
             className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
             style={{ backgroundColor: section.color || '#eef2ff' }}
             onClick={() => {
+              navIntentRef.current = 'push'
+              hashBlockRef.current = null
               pendingNavRef.current = null
               setActiveSectionId(section.id)
             }}
@@ -1623,6 +1713,8 @@ function App() {
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
+                navIntentRef.current = 'push'
+                hashBlockRef.current = null
                 pendingNavRef.current = null
                 setActiveSectionId(section.id)
               }
@@ -1659,13 +1751,15 @@ function App() {
           notebookId={activeNotebookId}
           sectionId={activeSectionId}
           trackerId={activeTrackerId}
-          onNavigateHash={navigateToHash}
+          onNavigateHash={handleInternalHashNavigate}
           allTrackers={trackers}
         />
         <Sidebar
           trackers={trackers}
           activeId={activeTrackerId}
           onSelect={(id) => {
+            navIntentRef.current = 'push'
+            hashBlockRef.current = null
             pendingNavRef.current = null
             setActiveTrackerId(id)
           }}
