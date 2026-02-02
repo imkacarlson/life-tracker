@@ -190,7 +190,6 @@ h2 {
   gap: 1rem;
   min-height: calc(100vh - 140px);
   flex: 1;
-  overflow-x: auto;
 }
 
 .editor-header {
