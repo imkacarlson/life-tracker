@@ -562,7 +562,7 @@ function EditorPanel({
 
   const handleInsertTable = (rows, cols) => {
     if (!editor) return
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: false }).run()
     closeTablePicker()
   }
 

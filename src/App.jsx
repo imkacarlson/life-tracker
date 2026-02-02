@@ -326,6 +326,15 @@ const LinkShortcut = Extension.create({
   },
 })
 
+const BoldShortcut = Extension.create({
+  name: 'boldShortcut',
+  addKeyboardShortcuts() {
+    return {
+      'Mod-b': () => this.editor.chain().focus().toggleBold().run(),
+    }
+  },
+})
+
 const ListIndentShortcut = Extension.create({
   name: 'listIndentShortcut',
   priority: 1000,
@@ -926,6 +935,7 @@ function App() {
           },
         }),
         LinkShortcut,
+        BoldShortcut,
         ListIndentShortcut,
         ListSelectShortcut,
         ListExitOnEmpty,
