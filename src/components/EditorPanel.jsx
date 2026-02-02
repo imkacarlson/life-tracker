@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
+import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
 
@@ -730,17 +731,133 @@ function EditorPanel({
     editor.storage.highlightColor = highlightColor ?? null
   }, [editor, highlightColor])
 
+  const getActiveCellColor = useCallback(() => {
+    if (!editor) return null
+    return editor.getAttributes('tableCell')?.backgroundColor ?? editor.getAttributes('tableHeader')?.backgroundColor ?? null
+  }, [editor])
+
+  const getTableContext = useCallback(() => {
+    if (!editor) return null
+    const { state } = editor
+    const { $from } = state.selection
+    let tableDepth = null
+    let cellDepth = null
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const nodeName = $from.node(depth).type.name
+      if (cellDepth === null && (nodeName === 'tableCell' || nodeName === 'tableHeader')) {
+        cellDepth = depth
+      }
+      if (nodeName === 'table') {
+        tableDepth = depth
+        break
+      }
+    }
+    if (tableDepth === null || cellDepth === null) return null
+    const tableNode = $from.node(tableDepth)
+    const tablePos = $from.before(tableDepth)
+    const tableStart = $from.start(tableDepth)
+    const cellPos = $from.before(cellDepth)
+    const map = TableMap.get(tableNode)
+    const cellPosRel = cellPos - tableStart
+    const cellRect = map.findCell(cellPosRel)
+    return { tablePos, cellRect }
+  }, [editor])
+
+  const applyColorToRow = useCallback(
+    (tablePos, rowIndex, color) => {
+      if (!editor) return
+      const { state, view } = editor
+      const tableNode = state.doc.nodeAt(tablePos)
+      if (!tableNode) return
+      const map = TableMap.get(tableNode)
+      if (rowIndex < 0 || rowIndex >= map.height) return
+      const tableStart = tablePos + 1
+      const tr = state.tr
+      const seen = new Set()
+      for (let col = 0; col < map.width; col += 1) {
+        const cellPos = map.map[rowIndex * map.width + col]
+        if (cellPos == null || seen.has(cellPos)) continue
+        seen.add(cellPos)
+        const cell = tableNode.nodeAt(cellPos)
+        if (!cell) continue
+        tr.setNodeMarkup(tableStart + cellPos, undefined, { ...cell.attrs, backgroundColor: color })
+      }
+      if (tr.docChanged) view.dispatch(tr)
+    },
+    [editor],
+  )
+
+  const applyColorToColumn = useCallback(
+    (tablePos, colIndex, color) => {
+      if (!editor) return
+      const { state, view } = editor
+      const tableNode = state.doc.nodeAt(tablePos)
+      if (!tableNode) return
+      const map = TableMap.get(tableNode)
+      if (colIndex < 0 || colIndex >= map.width) return
+      const tableStart = tablePos + 1
+      const tr = state.tr
+      const seen = new Set()
+      for (let row = 0; row < map.height; row += 1) {
+        const cellPos = map.map[row * map.width + colIndex]
+        if (cellPos == null || seen.has(cellPos)) continue
+        seen.add(cellPos)
+        const cell = tableNode.nodeAt(cellPos)
+        if (!cell) continue
+        tr.setNodeMarkup(tableStart + cellPos, undefined, { ...cell.attrs, backgroundColor: color })
+      }
+      if (tr.docChanged) view.dispatch(tr)
+    },
+    [editor],
+  )
+
+  const handleInsertRow = useCallback(
+    (after) => {
+      if (!editor) return
+      const color = getActiveCellColor()
+      const tableContext = getTableContext()
+      const rowIndex = tableContext ? (after ? tableContext.cellRect.bottom : tableContext.cellRect.top) : null
+      if (after) {
+        editor.chain().focus().addRowAfter().run()
+      } else {
+        editor.chain().focus().addRowBefore().run()
+      }
+      if (color && tableContext && rowIndex !== null) {
+        applyColorToRow(tableContext.tablePos, rowIndex, color)
+      }
+    },
+    [editor, getActiveCellColor, getTableContext, applyColorToRow],
+  )
+
+  const handleInsertColumn = useCallback(
+    (after) => {
+      if (!editor) return
+      const color = getActiveCellColor()
+      const tableContext = getTableContext()
+      const colIndex = tableContext ? (after ? tableContext.cellRect.right : tableContext.cellRect.left) : null
+      if (after) {
+        editor.chain().focus().addColumnAfter().run()
+      } else {
+        editor.chain().focus().addColumnBefore().run()
+      }
+      if (color && tableContext && colIndex !== null) {
+        applyColorToColumn(tableContext.tablePos, colIndex, color)
+      }
+    },
+    [editor, getActiveCellColor, getTableContext, applyColorToColumn],
+  )
+
   const contextMenuItems = useMemo(
     () => [
-      { label: 'Insert row above', action: () => editor?.chain().focus().addRowBefore().run() },
-      { label: 'Insert row below', action: () => editor?.chain().focus().addRowAfter().run() },
-      { label: 'Insert column left', action: () => editor?.chain().focus().addColumnBefore().run() },
-      { label: 'Insert column right', action: () => editor?.chain().focus().addColumnAfter().run() },
+      { label: 'Insert row above', action: () => handleInsertRow(false) },
+      { label: 'Insert row below', action: () => handleInsertRow(true) },
+      { label: 'Insert column left', action: () => handleInsertColumn(false) },
+      { label: 'Insert column right', action: () => handleInsertColumn(true) },
       { label: 'Delete row', action: () => editor?.chain().focus().deleteRow().run() },
       { label: 'Delete column', action: () => editor?.chain().focus().deleteColumn().run() },
       { label: 'Delete table', action: () => editor?.chain().focus().deleteTable().run() },
     ],
-    [editor],
+    [editor, handleInsertRow, handleInsertColumn],
   )
 
   const deepLinkHash = useMemo(() => {
