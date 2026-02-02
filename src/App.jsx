@@ -375,6 +375,15 @@ const ListSelectShortcut = Extension.create({
           }
         }
 
+        const textBlock = findAncestor(['paragraph', 'heading'])
+        if (!list && textBlock) {
+          const blockFrom = textBlock.pos + 1
+          const blockTo = textBlock.pos + textBlock.node.nodeSize - 1
+          if (!selectionCovers(blockFrom, blockTo)) {
+            return selectRange(blockFrom, blockTo)
+          }
+        }
+
         const cell = findAncestor(['tableCell', 'tableHeader'])
         if (cell) {
           const cellFrom = cell.pos + 1
@@ -384,7 +393,7 @@ const ListSelectShortcut = Extension.create({
           }
         }
 
-        if (list || cell) {
+        if (list || cell || textBlock) {
           this.editor.commands.selectAll()
           return true
         }
@@ -703,10 +712,20 @@ function App() {
               const { state, dispatch } = view
               const { from, to } = state.selection
               const tr = state.tr
-              state.doc.nodesBetween(from, to, (node, pos) => {
-                if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
-                tr.setNodeMarkup(pos, undefined, { ...node.attrs, textAlign: align })
-              })
+              if (from === to) {
+                const { $from } = state.selection
+                for (let depth = $from.depth; depth > 0; depth -= 1) {
+                  const node = $from.node(depth)
+                  if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') continue
+                  tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, textAlign: align })
+                  break
+                }
+              } else {
+                state.doc.nodesBetween(from, to, (node, pos) => {
+                  if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+                  tr.setNodeMarkup(pos, undefined, { ...node.attrs, textAlign: align })
+                })
+              }
               if (tr.docChanged) dispatch(tr)
             }, 0)
             lastCopyAlignRef.current = { align: null, ts: 0 }
