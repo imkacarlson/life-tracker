@@ -138,6 +138,28 @@ const applyBackgroundStyle = (HTMLAttributes, backgroundColor) => {
   return { ...HTMLAttributes, style }
 }
 
+const summarizeSlice = (slice) => {
+  const lines = []
+  const walk = (node, listDepth = 0) => {
+    const name = node.type?.name
+    let nextDepth = listDepth
+    if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') {
+      nextDepth = listDepth + 1
+    }
+    if (name === 'paragraph' || name === 'heading') {
+      lines.push({
+        type: name,
+        align: node.attrs?.textAlign ?? 'left',
+        listDepth,
+        text: node.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      })
+    }
+    node.content?.forEach((child) => walk(child, nextDepth))
+  }
+  walk(slice.content)
+  return lines
+}
+
 const TableCellWithBackground = TableCell.extend({
   addAttributes() {
     return {
@@ -553,28 +575,47 @@ function App() {
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
   const uploadImageRef = useRef(null)
-  const lastCopyAlignRef = useRef({ align: null, ts: 0 })
+  const pasteInfoRef = useRef({
+    summary: null,
+    preFrom: null,
+    preTo: null,
+    isPmSlice: false,
+    ts: 0,
+  })
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
 
-  const storeCopyAlignment = useCallback((view) => {
-    const { state } = view
-    const { $from } = state.selection
-    let align = null
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const node = $from.node(depth)
-      if (node.type?.name === 'paragraph' || node.type?.name === 'heading') {
-        align = node.attrs?.textAlign ?? null
-        break
+  const collectBlockTargets = useCallback((state, start, end) => {
+    const targets = []
+    state.doc.nodesBetween(start, end, (node, pos) => {
+      if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+      targets.push({ node, pos })
+    })
+    return targets
+  }, [])
+
+  const getListDepthAt = useCallback((state, pos) => {
+    const $pos = state.doc.resolve(pos)
+    let depth = 0
+    for (let d = $pos.depth; d > 0; d -= 1) {
+      const name = $pos.node(d).type?.name
+      if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') {
+        depth += 1
       }
     }
-    if (!align || align === 'left') {
-      lastCopyAlignRef.current = { align: null, ts: Date.now() }
-      return
+    return depth
+  }, [])
+
+  const getListItemTypeAt = useCallback((state, pos) => {
+    const $pos = state.doc.resolve(pos)
+    for (let d = $pos.depth; d > 0; d -= 1) {
+      const name = $pos.node(d).type?.name
+      if (name === 'taskItem') return 'taskItem'
+      if (name === 'listItem') return 'listItem'
     }
-    lastCopyAlignRef.current = { align, ts: Date.now() }
+    return null
   }, [])
 
   useEffect(() => {
@@ -683,17 +724,22 @@ function App() {
         attributes: {
           class: 'editor-content',
         },
-        handleDOMEvents: {
-          copy: (view) => {
-            storeCopyAlignment(view)
-            return false
-          },
-          cut: (view) => {
-            storeCopyAlignment(view)
-            return false
-          },
+        transformPasted: (slice) => {
+          pasteInfoRef.current = {
+            ...pasteInfoRef.current,
+            summary: summarizeSlice(slice),
+          }
+          return slice
         },
         handlePaste: (view, event) => {
+          const html = event.clipboardData?.getData('text/html') ?? ''
+          pasteInfoRef.current = {
+            summary: null,
+            preFrom: view.state.selection.from,
+            preTo: view.state.selection.to,
+            isPmSlice: html.includes('data-pm-slice'),
+            ts: Date.now(),
+          }
           const files = event.clipboardData?.files
           if (files && files.length > 0) {
             const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
@@ -702,33 +748,6 @@ function App() {
               uploadImageRef.current?.(imageFile)
               return true
             }
-          }
-
-          const html = event.clipboardData?.getData('text/html') ?? ''
-          const { align, ts } = lastCopyAlignRef.current
-          if (align && html.includes('data-pm-slice') && Date.now() - ts < 60000) {
-            setTimeout(() => {
-              if (!view?.state || view.isDestroyed) return
-              const { state, dispatch } = view
-              const { from, to } = state.selection
-              const tr = state.tr
-              if (from === to) {
-                const { $from } = state.selection
-                for (let depth = $from.depth; depth > 0; depth -= 1) {
-                  const node = $from.node(depth)
-                  if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') continue
-                  tr.setNodeMarkup($from.before(depth), undefined, { ...node.attrs, textAlign: align })
-                  break
-                }
-              } else {
-                state.doc.nodesBetween(from, to, (node, pos) => {
-                  if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
-                  tr.setNodeMarkup(pos, undefined, { ...node.attrs, textAlign: align })
-                })
-              }
-              if (tr.docChanged) dispatch(tr)
-            }, 0)
-            lastCopyAlignRef.current = { align: null, ts: 0 }
           }
 
           return false
@@ -997,6 +1016,74 @@ function App() {
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
   }, [editor, scheduleSave])
+
+  useEffect(() => {
+    if (!editor) return
+    const handleTransaction = ({ transaction }) => {
+      const isPaste =
+        transaction.getMeta('paste') === true || transaction.getMeta('uiEvent') === 'paste'
+      if (!isPaste) return
+      const info = pasteInfoRef.current
+      if (!info?.isPmSlice || !info.summary?.length) return
+      const { view } = editor
+      const applyFixes = () => {
+        if (!view || view.isDestroyed) return
+        const { state, dispatch } = view
+        const start = info.preFrom ?? state.selection.from
+        const end = state.selection.to
+        const summary = info.summary ?? []
+        const targets = collectBlockTargets(state, start, end)
+        const limit = Math.min(summary.length, targets.length)
+        const tr = state.tr
+        for (let i = 0; i < limit; i += 1) {
+          const expectedAlign = summary[i]?.align ?? 'left'
+          const target = targets[i]
+          if (!target) continue
+          const nextAttrs = { ...target.node.attrs }
+          if (!expectedAlign || expectedAlign === 'left') {
+            if (nextAttrs.textAlign != null) delete nextAttrs.textAlign
+          } else {
+            nextAttrs.textAlign = expectedAlign
+          }
+          tr.setNodeMarkup(target.pos, undefined, nextAttrs)
+        }
+        if (tr.docChanged) dispatch(tr)
+
+        let currentState = view.state
+        const desiredEnd = Math.min(end, currentState.doc.content.size)
+        for (let i = 0; i < limit; i += 1) {
+          const expectedDepth = summary[i]?.listDepth ?? 0
+          let currentTargets = collectBlockTargets(currentState, start, desiredEnd)
+          let currentTarget = currentTargets[i]
+          if (!currentTarget) continue
+          let actualDepth = getListDepthAt(currentState, currentTarget.pos + 1)
+          let guard = 0
+          while (actualDepth > expectedDepth && guard < 10) {
+            const itemType = getListItemTypeAt(currentState, currentTarget.pos + 1)
+            if (!itemType) break
+            editor.chain().setTextSelection(currentTarget.pos + 1).liftListItem(itemType).run()
+            currentState = editor.view.state
+            currentTargets = collectBlockTargets(currentState, start, desiredEnd)
+            currentTarget = currentTargets[i]
+            if (!currentTarget) break
+            actualDepth = getListDepthAt(currentState, currentTarget.pos + 1)
+            guard += 1
+          }
+        }
+        editor.commands.setTextSelection(Math.min(desiredEnd, editor.view.state.doc.content.size))
+        pasteInfoRef.current = {
+          summary: null,
+          preFrom: null,
+          preTo: null,
+          isPmSlice: false,
+          ts: 0,
+        }
+      }
+      setTimeout(applyFixes, 0)
+    }
+    editor.on('transaction', handleTransaction)
+    return () => editor.off('transaction', handleTransaction)
+  }, [editor, collectBlockTargets, getListDepthAt, getListItemTypeAt])
 
   useEffect(() => {
     if (!session) return
