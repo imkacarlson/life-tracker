@@ -544,10 +544,29 @@ function App() {
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
   const uploadImageRef = useRef(null)
+  const lastCopyAlignRef = useRef({ align: null, ts: 0 })
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+
+  const storeCopyAlignment = useCallback((view) => {
+    const { state } = view
+    const { $from } = state.selection
+    let align = null
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth)
+      if (node.type?.name === 'paragraph' || node.type?.name === 'heading') {
+        align = node.attrs?.textAlign ?? null
+        break
+      }
+    }
+    if (!align || align === 'left') {
+      lastCopyAlignRef.current = { align: null, ts: Date.now() }
+      return
+    }
+    lastCopyAlignRef.current = { align, ts: Date.now() }
+  }, [])
 
   useEffect(() => {
     titleDraftRef.current = titleDraft
@@ -655,14 +674,45 @@ function App() {
         attributes: {
           class: 'editor-content',
         },
-        handlePaste: (_view, event) => {
+        handleDOMEvents: {
+          copy: (view) => {
+            storeCopyAlignment(view)
+            return false
+          },
+          cut: (view) => {
+            storeCopyAlignment(view)
+            return false
+          },
+        },
+        handlePaste: (view, event) => {
           const files = event.clipboardData?.files
-          if (!files || files.length === 0) return false
-          const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
-          if (!imageFile) return false
-          event.preventDefault()
-          uploadImageRef.current?.(imageFile)
-          return true
+          if (files && files.length > 0) {
+            const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
+            if (imageFile) {
+              event.preventDefault()
+              uploadImageRef.current?.(imageFile)
+              return true
+            }
+          }
+
+          const html = event.clipboardData?.getData('text/html') ?? ''
+          const { align, ts } = lastCopyAlignRef.current
+          if (align && html.includes('data-pm-slice') && Date.now() - ts < 60000) {
+            setTimeout(() => {
+              if (!view?.state || view.isDestroyed) return
+              const { state, dispatch } = view
+              const { from, to } = state.selection
+              const tr = state.tr
+              state.doc.nodesBetween(from, to, (node, pos) => {
+                if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+                tr.setNodeMarkup(pos, undefined, { ...node.attrs, textAlign: align })
+              })
+              if (tr.docChanged) dispatch(tr)
+            }, 0)
+            lastCopyAlignRef.current = { align: null, ts: 0 }
+          }
+
+          return false
         },
         handleDrop: (_view, event, _slice, moved) => {
           if (moved) return false
