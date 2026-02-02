@@ -120,14 +120,19 @@ Rules:
 - If a task’s date is BEFORE today, include it and append " (overdue)" to the task text
 - Include recurring tasks that apply to today
 - Flag upcoming deadlines within the next 1-2 days
+- If a task has no explicit date but seems important to do today, include it in ASAP
 - SKIP anything with strikethrough (marked with ~~text~~) - those are completed
 - For each task, include the block_id of the source paragraph so we can link back to it
 - If a task relates to multiple source paragraphs, include all relevant block_ids
 
-Respond with ONLY a JSON array, no other text. Each item should be:
-{"task": "short task description", "block_ids": ["uuid1", "uuid2"], "priority": "high" | "medium" | "low"}
+Respond with ONLY a JSON object, no other text. Use this shape:
+{"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
 
-Order by priority (high first), then by time sensitivity.`
+Bucket rules:
+- ASAP: overdue tasks, tasks due today, and recurring tasks that apply today
+- FYI: deadlines within the next 1-2 days
+
+Order each list by priority (high first), then by time sensitivity.`
 
     const userMessage = trackerPages.map((page: any) =>
       `=== Page: ${page.title} (pageId: ${page.pageId}) ===\n${page.textContent}`
@@ -152,15 +157,40 @@ Order by priority (high first), then by time sensitivity.`
 
     const rawText = providerConfig.extractResponse(data)
 
-    let tasks
+    let asap = []
+    let fyi = []
     try {
-      const jsonMatch = rawText.match(/\[[\s\S]*\]/)
-      tasks = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+      const trimmed = rawText.trim()
+      let parsed = null
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        parsed = JSON.parse(trimmed)
+      } else {
+        const objStart = trimmed.indexOf('{')
+        const objEnd = trimmed.lastIndexOf('}')
+        const arrStart = trimmed.indexOf('[')
+        const arrEnd = trimmed.lastIndexOf(']')
+        if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
+          parsed = JSON.parse(trimmed.slice(objStart, objEnd + 1))
+        } else if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
+          parsed = JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
+        }
+      }
+
+      if (Array.isArray(parsed)) {
+        asap = parsed
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.asap)) asap = parsed.asap
+        if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
+        if (!asap.length && !fyi.length && Array.isArray(parsed.tasks)) {
+          asap = parsed.tasks
+        }
+      }
     } catch {
-      tasks = []
+      asap = []
+      fyi = []
     }
 
-    return new Response(JSON.stringify({ tasks, rawText }), {
+    return new Response(JSON.stringify({ asap, fyi, rawText }), {
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     })
   } catch (err) {

@@ -252,7 +252,13 @@ function EditorPanel({
         body: { provider, model, trackerPages, today, dayOfWeek },
       })
       if (error) throw error
-      if (!data?.tasks?.length) {
+      const asapTasks = Array.isArray(data?.asap)
+        ? data.asap
+        : Array.isArray(data?.tasks)
+          ? data.tasks
+          : []
+      const fyiTasks = Array.isArray(data?.fyi) ? data.fyi : []
+      if (asapTasks.length === 0 && fyiTasks.length === 0) {
         alert('No tasks generated. Check your tracker pages have content.')
         return
       }
@@ -270,29 +276,52 @@ function EditorPanel({
           },
         ],
       }
-      const listItems = data.tasks.map((task) => {
-        const content = [{ type: 'text', text: task.task }]
-        if (task.block_ids?.length) {
-          task.block_ids.forEach((blockId, i) => {
-            const sourcePageInfo = trackerPages.find((tp) => tp.textContent.includes(blockId))
-            const sourcePage = sourcePageInfo
-              ? (allTrackers || []).find((t) => t.id === sourcePageInfo.pageId)
-              : null
-            if (sourcePage) {
-              const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourcePage.id}&block=${blockId}`
-              content.push({ type: 'text', text: ' ' })
-              content.push({
-                type: 'text',
-                text: `[${i + 1}]`,
-                marks: [{ type: 'link', attrs: { href: hash, target: '_self' } }],
-              })
-            }
-          })
+      const buildListItems = (tasks) =>
+        tasks.map((task) => {
+          const content = [{ type: 'text', text: task.task }]
+          if (task.block_ids?.length) {
+            task.block_ids.forEach((blockId, i) => {
+              const sourcePageInfo = trackerPages.find((tp) => tp.textContent.includes(blockId))
+              const sourcePage = sourcePageInfo
+                ? (allTrackers || []).find((t) => t.id === sourcePageInfo.pageId)
+                : null
+              if (sourcePage) {
+                const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourcePage.id}&block=${blockId}`
+                content.push({ type: 'text', text: ' ' })
+                content.push({
+                  type: 'text',
+                  text: `[${i + 1}]`,
+                  marks: [{ type: 'link', attrs: { href: hash, target: '_self' } }],
+                })
+              }
+            })
+          }
+          return { type: 'listItem', content: [{ type: 'paragraph', content }] }
+        })
+
+      const makeRow = (label, tasks) => {
+        const items = buildListItems(tasks)
+        const content = [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: label, marks: [{ type: 'bold' }] }],
+          },
+        ]
+        if (items.length) {
+          content.push({ type: 'bulletList', content: items })
         }
-        return { type: 'listItem', content: [{ type: 'paragraph', content }] }
-      })
-      const bulletList = { type: 'bulletList', content: listItems }
-      editor.chain().focus('end').insertContent([heading, bulletList]).run()
+        return {
+          type: 'tableRow',
+          content: [{ type: 'tableCell', content }],
+        }
+      }
+
+      const table = {
+        type: 'table',
+        content: [makeRow('ASAP', asapTasks), makeRow('FYI', fyiTasks)],
+      }
+
+      editor.chain().focus('end').insertContent([heading, table]).run()
     } catch (err) {
       console.error('AI generation failed:', err)
       alert('Failed to generate tasks: ' + (err.message || String(err)))
