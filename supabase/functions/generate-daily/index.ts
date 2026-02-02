@@ -118,9 +118,10 @@ Rules:
 - Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
 - Assume numeric dates are MM/DD in the current year when no year is provided
 - If a task’s date is BEFORE today, include it and append " (overdue)" to the task text
-- Include recurring tasks that apply to today
 - Flag upcoming deadlines within the next 1-2 days
 - If a task has no explicit date but seems important to do today, include it in ASAP
+- ONLY create tasks from items listed under NEXT_STEPS for each page
+- DO NOT create tasks from Background or Recurring sections; those are context only
 - SKIP anything with strikethrough (marked with ~~text~~) - those are completed
 - For each task, include the block_id of the source paragraph so we can link back to it
 - If a task relates to multiple source paragraphs, include all relevant block_ids
@@ -129,16 +130,88 @@ Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wr
 {"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
 
 Bucket rules:
-- ASAP: overdue tasks, tasks due today, and recurring tasks that apply today
+- ASAP: overdue tasks and tasks due today (from NEXT_STEPS)
 - FYI: deadlines within the next 1-2 days
 
 If a bucket is empty, return an empty array for it.
 
 Order each list by priority (high first), then by time sensitivity.`
 
-    const userMessage = trackerPages.map((page: any) =>
-      `=== Page: ${page.title} (pageId: ${page.pageId}) ===\n${page.textContent}`
-    ).join('\n\n')
+    const extractNextStepsFromText = (text: string) => {
+      const lines = String(text || '').split('\n')
+      const nextSteps: { text: string, blockId: string }[] = []
+      const contextLines: string[] = []
+      let inNextSteps = false
+
+      const isNextStepsHeader = (value: string) => /^next steps:?\s*/i.test(value)
+      const isListLine = (value: string) =>
+        value.startsWith('- ') ||
+        /^\d+\.\s+/.test(value) ||
+        /^\[(?: |x|X)\]\s+/.test(value)
+
+      const cleanListText = (value: string) =>
+        value
+          .replace(/^\-\s+/, '')
+          .replace(/^\d+\.\s+/, '')
+          .replace(/^\[(?: |x|X)\]\s+/, '')
+          .trim()
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (isNextStepsHeader(trimmed)) {
+          inNextSteps = true
+          continue
+        }
+        if (inNextSteps) {
+          if (!trimmed) continue
+          if (isListLine(trimmed)) {
+            const idMatch = line.match(/{{id:([^}]+)}}/)
+            const blockId = idMatch?.[1]
+            const cleaned = cleanListText(trimmed).replace(/\s*{{id:[^}]+}}/g, '').trim()
+            if (blockId && cleaned) {
+              nextSteps.push({ text: cleaned, blockId })
+            }
+            continue
+          }
+          inNextSteps = false
+        }
+        contextLines.push(line)
+      }
+
+      return {
+        nextSteps,
+        context: contextLines.join('\n').trim(),
+      }
+    }
+
+    const preparedPages = (trackerPages || []).map((page: any) => {
+      const { nextSteps, context } = extractNextStepsFromText(page.textContent || '')
+      return {
+        ...page,
+        nextSteps,
+        context,
+      }
+    })
+
+    const allowedBlockIds = new Set<string>()
+    preparedPages.forEach((page: any) => {
+      page.nextSteps?.forEach((item: { blockId: string }) => allowedBlockIds.add(item.blockId))
+    })
+
+    const userMessage = preparedPages.map((page: any) => {
+      const nextStepsText = page.nextSteps?.length
+        ? page.nextSteps.map((item: any) => `- ${item.text} (block_id: ${item.blockId})`).join('\n')
+        : '(none)'
+      const contextText = page.context?.trim() ? page.context : '(none)'
+      return [
+        `=== Page: ${page.title} (pageId: ${page.pageId}) ===`,
+        'NEXT_STEPS (only these can become tasks):',
+        nextStepsText,
+        '',
+        'CONTEXT (background/recurring/notes; do not create tasks from this):',
+        contextText,
+      ].join('\n')
+    }).join('\n\n')
 
     let fetchUrl = providerConfig.url
     if (provider === 'google') {
@@ -201,14 +274,34 @@ Order each list by priority (high first), then by time sensitivity.`
 
     const rawText = providerConfig.extractResponse(data)
     const parsed = parseTasks(rawText)
-    const warning =
+
+    const filterToNextSteps = (tasks: any[]) =>
+      (tasks || [])
+        .map((task) => {
+          const blockIds = Array.isArray(task.block_ids)
+            ? task.block_ids.filter((id: string) => allowedBlockIds.has(id))
+            : []
+          if (!blockIds.length) return null
+          return { ...task, block_ids: blockIds }
+        })
+        .filter(Boolean)
+
+    const asap = filterToNextSteps(parsed.asap)
+    const fyi = filterToNextSteps(parsed.fyi)
+    const removedCount = (parsed.asap?.length || 0) + (parsed.fyi?.length || 0) - (asap.length + fyi.length)
+
+    let warning =
       parsed.format === 'asap_fyi'
         ? null
         : 'FYI: AI response did not follow the ASAP/FYI format. Results may be incomplete.'
+    if (removedCount > 0) {
+      const note = 'FYI: Some tasks were removed because they were not under Next steps.'
+      warning = warning ? `${warning} ${note}` : note
+    }
 
     return new Response(JSON.stringify({
-      asap: parsed.asap,
-      fyi: parsed.fyi,
+      asap,
+      fyi,
       rawText,
       warning,
     }), {
