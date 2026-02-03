@@ -113,16 +113,23 @@ Deno.serve(async (req) => {
 
 Your job: generate a prioritized daily task list based on what needs to be done today.
 
+TODAY: ${today}
+
 Rules:
-- Look for tasks with dates due today or overdue
-- Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
-- Assume numeric dates are MM/DD in the current year when no year is provided
-- If a task’s date is BEFORE today, include it and append " (overdue)" to the task text
-- Flag upcoming deadlines within the next 1-2 days
-- If a task has no explicit date but seems important to do today, include it in ASAP
 - ONLY create tasks from items listed under NEXT_STEPS for each page
 - DO NOT create tasks from Background or Recurring sections; those are context only
 - SKIP anything with strikethrough (marked with ~~text~~) - those are completed
+- Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
+- Assume numeric dates are MM/DD in the current year when no year is provided
+- Tomorrow is TODAY + 1 day. The day after tomorrow is TODAY + 2 days.
+- If a task has an explicit due date:
+  - If the due date is BEFORE today, include it and append " (overdue)" to the task text
+  - If the due date is TODAY, include it in ASAP
+  - If the due date is TOMORROW or the day after tomorrow, include it in FYI
+  - If the due date is MORE THAN 2 days away, OMIT it entirely (do not include in ASAP or FYI)
+- NEVER place any task with a future due date in ASAP (even if it seems important)
+- If a task has NO explicit date, include it in ASAP only if it is explicitly urgent in the text
+- It is OK for ASAP or FYI to be short or empty. Do NOT invent tasks or add filler
 - For each task, include the block_id of the source paragraph so we can link back to it
 - If a task relates to multiple source paragraphs, include all relevant block_ids
 
@@ -130,12 +137,16 @@ Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wr
 {"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
 
 Bucket rules:
-- ASAP: overdue tasks and tasks due today (from NEXT_STEPS)
-- FYI: deadlines within the next 1-2 days
+- ASAP: overdue tasks, tasks due today, and undated urgent tasks
+- FYI: tasks due in 1-2 days (tomorrow or day after tomorrow)
+- Omit anything due more than 2 days out
 
 If a bucket is empty, return an empty array for it.
 
-Order each list by priority (high first), then by time sensitivity.`
+Ordering:
+- ASAP: overdue first (most recently overdue at top), then due today, then undated urgent
+- FYI: soonest due date first
+- Within the same due date, high priority first.`
 
     const extractNextStepsFromText = (text: string) => {
       const lines = String(text || '').split('\n')
