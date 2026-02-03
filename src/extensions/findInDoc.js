@@ -4,16 +4,62 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 export const findInDocPluginKey = new PluginKey('findInDoc')
 
-const buildSearchIndex = (doc) => {
-  let text = ''
-  const posMap = []
-  let lastWasSeparator = true
+const normalizeQuery = (input) => {
+  if (typeof input !== 'string') return ''
+  let normalized = input.trim()
+  if (normalized.length < 2) return normalized
 
-  const addSeparator = () => {
-    if (lastWasSeparator) return
-    text += '\n'
-    posMap.push(null)
-    lastWasSeparator = true
+  const first = normalized[0]
+  const last = normalized[normalized.length - 1]
+  const quoteChars = new Set(['"', "'", '“', '”', '‘', '’'])
+
+  if (quoteChars.has(first) && quoteChars.has(last)) {
+    normalized = normalized.slice(1, -1).trim()
+  }
+
+  return normalized
+}
+
+const computeMatches = (doc, query) => {
+  const normalized = query?.trim()
+  if (!normalized) return []
+
+  const needle = normalized.toLowerCase()
+  const matches = []
+  const window = []
+  const windowSize = needle.length
+  let charBeforeWindow = null
+
+  const resetWindow = () => {
+    window.length = 0
+    charBeforeWindow = null
+  }
+
+  const pushChar = (char, pos) => {
+    // When shifting out a char, it becomes the new "before" character
+    if (window.length >= windowSize) {
+      charBeforeWindow = window[0].char
+    }
+
+    window.push({ char, pos })
+    if (window.length > windowSize) {
+      window.shift()
+    }
+    if (window.length < windowSize) return
+
+    const value = window.map((entry) => entry.char).join('')
+    if (value !== needle) return
+
+    // Skip if preceded by a digit (for standalone date matching)
+    if (charBeforeWindow && /\d/.test(charBeforeWindow)) {
+      return
+    }
+
+    const from = window[0].pos
+    const to = window[window.length - 1].pos + 1
+    if (typeof from === 'number' && typeof to === 'number' && from < to) {
+      matches.push({ from, to })
+    }
   }
 
   doc.descendants((node, pos) => {
@@ -21,60 +67,23 @@ const buildSearchIndex = (doc) => {
       const value = node.text || ''
       if (value.length > 0) {
         for (let i = 0; i < value.length; i += 1) {
-          text += value[i]
-          posMap.push(pos + 1 + i)
+          pushChar(value[i].toLowerCase(), pos + 1 + i)
         }
-        lastWasSeparator = false
       }
       return false
     }
 
     if (node.type?.name === 'hardBreak') {
-      addSeparator()
+      resetWindow()
       return false
     }
 
     if (node.isBlock && node.type?.name !== 'doc') {
-      addSeparator()
+      resetWindow()
     }
 
     return true
   })
-
-  return { text, posMap }
-}
-
-const computeMatches = (doc, query) => {
-  const normalized = query?.trim()
-  if (!normalized) return []
-
-  const { text, posMap } = buildSearchIndex(doc)
-  const haystack = text.toLowerCase()
-  const needle = normalized.toLowerCase()
-  const matches = []
-  let startIndex = 0
-
-  while ((startIndex = haystack.indexOf(needle, startIndex)) !== -1) {
-    const endIndex = startIndex + needle.length
-    let blocked = false
-
-    for (let i = startIndex; i < endIndex; i += 1) {
-      if (posMap[i] == null) {
-        blocked = true
-        break
-      }
-    }
-
-    if (!blocked) {
-      const from = posMap[startIndex]
-      const to = posMap[endIndex - 1] + 1
-      if (typeof from === 'number' && typeof to === 'number' && from < to) {
-        matches.push({ from, to })
-      }
-    }
-
-    startIndex += 1
-  }
 
   return matches
 }
@@ -101,8 +110,7 @@ const FindInDoc = Extension.create({
         (query) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return true
-          const nextQuery = typeof query === 'string' ? query : ''
-          const normalized = nextQuery.trim()
+          const normalized = normalizeQuery(query)
           const matches = normalized ? computeMatches(state.doc, normalized) : []
           const index = matches.length > 0 ? 0 : -1
           const nextTr = tr.setMeta(findInDocPluginKey, {
@@ -198,7 +206,7 @@ const FindInDoc = Extension.create({
             let index = prev.index
 
             if (typeof meta?.query === 'string') {
-              query = meta.query
+              query = normalizeQuery(meta.query)
             }
 
             const shouldRecompute = tr.docChanged || typeof meta?.query === 'string'

@@ -105,14 +105,39 @@ function EditorPanel({
   const handleFindQueryChange = (value) => {
     setFindQuery(value)
     editor?.commands?.setFindQuery?.(value)
+    // Don't focus editor here - it steals focus from the search input
   }
+
+  const scrollMatchIntoView = useCallback(() => {
+    if (!editor) return
+    requestAnimationFrame(() => {
+      const { view } = editor
+      const { from } = view.state.selection
+      const coords = view.coordsAtPos(from)
+      const toolbarHeight = 100 // Approximate height of toolbar + find bar
+      const bottomPadding = 50 // Padding from bottom of viewport
+
+      // If match is hidden behind toolbar (too high)
+      if (coords.top < toolbarHeight) {
+        const scrollAmount = toolbarHeight - coords.top + 20
+        window.scrollBy({ top: -scrollAmount, behavior: 'instant' })
+      }
+      // If match is below the visible viewport (too low)
+      else if (coords.bottom > window.innerHeight - bottomPadding) {
+        const scrollAmount = coords.bottom - window.innerHeight + bottomPadding + 20
+        window.scrollBy({ top: scrollAmount, behavior: 'instant' })
+      }
+    })
+  }, [editor])
 
   const handleFindNext = () => {
     editor?.commands?.findNext?.()
+    scrollMatchIntoView()
   }
 
   const handleFindPrev = () => {
     editor?.commands?.findPrev?.()
+    scrollMatchIntoView()
   }
 
   const handleExportText = () => {
@@ -1548,7 +1573,14 @@ function EditorPanel({
               value={findQuery}
               onChange={(event) => handleFindQueryChange(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && event.shiftKey) {
+                if (event.key === 'F3') {
+                  event.preventDefault()
+                  if (event.shiftKey) {
+                    handleFindPrev()
+                  } else {
+                    handleFindNext()
+                  }
+                } else if (event.key === 'Enter' && event.shiftKey) {
                   event.preventDefault()
                   handleFindPrev()
                 } else if (event.key === 'Enter') {
