@@ -239,7 +239,7 @@ function EditorPanel({
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
       const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
       const now = new Date()
-      const today = now.toISOString().split('T')[0]
+      const today = now.toLocaleDateString('en-CA')
       const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' })
       const trackerPages = (allTrackers || [])
         .filter((t) => t.id !== trackerId)
