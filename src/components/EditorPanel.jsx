@@ -248,8 +248,17 @@ function EditorPanel({
           pageId: t.id,
           textContent: serializeDocToText(t.content || { type: 'doc', content: [] }),
         }))
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        throw new Error('You must be logged in to use AI Daily')
+      }
+
       const { data, error } = await supabase.functions.invoke('generate-daily', {
         body: { provider, model, trackerPages, today, dayOfWeek },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       })
       if (error) throw error
       const asapTasks = Array.isArray(data?.asap)
