@@ -67,7 +67,7 @@ const computeMatches = (doc, query) => {
       const value = node.text || ''
       if (value.length > 0) {
         for (let i = 0; i < value.length; i += 1) {
-          pushChar(value[i].toLowerCase(), pos + 1 + i)
+          pushChar(value[i].toLowerCase(), pos + i)
         }
       }
       return false
