@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 supabase/.temp/
+.mcp.json
 
 # Editor directories and files
 .vscode/*

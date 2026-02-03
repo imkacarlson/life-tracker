@@ -18,6 +18,11 @@ function EditorPanel({
   trackerId,
   onNavigateHash,
   allTrackers,
+  userId,
+  titleReadOnly = false,
+  showDelete = true,
+  headerActions = null,
+  showAiDaily = true,
 }) {
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
@@ -232,6 +237,137 @@ function EditorPanel({
     URL.revokeObjectURL(url)
   }
 
+  const normalizeTemplateContent = (content) => {
+    if (content && typeof content === 'object' && content.type) return content
+    return { type: 'doc', content: [] }
+  }
+
+  const hasMeaningfulTemplate = (doc) => {
+    const content = Array.isArray(doc?.content) ? doc.content : []
+    if (content.length === 0) return false
+    if (content.length === 1 && content[0]?.type === 'paragraph') {
+      const text = (content[0].content || [])
+        .map((node) => node.text || '')
+        .join('')
+        .trim()
+      const hasNonText = (content[0].content || []).some(
+        (node) => node.type && node.type !== 'text' && node.type !== 'hardBreak',
+      )
+      return Boolean(text || hasNonText)
+    }
+    return true
+  }
+
+  const isWhitespaceText = (value) => !value || value.trim().length === 0
+
+  const isEmptyParagraphNode = (node) => {
+    if (!node || node.type !== 'paragraph') return false
+    const content = Array.isArray(node.content) ? node.content : []
+    if (content.length === 0) return true
+    return content.every((child) => {
+      if (child.type === 'hardBreak') return true
+      if (child.type === 'text') return isWhitespaceText(child.text || '')
+      return false
+    })
+  }
+
+  const trimTrailingEmptyParagraphs = (nodes) => {
+    if (!Array.isArray(nodes)) return []
+    const trimmed = [...nodes]
+    while (trimmed.length > 0 && isEmptyParagraphNode(trimmed[trimmed.length - 1])) {
+      trimmed.pop()
+    }
+    return trimmed
+  }
+
+  const getMergeableTemplateList = (nodes) => {
+    const trimmed = trimTrailingEmptyParagraphs(nodes)
+    if (trimmed.length === 0) return null
+    const lastIndex = trimmed.length - 1
+    const lastNode = trimmed[lastIndex]
+    if (lastNode?.type !== 'bulletList') return null
+    return {
+      prefix: trimmed.slice(0, lastIndex),
+      listNode: lastNode,
+    }
+  }
+
+  const collectStoragePaths = (node, paths) => {
+    if (!node) return
+    if (node.type === 'image' && node.attrs?.storagePath) {
+      paths.add(node.attrs.storagePath)
+    }
+    if (Array.isArray(node.content)) {
+      node.content.forEach((child) => collectStoragePaths(child, paths))
+    }
+  }
+
+  const applySignedUrls = (node, signedMap) => {
+    if (!node) return node
+    let updatedNode = node
+    if (node.type === 'image' && node.attrs?.storagePath) {
+      const nextSrc = signedMap[node.attrs.storagePath]
+      if (nextSrc) {
+        updatedNode = {
+          ...node,
+          attrs: {
+            ...node.attrs,
+            src: nextSrc,
+          },
+        }
+      }
+    }
+    if (Array.isArray(updatedNode.content)) {
+      return {
+        ...updatedNode,
+        content: updatedNode.content.map((child) => applySignedUrls(child, signedMap)),
+      }
+    }
+    return updatedNode
+  }
+
+  const hydrateContentWithSignedUrls = async (content) => {
+    const doc = normalizeTemplateContent(content)
+    const paths = new Set()
+    collectStoragePaths(doc, paths)
+    if (paths.size === 0) return doc
+
+    const entries = await Promise.all(
+      Array.from(paths).map(async (path) => {
+        const { data, error } = await supabase.storage
+          .from('tracker-images')
+          .createSignedUrl(path, 60 * 60)
+        if (error || !data?.signedUrl) return [path, null]
+        return [path, data.signedUrl]
+      }),
+    )
+
+    const signedMap = entries.reduce((acc, [path, url]) => {
+      if (url) acc[path] = url
+      return acc
+    }, {})
+
+    return applySignedUrls(doc, signedMap)
+  }
+
+  const loadDailyTemplateNodes = async () => {
+    if (!userId) return []
+    const { data, error } = await supabase
+      .from('settings')
+      .select('daily_template_content')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) {
+      console.error('Failed to load daily template:', error)
+      return []
+    }
+    const doc = normalizeTemplateContent(data?.daily_template_content)
+    if (!hasMeaningfulTemplate(doc)) return []
+    const hydrated = await hydrateContentWithSignedUrls(doc)
+    const nodes = Array.isArray(hydrated.content) ? hydrated.content : []
+    return JSON.parse(JSON.stringify(nodes))
+  }
+
   const handleGenerateToday = async () => {
     if (!editor || aiLoading) return
     setAiLoading(true)
@@ -267,10 +403,18 @@ function EditorPanel({
           ? data.tasks
           : []
       const fyiTasks = Array.isArray(data?.fyi) ? data.fyi : []
-      if (asapTasks.length === 0 && fyiTasks.length === 0) {
+      let templateNodes = []
+      try {
+        templateNodes = await loadDailyTemplateNodes()
+      } catch (err) {
+        console.error('Failed to load daily template:', err)
+        templateNodes = []
+      }
+      if (asapTasks.length === 0 && fyiTasks.length === 0 && templateNodes.length === 0) {
         alert('No tasks generated. Check your tracker pages have content.')
         return
       }
+
       const heading = {
         type: 'heading',
         attrs: { level: 2 },
@@ -308,7 +452,7 @@ function EditorPanel({
           return { type: 'listItem', content: [{ type: 'paragraph', content }] }
         })
 
-      const makeRow = (label, tasks) => {
+      const makeRow = (label, tasks, extraNodes = []) => {
         const items = buildListItems(tasks)
         const content = [
           {
@@ -316,6 +460,23 @@ function EditorPanel({
             content: [{ type: 'text', text: label, marks: [{ type: 'bold' }] }],
           },
         ]
+
+        if (extraNodes.length) {
+          const mergeInfo = getMergeableTemplateList(extraNodes)
+          if (mergeInfo) {
+            const mergedList = {
+              ...mergeInfo.listNode,
+              content: [...(mergeInfo.listNode.content || []), ...items],
+            }
+            content.push(...mergeInfo.prefix, mergedList)
+            return {
+              type: 'tableRow',
+              content: [{ type: 'tableCell', content }],
+            }
+          }
+          content.push(...extraNodes)
+        }
+
         const listContent = items.length
           ? items
           : [
@@ -338,7 +499,7 @@ function EditorPanel({
 
       const table = {
         type: 'table',
-        content: [makeRow('ASAP', asapTasks), makeRow('FYI', fyiTasks)],
+        content: [makeRow('ASAP', asapTasks, templateNodes), makeRow('FYI', fyiTasks)],
       }
 
       const insertContent = [heading]
@@ -938,6 +1099,8 @@ function EditorPanel({
     }
   }, [editor, onNavigateHash])
 
+  const hasHeaderActions = Boolean(headerActions) || showDelete
+
   return (
     <section className="editor-panel">
       <div className="editor-header">
@@ -945,13 +1108,24 @@ function EditorPanel({
           <input
             className="title-input"
             value={title}
-            onChange={(event) => onTitleChange(event.target.value)}
+            onChange={(event) => {
+              if (titleReadOnly) return
+              onTitleChange(event.target.value)
+            }}
             placeholder="Tracker title"
             disabled={!hasTracker}
+            readOnly={titleReadOnly}
           />
-          <button className="ghost" onClick={onDelete} disabled={!hasTracker}>
-            Delete
-          </button>
+          {hasHeaderActions && (
+            <div className="title-actions">
+              {headerActions}
+              {showDelete && (
+                <button className="ghost" onClick={onDelete} disabled={!hasTracker}>
+                  Delete
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="status-row">
           <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
@@ -1132,9 +1306,11 @@ function EditorPanel({
         <button type="button" onClick={handleExportText} disabled={!hasTracker}>
           Export
         </button>
-        <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
-          {aiLoading ? 'Generating...' : 'AI Daily'}
-        </button>
+        {showAiDaily && (
+          <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
+            {aiLoading ? 'Generating...' : 'AI Daily'}
+          </button>
+        )}
 
         <div className="toolbar-divider" />
 

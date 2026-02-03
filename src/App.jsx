@@ -24,6 +24,7 @@ import Heading from '@tiptap/extension-heading'
 import { supabase } from './lib/supabase'
 import Sidebar from './components/Sidebar'
 import EditorPanel from './components/EditorPanel'
+import SettingsHub from './components/SettingsHub'
 import './App.css'
 
 const EMPTY_DOC = {
@@ -826,6 +827,11 @@ function App() {
   const [titleDraft, setTitleDraft] = useState('')
   const [saveStatus, setSaveStatus] = useState('Saved')
   const [dataLoading, setDataLoading] = useState(false)
+  const [settingsMode, setSettingsMode] = useState(null)
+  const [settingsRow, setSettingsRow] = useState(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [templateSaveStatus, setTemplateSaveStatus] = useState('Saved')
+  const [settingsContentVersion, setSettingsContentVersion] = useState(0)
   const userId = getUserId(session)
 
   const pendingNavRef = useRef(null)
@@ -835,8 +841,11 @@ function App() {
   const navigateRef = useRef(null)
   const savedSelectionRef = useRef(readStoredSelection())
   const saveTimerRef = useRef(null)
+  const settingsSaveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
+  const settingsRowRef = useRef(null)
+  const templateContentRef = useRef(EMPTY_DOC)
   const uploadImageRef = useRef(null)
   const pasteInfoRef = useRef({
     summary: null,
@@ -851,6 +860,8 @@ function App() {
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+  const isSettingsHub = settingsMode === 'hub'
+  const isTemplateEditing = settingsMode === 'daily-template'
 
   const collectBlockTargets = useCallback((state, start, end) => {
     const targets = []
@@ -892,9 +903,16 @@ function App() {
   }, [activeTracker])
 
   useEffect(() => {
+    settingsRowRef.current = settingsRow
+  }, [settingsRow])
+
+  useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
+      }
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current)
       }
     }
   }, [])
@@ -1064,10 +1082,65 @@ function App() {
     [session],
   )
 
+  const loadSettings = useCallback(async () => {
+    if (!userId) return
+    setSettingsLoading(true)
+    setMessage('')
+    const { data, error } = await supabase
+      .from('settings')
+      .select('id, user_id, daily_template_content, created_at, updated_at')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (error) {
+      setMessage(error.message)
+      setSettingsLoading(false)
+      return
+    }
+
+    let row = data
+    if (!row) {
+      const { data: created, error: createError } = await supabase
+        .from('settings')
+        .insert({ user_id: userId, daily_template_content: EMPTY_DOC })
+        .select()
+        .single()
+
+      if (createError) {
+        setMessage(createError.message)
+        setSettingsLoading(false)
+        return
+      }
+      row = created
+    }
+
+    const hydrated = await hydrateContentWithSignedUrls(
+      normalizeContent(row.daily_template_content),
+    )
+    templateContentRef.current = hydrated
+    setSettingsRow(row)
+    setSettingsContentVersion((version) => version + 1)
+    setSettingsLoading(false)
+  }, [userId, hydrateContentWithSignedUrls])
+
   useEffect(() => {
     if (!editor) return
     let mounted = true
     const setContent = async () => {
+      if (settingsMode === 'daily-template') {
+        const rawContent = normalizeContent(templateContentRef.current)
+        const hydrated = await hydrateContentWithSignedUrls(rawContent)
+        if (!mounted) return
+        editor.commands.setContent(hydrated, {
+          emitUpdate: false,
+          parseOptions: {
+            preserveWhitespace: 'full',
+          },
+        })
+        return
+      }
+      if (settingsMode) return
+
       const rawContent = normalizeContent(activeTracker?.content)
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
       if (!mounted) return
@@ -1102,16 +1175,29 @@ function App() {
     return () => {
       mounted = false
     }
-  }, [editor, activeTrackerId, hydrateContentWithSignedUrls])
+  }, [
+    editor,
+    activeTrackerId,
+    hydrateContentWithSignedUrls,
+    settingsMode,
+    settingsContentVersion,
+  ])
 
   useEffect(() => {
+    if (settingsMode) return
     if (activeTracker) {
       setTitleDraft(activeTracker.title)
     } else {
       setTitleDraft('')
     }
     setSaveStatus('Saved')
-  }, [activeTrackerId])
+  }, [activeTrackerId, activeTracker, settingsMode])
+
+  useEffect(() => {
+    if (settingsMode !== 'daily-template') return
+    setTitleDraft('Daily Template')
+    setTemplateSaveStatus('Saved')
+  }, [settingsMode])
 
   const loadNotebooks = useCallback(async () => {
     if (!userId) return
@@ -1220,6 +1306,11 @@ function App() {
   }, [userId, loadNotebooks])
 
   useEffect(() => {
+    if (!userId) return
+    loadSettings()
+  }, [userId, loadSettings])
+
+  useEffect(() => {
     if (!activeNotebookId) {
       setSections([])
       setActiveSectionId(null)
@@ -1277,15 +1368,72 @@ function App() {
     [setTrackers],
   )
 
+  const scheduleSettingsSave = useCallback(
+    (nextContent) => {
+      if (!userId) return
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current)
+      }
+
+      const payload = {
+        daily_template_content: sanitizeContentForSave(nextContent),
+        updated_at: new Date().toISOString(),
+      }
+
+      setTemplateSaveStatus('Saving...')
+      templateContentRef.current = nextContent
+
+      settingsSaveTimerRef.current = setTimeout(async () => {
+        const existing = settingsRowRef.current
+        if (!existing?.id) {
+          const { data, error } = await supabase
+            .from('settings')
+            .insert({ user_id: userId, ...payload })
+            .select()
+            .single()
+
+          if (error) {
+            setMessage(error.message)
+            setTemplateSaveStatus('Error')
+            return
+          }
+
+          setSettingsRow(data)
+          setTemplateSaveStatus('Saved')
+          return
+        }
+
+        const { error } = await supabase
+          .from('settings')
+          .update(payload)
+          .eq('id', existing.id)
+
+        if (error) {
+          setMessage(error.message)
+          setTemplateSaveStatus('Error')
+          return
+        }
+
+        setSettingsRow((prev) => (prev ? { ...prev, ...payload } : prev))
+        setTemplateSaveStatus('Saved')
+      }, 2000)
+    },
+    [userId],
+  )
+
   useEffect(() => {
     if (!editor) return
     const handleUpdate = () => {
+      if (settingsMode === 'daily-template') {
+        scheduleSettingsSave(editor.getJSON())
+        return
+      }
       if (!activeTrackerRef.current) return
       scheduleSave(editor.getJSON())
     }
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
-  }, [editor, scheduleSave])
+  }, [editor, scheduleSave, scheduleSettingsSave, settingsMode])
 
   useEffect(() => {
     if (!editor) return
@@ -1396,6 +1544,7 @@ function App() {
   }, [session, activeNotebookId, activeSectionId, activeTrackerId])
 
   const handleTitleChange = (value) => {
+    if (settingsMode) return
     setTitleDraft(value)
     titleDraftRef.current = value
     if (!editor || !activeTrackerRef.current) return
@@ -1613,7 +1762,35 @@ function App() {
     setNotebooks([])
     setActiveNotebookId(null)
     setTitleDraft('')
+    setSettingsMode(null)
+    setSettingsRow(null)
+    setSettingsLoading(false)
+    setTemplateSaveStatus('Saved')
+    setSettingsContentVersion(0)
     pendingNavRef.current = null
+    templateContentRef.current = EMPTY_DOC
+  }
+
+  const handleOpenSettings = () => {
+    setSettingsMode('hub')
+    if (!settingsRow) {
+      loadSettings()
+    }
+  }
+
+  const handleCloseSettings = () => {
+    setSettingsMode(null)
+  }
+
+  const handleOpenDailyTemplate = () => {
+    setSettingsMode('daily-template')
+    if (!settingsRow) {
+      loadSettings()
+    }
+  }
+
+  const handleBackToSettingsHub = () => {
+    setSettingsMode('hub')
   }
 
   const uploadImageAndInsert = useCallback(
@@ -1890,9 +2067,19 @@ function App() {
             <h1>Life Tracker</h1>
             <p className="subtle">Signed in as {session.user.email}</p>
           </div>
-          <button className="secondary" onClick={handleSignOut}>
-            Log out
-          </button>
+          <div className="topbar-actions">
+            <button
+              type="button"
+              className={`ghost settings-button ${settingsMode ? 'active' : ''}`}
+              onClick={handleOpenSettings}
+              disabled
+            >
+              Settings
+            </button>
+            <button className="secondary" onClick={handleSignOut}>
+              Log out
+            </button>
+          </div>
         </header>
         <div className="welcome">
           <div className="card">
@@ -1920,6 +2107,9 @@ function App() {
             <select
               value={activeNotebookId ?? ''}
               onChange={(event) => {
+                if (settingsMode) {
+                  setSettingsMode(null)
+                }
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
                 pendingNavRef.current = null
@@ -1943,10 +2133,19 @@ function App() {
             </button>
           </div>
         </div>
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className={`ghost settings-button ${settingsMode ? 'active' : ''}`}
+            onClick={handleOpenSettings}
+          >
+            Settings
+          </button>
           <button className="secondary" onClick={handleSignOut}>
             Log out
           </button>
-        </header>
+        </div>
+      </header>
 
       <div className="section-tabs">
         {sections.map((section) => (
@@ -1957,6 +2156,9 @@ function App() {
             className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
             style={{ backgroundColor: section.color || '#eef2ff' }}
             onClick={() => {
+              if (settingsMode) {
+                setSettingsMode(null)
+              }
               navIntentRef.current = 'push'
               hashBlockRef.current = null
               pendingNavRef.current = null
@@ -1970,6 +2172,9 @@ function App() {
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
+                if (settingsMode) {
+                  setSettingsMode(null)
+                }
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
                 pendingNavRef.current = null
@@ -1995,36 +2200,74 @@ function App() {
         </button>
       </div>
 
-      <div className="workspace">
-        <EditorPanel
-          editor={editor}
-          title={titleDraft}
-          onTitleChange={handleTitleChange}
-          onDelete={handleDeleteTracker}
-          saveStatus={saveStatus}
-          onImageUpload={uploadImageAndInsert}
-          hasTracker={!!activeTracker}
-          message={message}
-          notebookId={activeNotebookId}
-          sectionId={activeSectionId}
-          trackerId={activeTrackerId}
-          onNavigateHash={handleInternalHashNavigate}
-          allTrackers={trackers}
-        />
-        <Sidebar
-          trackers={trackers}
-          activeId={activeTrackerId}
-          onSelect={(id) => {
-            navIntentRef.current = 'push'
-            hashBlockRef.current = null
-            pendingNavRef.current = null
-            setActiveTrackerId(id)
-          }}
-          onCreate={handleCreateTracker}
-          onReorder={handleReorderTrackers}
-          loading={dataLoading}
-          disabled={!activeSectionId}
-        />
+      <div className={`workspace ${settingsMode ? 'settings-mode' : ''}`}>
+        {isSettingsHub && (
+          <SettingsHub
+            onEditDailyTemplate={handleOpenDailyTemplate}
+            onBackToPages={handleCloseSettings}
+            loading={settingsLoading}
+          />
+        )}
+        {isTemplateEditing && (
+          <EditorPanel
+            editor={editor}
+            title="Daily Template"
+            onTitleChange={() => {}}
+            onDelete={() => {}}
+            saveStatus={templateSaveStatus}
+            onImageUpload={uploadImageAndInsert}
+            hasTracker
+            message={message}
+            notebookId={activeNotebookId}
+            sectionId={activeSectionId}
+            trackerId={activeTrackerId}
+            onNavigateHash={handleInternalHashNavigate}
+            allTrackers={trackers}
+            userId={userId}
+            titleReadOnly
+            showDelete={false}
+            headerActions={
+              <button type="button" className="ghost" onClick={handleBackToSettingsHub}>
+                Back to Settings
+              </button>
+            }
+            showAiDaily={false}
+          />
+        )}
+        {!settingsMode && (
+          <>
+            <EditorPanel
+              editor={editor}
+              title={titleDraft}
+              onTitleChange={handleTitleChange}
+              onDelete={handleDeleteTracker}
+              saveStatus={saveStatus}
+              onImageUpload={uploadImageAndInsert}
+              hasTracker={!!activeTracker}
+              message={message}
+              notebookId={activeNotebookId}
+              sectionId={activeSectionId}
+              trackerId={activeTrackerId}
+              onNavigateHash={handleInternalHashNavigate}
+              allTrackers={trackers}
+              userId={userId}
+            />
+            <Sidebar
+              trackers={trackers}
+              activeId={activeTrackerId}
+              onSelect={(id) => {
+                navIntentRef.current = 'push'
+                hashBlockRef.current = null
+                pendingNavRef.current = null
+                setActiveTrackerId(id)
+              }}
+              onCreate={handleCreateTracker}
+              onReorder={handleReorderTrackers}
+              loading={dataLoading}
+              disabled={!activeSectionId}
+            />
+          </>
+        )}
       </div>
     </div>
   )

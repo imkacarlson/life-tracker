@@ -27,6 +27,17 @@
   flex-wrap: wrap;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-button.active {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
 .brand h1 {
   margin: 0 0 0.25rem;
 }
@@ -108,6 +119,10 @@
   min-width: 0;
 }
 
+.workspace.settings-mode {
+  grid-template-columns: 1fr;
+}
+
 h1 {
   margin: 0 0 0.25rem;
   font-size: 2rem;
@@ -184,6 +199,48 @@ h2 {
   font-size: 0.9rem;
 }
 
+.settings-hub {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: #f8fafc;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.settings-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.settings-loading {
+  color: #64748b;
+}
+
 .editor-panel {
   display: flex;
   flex-direction: column;
@@ -203,6 +260,12 @@ h2 {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
+}
+
+.title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .title-input {
