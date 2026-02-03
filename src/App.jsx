@@ -1675,8 +1675,7 @@ function App() {
     const existingOrders = trackers
       .map((item) => item.sort_order)
       .filter((value) => typeof value === 'number')
-    const nextSortOrder =
-      existingOrders.length > 0 ? Math.min(...existingOrders) - 1 : 1
+    const nextSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
 
     const { data, error } = await supabase
       .from('pages')
@@ -1695,7 +1694,7 @@ function App() {
       return
     }
 
-    setTrackers((prev) => [{ ...data, sort_order: nextSortOrder }, ...prev])
+    setTrackers((prev) => [...prev, { ...data, sort_order: nextSortOrder }])
     setActiveTrackerId(data.id)
   }
 
