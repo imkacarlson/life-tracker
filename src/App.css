@@ -321,6 +321,34 @@ h2 {
   background: #e0edff;
 }
 
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f1f5f9;
+  flex-basis: 100%;
+  width: 100%;
+}
+
+.find-input {
+  flex: 1;
+  min-width: 160px;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+}
+
+.find-count {
+  font-size: 0.75rem;
+  color: #475569;
+  min-width: 70px;
+  text-align: right;
+}
+
 .highlight-control {
   position: relative;
   display: inline-flex;
@@ -675,6 +703,15 @@ h2 {
 .editor-shell .ProseMirror-hideselection ::-moz-selection {
   background: transparent;
   color: inherit;
+}
+
+.editor-shell .ProseMirror .find-match {
+  background: #fde047;
+}
+
+.editor-shell .ProseMirror .find-match.current {
+  background: #facc15;
+  outline: 2px solid #f59e0b;
 }
 
 .editor-shell th,

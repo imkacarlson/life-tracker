@@ -3,6 +3,7 @@ import { EditorContent } from '@tiptap/react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
+import { findInDocPluginKey } from '../extensions/findInDoc'
 
 function EditorPanel({
   editor,
@@ -35,6 +36,7 @@ function EditorPanel({
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
+  const findInputRef = useRef(null)
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
@@ -52,6 +54,9 @@ function EditorPanel({
   })
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const [submenuDirection, setSubmenuDirection] = useState('right')
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const gridSize = 5
 
   const handlePickImage = () => {
@@ -80,6 +85,34 @@ function EditorPanel({
 
   const handleSetTextAlign = (alignment) => {
     editor?.chain().focus().setTextAlign(alignment).run()
+  }
+
+  const openFind = useCallback(() => {
+    if (!editor || !hasTracker) return
+    setFindOpen(true)
+    requestAnimationFrame(() => {
+      findInputRef.current?.focus()
+      findInputRef.current?.select()
+    })
+  }, [editor, hasTracker])
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    setFindQuery('')
+    editor?.commands?.clearFind?.()
+  }, [editor])
+
+  const handleFindQueryChange = (value) => {
+    setFindQuery(value)
+    editor?.commands?.setFindQuery?.(value)
+  }
+
+  const handleFindNext = () => {
+    editor?.commands?.findNext?.()
+  }
+
+  const handleFindPrev = () => {
+    editor?.commands?.findPrev?.()
   }
 
   const handleExportText = () => {
@@ -1099,6 +1132,41 @@ function EditorPanel({
     }
   }, [editor, onNavigateHash])
 
+  useEffect(() => {
+    if (!editor) return undefined
+    const findStorage = editor.storage.findInDoc
+    if (!findStorage) return undefined
+    findStorage.open = openFind
+    findStorage.close = closeFind
+    return () => {
+      if (editor.storage?.findInDoc) {
+        editor.storage.findInDoc.open = null
+        editor.storage.findInDoc.close = null
+      }
+    }
+  }, [editor, openFind, closeFind])
+
+  useEffect(() => {
+    if (!editor) return undefined
+    const syncFindState = () => {
+      const pluginState = findInDocPluginKey.getState(editor.state)
+      if (!pluginState) return
+      setFindStatus(pluginState)
+      setFindQuery((prev) => (prev === pluginState.query ? prev : pluginState.query || ''))
+    }
+    syncFindState()
+    editor.on('transaction', syncFindState)
+    return () => editor.off('transaction', syncFindState)
+  }, [editor])
+
+  useEffect(() => {
+    if (!hasTracker) {
+      closeFind()
+      return
+    }
+    closeFind()
+  }, [hasTracker, trackerId, closeFind])
+
   const hasHeaderActions = Boolean(headerActions) || showDelete
 
   return (
@@ -1297,6 +1365,9 @@ function EditorPanel({
         <button type="button" onClick={() => editor?.chain().focus().unsetLink().run()} disabled={!hasTracker}>
           Unlink
         </button>
+        <button type="button" onClick={openFind} disabled={!hasTracker}>
+          Find
+        </button>
         <button type="button" onClick={() => editor?.chain().focus().undo().run()} disabled={!hasTracker}>
           Undo
         </button>
@@ -1466,6 +1537,43 @@ function EditorPanel({
           onChange={handleFileChange}
           className="file-input"
         />
+
+        {findOpen && hasTracker && (
+          <div className="find-bar">
+            <input
+              ref={findInputRef}
+              type="text"
+              className="find-input"
+              placeholder="Find in tracker"
+              value={findQuery}
+              onChange={(event) => handleFindQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && event.shiftKey) {
+                  event.preventDefault()
+                  handleFindPrev()
+                } else if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleFindNext()
+                } else if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeFind()
+                }
+              }}
+            />
+            <span className="find-count">
+              {findStatus.matches.length > 0 ? findStatus.index + 1 : 0} of {findStatus.matches.length}
+            </span>
+            <button type="button" onClick={handleFindPrev} disabled={findStatus.matches.length === 0}>
+              Prev
+            </button>
+            <button type="button" onClick={handleFindNext} disabled={findStatus.matches.length === 0}>
+              Next
+            </button>
+            <button type="button" className="ghost" onClick={closeFind}>
+              Close
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="editor-shell">

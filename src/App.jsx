@@ -22,6 +22,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import Paragraph from '@tiptap/extension-paragraph'
 import Heading from '@tiptap/extension-heading'
 import { supabase } from './lib/supabase'
+import FindInDoc from './extensions/findInDoc'
 import Sidebar from './components/Sidebar'
 import EditorPanel from './components/EditorPanel'
 import SettingsHub from './components/SettingsHub'
@@ -1025,6 +1026,7 @@ function App() {
         TableRow,
         TableHeaderWithBackground,
         TableCellWithBackground,
+        FindInDoc,
         Placeholder.configure({
           placeholder: 'Start writing your tracker...',
         }),
