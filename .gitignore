@@ -14,6 +14,12 @@ dist-ssr
 supabase/.temp/
 .mcp.json
 
+# gemini-cli settings
+.gemini/
+
+# GitHub App credentials
+gha-creds-*.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
