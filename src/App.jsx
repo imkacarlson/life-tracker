@@ -22,6 +22,7 @@ function App() {
   const missingEnv = !supabaseUrl || !supabaseAnonKey
 
   const savedSelectionRef = useRef(readStoredSelection())
+  const pendingNavRef = useRef(null)
 
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
 
@@ -43,8 +44,6 @@ function App() {
     openDailyTemplate,
     backToSettingsHub,
   } = useSettings(userId, hydrateContentWithSignedUrls)
-
-  const pendingNavRef = useRef(null)
 
   const {
     notebooks,
@@ -90,13 +89,7 @@ function App() {
     activeTrackerRef,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
-  const {
-    pendingNavRef: navPendingRef,
-    navIntentRef,
-    hashBlockRef,
-    navigateRef,
-    handleInternalHashNavigate,
-  } = useNavigation({
+  const { navIntentRef, hashBlockRef, navigateRef, handleInternalHashNavigate } = useNavigation({
     session,
     notebooks,
     activeNotebookId,
@@ -105,11 +98,8 @@ function App() {
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
+    pendingNavRef,
   })
-
-  useEffect(() => {
-    pendingNavRef.current = navPendingRef.current
-  }, [navPendingRef])
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
   const setMessage = (msg) => {
@@ -121,7 +111,6 @@ function App() {
   }
 
   const uploadImageRef = useRef(null)
-  const uploadImageAndInsert = useImageUpload(session, null, setMessage)
 
   const editor = useEditorSetup({
     session,
@@ -133,7 +122,7 @@ function App() {
     hydrateContentWithSignedUrls,
     scheduleSave,
     scheduleSettingsSave,
-    pendingNavRef: navPendingRef,
+    pendingNavRef,
     navigateRef,
     uploadImageRef,
   })
@@ -170,7 +159,6 @@ function App() {
     setActiveTrackerId(null)
     setSettingsMode(null)
     pendingNavRef.current = null
-    navPendingRef.current = null
   }
 
   const isSettingsHub = settingsMode === 'hub'
@@ -229,7 +217,7 @@ function App() {
                 }
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
-                navPendingRef.current = null
+                pendingNavRef.current = null
                 setActiveNotebookId(event.target.value)
               }}
             >
@@ -278,7 +266,7 @@ function App() {
               }
               navIntentRef.current = 'push'
               hashBlockRef.current = null
-              navPendingRef.current = null
+              pendingNavRef.current = null
               setActiveSectionId(section.id)
             }}
             onDoubleClick={() => renameSection(section)}
@@ -294,7 +282,7 @@ function App() {
                 }
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
-                navPendingRef.current = null
+                pendingNavRef.current = null
                 setActiveSectionId(section.id)
               }
             }}
@@ -375,7 +363,7 @@ function App() {
               onSelect={(id) => {
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
-                navPendingRef.current = null
+                pendingNavRef.current = null
                 setActiveTrackerId(id)
               }}
               onCreate={() => createTracker(session, activeSectionId)}

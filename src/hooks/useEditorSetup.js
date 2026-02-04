@@ -63,15 +63,6 @@ export const useEditorSetup = ({
   })
   const pendingPasteFixRef = useRef(false)
 
-  const collectBlockTargets = useCallback((state, start, end) => {
-    const targets = []
-    state.doc.nodesBetween(start, end, (node, pos) => {
-      if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
-      targets.push({ node, pos })
-    })
-    return targets
-  }, [])
-
   const getListDepthAt = useCallback((state, pos) => {
     const $pos = state.doc.resolve(pos)
     let depth = 0
@@ -358,7 +349,7 @@ export const useEditorSetup = ({
     }
     editor.on('transaction', handleTransaction)
     return () => editor.off('transaction', handleTransaction)
-  }, [editor, collectBlockTargets, getListDepthAt, getListItemTypeAt])
+  }, [editor, getListDepthAt, getListItemTypeAt])
 
   return editor
 }

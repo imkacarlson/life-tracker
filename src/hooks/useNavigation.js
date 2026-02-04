@@ -10,8 +10,10 @@ export const useNavigation = ({
   setActiveNotebookId,
   setActiveSectionId,
   setActiveTrackerId,
+  pendingNavRef: externalPendingNavRef,
 }) => {
-  const pendingNavRef = useRef(null)
+  const internalPendingNavRef = useRef(null)
+  const pendingNavRef = externalPendingNavRef ?? internalPendingNavRef
   const navIntentRef = useRef(null)
   const ignoreNextHashChangeRef = useRef(0)
   const hashBlockRef = useRef(null)
