@@ -27,6 +27,17 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
     }
   }, [])
 
+  useEffect(() => {
+    if (userId) return
+    setSettingsMode(null)
+    setSettingsRow(null)
+    setSettingsLoading(false)
+    setTemplateSaveStatus('Saved')
+    setSettingsContentVersion(0)
+    templateContentRef.current = EMPTY_DOC
+    setMessage('')
+  }, [userId])
+
   const loadSettings = useCallback(async () => {
     if (!userId) return
     setSettingsLoading(true)

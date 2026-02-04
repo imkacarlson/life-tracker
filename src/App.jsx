@@ -151,6 +151,7 @@ function App() {
 
   const handleSignOut = async () => {
     await signOut()
+    setMessage('')
     setActiveNotebookId(null)
     setActiveSectionId(null)
     setActiveTrackerId(null)

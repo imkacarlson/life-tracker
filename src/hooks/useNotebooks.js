@@ -6,6 +6,13 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
 
+  useEffect(() => {
+    if (userId) return
+    setNotebooks([])
+    setActiveNotebookId(null)
+    setMessage('')
+  }, [userId])
+
   const loadNotebooks = useCallback(async () => {
     if (!userId) return
     setMessage('')

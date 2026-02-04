@@ -26,6 +26,16 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   }, [activeTracker])
 
   useEffect(() => {
+    if (userId) return
+    setTrackers([])
+    setActiveTrackerId(null)
+    setDataLoading(false)
+    setMessage('')
+    setTitleDraft('')
+    setSaveStatus('Saved')
+  }, [userId])
+
+  useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)

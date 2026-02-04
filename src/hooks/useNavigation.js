@@ -100,6 +100,9 @@ export const useNavigation = ({
     if (!hash) return
     const mode = navIntentRef.current === 'push' ? 'push' : 'replace'
     navIntentRef.current = null
+    if (mode === 'push') {
+      ignoreNextHashChangeRef.current += 1
+    }
     updateHash(hash, mode)
   }, [activeNotebookId, activeSectionId, activeTrackerId])
 

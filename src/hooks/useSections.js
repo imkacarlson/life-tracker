@@ -7,6 +7,13 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
   const [activeSectionId, setActiveSectionId] = useState(null)
   const [message, setMessage] = useState('')
 
+  useEffect(() => {
+    if (userId) return
+    setSections([])
+    setActiveSectionId(null)
+    setMessage('')
+  }, [userId])
+
   const loadSections = useCallback(
     async (notebookId) => {
       if (!userId || !notebookId) return
