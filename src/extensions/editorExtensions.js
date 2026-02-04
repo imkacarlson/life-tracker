@@ -22,12 +22,24 @@ export const EnsureNodeIds = Extension.create({
           newState.doc.descendants((node, pos) => {
             if (!types.includes(node.type.name)) return
             let id = node.attrs?.id
+            let createdAt = node.attrs?.created_at
+            let nodeUpdated = false
+
             if (!id || seen.has(id)) {
               id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
-              tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
-              updated = true
+              nodeUpdated = true
             }
             seen.add(id)
+
+            if (!createdAt) {
+              createdAt = new Date().toISOString()
+              nodeUpdated = true
+            }
+
+            if (nodeUpdated) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, id, created_at: createdAt })
+              updated = true
+            }
           })
 
           if (!updated) return
@@ -61,7 +73,6 @@ export const InternalLink = Link.extend({
   addProseMirrorPlugins() {
     const plugins = this.parent?.() ?? []
     const onNavigateHash = this.options.onNavigateHash
-    const getNavigateRef = this.options.getNavigateRef
 
     const internalLinkPlugin = new Plugin({
       props: {

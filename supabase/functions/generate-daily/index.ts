@@ -134,12 +134,13 @@ Rules:
 - If a task relates to multiple source paragraphs, include all relevant block_ids
 
 Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wrap in code fences. Use this shape:
-{"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
+{"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"stale":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
 
 Bucket rules:
 - ASAP: overdue tasks, tasks due today, and undated urgent tasks
 - FYI: tasks due in 1-2 days (tomorrow or day after tomorrow)
-- Omit anything due more than 2 days out
+- STALE: undated tasks that were created 7 or more days ago (compare created_at to TODAY)
+- Omit anything due more than 2 days out (unless it is STALE)
 
 If a bucket is empty, return an empty array for it.
 
@@ -150,7 +151,7 @@ Ordering:
 
     const extractNextStepsFromText = (text: string) => {
       const lines = String(text || '').split('\n')
-      const nextSteps: { text: string, blockId: string }[] = []
+      const nextSteps: { text: string, blockId: string, createdAt?: string }[] = []
       const contextLines: string[] = []
       let inNextSteps = false
 
@@ -178,9 +179,14 @@ Ordering:
           if (isListLine(trimmed)) {
             const idMatch = line.match(/{{id:([^}]+)}}/)
             const blockId = idMatch?.[1]
-            const cleaned = cleanListText(trimmed).replace(/\s*{{id:[^}]+}}/g, '').trim()
+            const createdAtMatch = line.match(/{{created_at:([^}]+)}}/)
+            const createdAt = createdAtMatch?.[1]
+            const cleaned = cleanListText(trimmed)
+              .replace(/\s*{{id:[^}]+}}/g, '')
+              .replace(/\s*{{created_at:[^}]+}}/g, '')
+              .trim()
             if (blockId && cleaned) {
-              nextSteps.push({ text: cleaned, blockId })
+              nextSteps.push({ text: cleaned, blockId, createdAt })
             }
             continue
           }
@@ -211,7 +217,10 @@ Ordering:
 
     const userMessage = preparedPages.map((page: any) => {
       const nextStepsText = page.nextSteps?.length
-        ? page.nextSteps.map((item: any) => `- ${item.text} (block_id: ${item.blockId})`).join('\n')
+        ? page.nextSteps.map((item: any) => {
+            const dateInfo = item.createdAt ? ` created_at: ${item.createdAt}` : ''
+            return `- ${item.text} (block_id: ${item.blockId}${dateInfo})`
+          }).join('\n')
         : '(none)'
       const contextText = page.context?.trim() ? page.context : '(none)'
       return [
@@ -244,6 +253,7 @@ Ordering:
     const parseTasks = (text: string) => {
       let asap: any[] = []
       let fyi: any[] = []
+      let stale: any[] = []
       let format = 'empty'
       try {
         const trimmed = text.trim()
@@ -268,7 +278,8 @@ Ordering:
         } else if (parsed && typeof parsed === 'object') {
           if (Array.isArray(parsed.asap)) asap = parsed.asap
           if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
-          if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi)) {
+          if (Array.isArray(parsed.stale)) stale = parsed.stale
+          if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi) || Array.isArray(parsed.stale)) {
             format = 'asap_fyi'
           } else if (Array.isArray(parsed.tasks)) {
             asap = parsed.tasks
@@ -280,7 +291,7 @@ Ordering:
         fyi = []
         format = 'empty'
       }
-      return { asap, fyi, format }
+      return { asap, fyi, stale, format }
     }
 
     const rawText = providerConfig.extractResponse(data)
@@ -299,7 +310,12 @@ Ordering:
 
     const asap = filterToNextSteps(parsed.asap)
     const fyi = filterToNextSteps(parsed.fyi)
-    const removedCount = (parsed.asap?.length || 0) + (parsed.fyi?.length || 0) - (asap.length + fyi.length)
+    const stale = filterToNextSteps(parsed.stale)
+    const removedCount =
+      (parsed.asap?.length || 0) +
+      (parsed.fyi?.length || 0) +
+      (parsed.stale?.length || 0) -
+      (asap.length + fyi.length + stale.length)
 
     let warning =
       parsed.format === 'asap_fyi'
@@ -313,6 +329,7 @@ Ordering:
     return new Response(JSON.stringify({
       asap,
       fyi,
+      stale,
       rawText,
       warning,
     }), {
