@@ -61,7 +61,6 @@ function App() {
     sections,
     activeSectionId,
     setActiveSectionId,
-    activeSection,
     message: sectionMessage,
     setMessage: setSectionMessage,
     createSection,
@@ -77,7 +76,6 @@ function App() {
     titleDraft,
     saveStatus,
     setSaveStatus,
-    setTemplateSaveStatus: setTrackerTemplateSaveStatus,
     dataLoading,
     message: trackerMessage,
     setMessage: setTrackerMessage,
@@ -86,7 +84,6 @@ function App() {
     createTracker,
     reorderTrackers,
     deleteTracker,
-    activeTrackerRef,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
   const { navIntentRef, hashBlockRef, navigateRef, handleInternalHashNavigate } = useNavigation({
