@@ -458,7 +458,7 @@ export const ListEnterOutdent = Extension.create({
   addKeyboardShortcuts() {
     return {
       Enter: () => {
-        const { state, view } = this.editor
+        const { state } = this.editor
         const { selection } = state
         if (!selection.empty) return false
         const { $from } = selection
@@ -479,32 +479,9 @@ export const ListEnterOutdent = Extension.create({
         const itemNode = $from.node(itemDepth)
         const firstChild = itemNode.childCount > 0 ? itemNode.child(0) : null
         if (!firstChild || !firstChild.isTextblock) return false
+        if ((firstChild.textContent || '').trim().length > 0) return false
         if ($from.depth < itemDepth + 1) return false
         if ($from.node(itemDepth + 1) !== firstChild) return false
-
-        if (itemTypeName === 'listItem') {
-          const listDepth = itemDepth - 1
-          if (listDepth > 0) {
-            const listNode = $from.node(listDepth)
-            if (listNode.type?.name === 'bulletList') {
-              const itemType = state.schema.nodes.listItem
-              const emptyItem = itemType?.createAndFill()
-              if (!emptyItem) return false
-              let offset = 0
-              const index = $from.index(listDepth)
-              for (let i = 0; i < index; i += 1) {
-                offset += listNode.child(i).nodeSize
-              }
-              const listPos = $from.before(listDepth)
-              const insertPos = listPos + 1 + offset
-              const tr = state.tr.insert(insertPos, emptyItem)
-              tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1), 1))
-              view.dispatch(tr.scrollIntoView())
-              view.focus()
-              return true
-            }
-          }
-        }
 
         return this.editor.chain().focus().liftListItem(itemTypeName).run()
       },
