@@ -11,6 +11,14 @@ const withIdAttribute = (parentAttributes = {}) => ({
       return { id: attributes.id }
     },
   },
+  created_at: {
+    default: null,
+    parseHTML: (element) => element.getAttribute('data-created-at'),
+    renderHTML: (attributes) => {
+      if (!attributes.created_at) return {}
+      return { 'data-created-at': attributes.created_at }
+    },
+  },
 })
 
 const applyBackgroundStyle = (HTMLAttributes, backgroundColor) => {

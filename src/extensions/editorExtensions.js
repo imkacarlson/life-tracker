@@ -28,6 +28,8 @@ export const EnsureNodeIds = Extension.create({
             // Ensure every node has a unique ID for deep linking
             if (!id || seen.has(id)) {
               id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
+              // If the block identity changes, reset creation time for stale-task logic.
+              createdAt = new Date().toISOString()
               nodeUpdated = true
             }
             seen.add(id)
@@ -69,7 +71,6 @@ export const InternalLink = Link.extend({
     return {
       ...this.parent?.(),
       onNavigateHash: null,
-      getNavigateRef: null,
     }
   },
   addProseMirrorPlugins() {

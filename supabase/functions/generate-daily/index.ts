@@ -291,6 +291,7 @@ Ordering:
       } catch {
         asap = []
         fyi = []
+        stale = []
         format = 'empty'
       }
       return { asap, fyi, stale, format }
