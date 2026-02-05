@@ -25,12 +25,14 @@ export const EnsureNodeIds = Extension.create({
             let createdAt = node.attrs?.created_at
             let nodeUpdated = false
 
+            // Ensure every node has a unique ID for deep linking
             if (!id || seen.has(id)) {
               id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
               nodeUpdated = true
             }
             seen.add(id)
 
+            // Track creation date to identify stale tasks later
             if (!createdAt) {
               createdAt = new Date().toISOString()
               nodeUpdated = true

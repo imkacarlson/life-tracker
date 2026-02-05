@@ -142,6 +142,8 @@ Bucket rules:
 - STALE: undated tasks that were created 7 or more days ago (compare created_at to TODAY)
 - Omit anything due more than 2 days out (unless it is STALE)
 
+Note: STALE items should only be included if they have NO explicit due date in the text.
+
 If a bucket is empty, return an empty array for it.
 
 Ordering:

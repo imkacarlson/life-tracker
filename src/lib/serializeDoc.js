@@ -27,6 +27,7 @@ function serializeNode(node, indent = 0, listIndex = null) {
   const prefix = '  '.repeat(indent)
   const id = node.attrs?.id || null
   const createdAt = node.attrs?.created_at || null
+  // Include metadata in serialized text for AI consumption
   const idTag = id ? ` {{id:${id}}}` : ''
   const createdAtTag = createdAt ? ` {{created_at:${createdAt}}}` : ''
   const pushIfNotEmpty = (value) => {
