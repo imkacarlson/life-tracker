@@ -120,6 +120,7 @@ Rules:
 - DO NOT create tasks from Background or Recurring sections; those are context only
 - SKIP anything with strikethrough (marked with ~~text~~) - those are completed
 - Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
+- Metadata like age_days is NOT a due date; only explicit date text in the task counts as a due date
 - Assume numeric dates are MM/DD in the current year when no year is provided
 - Tomorrow is TODAY + 1 day. The day after tomorrow is TODAY + 2 days.
 - If a task has an explicit due date:
@@ -139,7 +140,7 @@ Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wr
 Bucket rules:
 - ASAP: overdue tasks, tasks due today, and undated urgent tasks
 - FYI: tasks due in 1-2 days (tomorrow or day after tomorrow)
-- STALE: undated tasks that were created 7 or more days ago (compare created_at to TODAY)
+- STALE: undated tasks with age_days >= 7
 - Omit anything due more than 2 days out (unless it is STALE)
 
 Note: STALE items should only be included if they have NO explicit due date in the text.
@@ -153,9 +154,19 @@ Ordering:
 
     const extractNextStepsFromText = (text: string) => {
       const lines = String(text || '').split('\n')
-      const nextSteps: { text: string, blockId: string, createdAt?: string }[] = []
+      const nextSteps: { text: string, blockId: string, ageDays?: number }[] = []
       const contextLines: string[] = []
       let inNextSteps = false
+      const todayDate = new Date(`${today}T00:00:00Z`)
+
+      const toAgeDays = (createdAt?: string): number | null => {
+        if (!createdAt) return null
+        const createdDate = new Date(createdAt)
+        if (Number.isNaN(createdDate.getTime()) || Number.isNaN(todayDate.getTime())) return null
+        const millisPerDay = 24 * 60 * 60 * 1000
+        const diffDays = Math.floor((todayDate.getTime() - createdDate.getTime()) / millisPerDay)
+        return Math.max(0, diffDays)
+      }
 
       const isNextStepsHeader = (value: string) => /^next steps:?\s*/i.test(value)
       const isListLine = (value: string) =>
@@ -183,12 +194,13 @@ Ordering:
             const blockId = idMatch?.[1]
             const createdAtMatch = line.match(/{{created_at:([^}]+)}}/)
             const createdAt = createdAtMatch?.[1]
+            const ageDays = toAgeDays(createdAt)
             const cleaned = cleanListText(trimmed)
               .replace(/\s*{{id:[^}]+}}/g, '')
               .replace(/\s*{{created_at:[^}]+}}/g, '')
               .trim()
             if (blockId && cleaned) {
-              nextSteps.push({ text: cleaned, blockId, createdAt })
+              nextSteps.push({ text: cleaned, blockId, ageDays: ageDays ?? undefined })
             }
             continue
           }
@@ -220,8 +232,8 @@ Ordering:
     const userMessage = preparedPages.map((page: any) => {
       const nextStepsText = page.nextSteps?.length
         ? page.nextSteps.map((item: any) => {
-            const dateInfo = item.createdAt ? ` created_at: ${item.createdAt}` : ''
-            return `- ${item.text} (block_id: ${item.blockId}${dateInfo})`
+            const ageInfo = Number.isInteger(item.ageDays) ? ` age_days: ${item.ageDays}` : ''
+            return `- ${item.text} (block_id: ${item.blockId}${ageInfo})`
           }).join('\n')
         : '(none)'
       const contextText = page.context?.trim() ? page.context : '(none)'
