@@ -461,6 +461,7 @@ function EditorPanel({
           ? data.tasks
           : []
       const fyiTasks = Array.isArray(data?.fyi) ? data.fyi : []
+      const staleTasks = Array.isArray(data?.stale) ? data.stale : []
       let templateNodes = []
       try {
         templateNodes = await loadDailyTemplateNodes()
@@ -468,7 +469,7 @@ function EditorPanel({
         console.error('Failed to load daily template:', err)
         templateNodes = []
       }
-      if (asapTasks.length === 0 && fyiTasks.length === 0 && templateNodes.length === 0) {
+      if (asapTasks.length === 0 && fyiTasks.length === 0 && staleTasks.length === 0 && templateNodes.length === 0) {
         alert('No tasks generated. Check your tracker pages have content.')
         return
       }
@@ -557,7 +558,11 @@ function EditorPanel({
 
       const table = {
         type: 'table',
-        content: [makeRow('ASAP', asapTasks, templateNodes), makeRow('FYI', fyiTasks)],
+        content: [
+          makeRow('ASAP', asapTasks, templateNodes),
+          makeRow('FYI', fyiTasks),
+          makeRow('STALE', staleTasks),
+        ],
       }
 
       const insertContent = [heading]

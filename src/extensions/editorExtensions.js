@@ -22,12 +22,28 @@ export const EnsureNodeIds = Extension.create({
           newState.doc.descendants((node, pos) => {
             if (!types.includes(node.type.name)) return
             let id = node.attrs?.id
+            let createdAt = node.attrs?.created_at
+            let nodeUpdated = false
+
+            // Ensure every node has a unique ID for deep linking
             if (!id || seen.has(id)) {
               id = crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10)
-              tr.setNodeMarkup(pos, undefined, { ...node.attrs, id })
-              updated = true
+              // If the block identity changes, reset creation time for stale-task logic.
+              createdAt = new Date().toISOString()
+              nodeUpdated = true
             }
             seen.add(id)
+
+            // Track creation date to identify stale tasks later
+            if (!createdAt) {
+              createdAt = new Date().toISOString()
+              nodeUpdated = true
+            }
+
+            if (nodeUpdated) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, id, created_at: createdAt })
+              updated = true
+            }
           })
 
           if (!updated) return
@@ -55,13 +71,11 @@ export const InternalLink = Link.extend({
     return {
       ...this.parent?.(),
       onNavigateHash: null,
-      getNavigateRef: null,
     }
   },
   addProseMirrorPlugins() {
     const plugins = this.parent?.() ?? []
     const onNavigateHash = this.options.onNavigateHash
-    const getNavigateRef = this.options.getNavigateRef
 
     const internalLinkPlugin = new Plugin({
       props: {

@@ -26,7 +26,10 @@ function serializeNode(node, indent = 0, listIndex = null) {
   const lines = []
   const prefix = '  '.repeat(indent)
   const id = node.attrs?.id || null
+  const createdAt = node.attrs?.created_at || null
+  // Include metadata in serialized text for AI consumption
   const idTag = id ? ` {{id:${id}}}` : ''
+  const createdAtTag = createdAt ? ` {{created_at:${createdAt}}}` : ''
   const pushIfNotEmpty = (value) => {
     if (value !== '') lines.push(value)
   }
@@ -40,14 +43,14 @@ function serializeNode(node, indent = 0, listIndex = null) {
     case 'paragraph': {
       const text = serializeInline(node.content)
       if (text.trim().length === 0) return ''
-      lines.push(prefix + text + idTag)
+      lines.push(prefix + text + idTag + createdAtTag)
       break
     }
     case 'heading': {
       const text = serializeInline(node.content)
       if (text.trim().length === 0) return ''
       if (lines.length > 0) lines.push('')
-      lines.push(prefix + text.toUpperCase() + idTag)
+      lines.push(prefix + text.toUpperCase() + idTag + createdAtTag)
       lines.push('')
       break
     }
@@ -83,9 +86,12 @@ function serializeNode(node, indent = 0, listIndex = null) {
       children.forEach((child, i) => {
         if (i === 0 && child.type === 'paragraph') {
           const childId = child.attrs?.id ? ` {{id:${child.attrs.id}}}` : ''
+          const childCreatedAt = child.attrs?.created_at
+            ? ` {{created_at:${child.attrs.created_at}}}`
+            : ''
           const text = serializeInline(child.content)
           if (text.trim().length === 0) return
-          lines.push(prefix + marker + text + childId)
+          lines.push(prefix + marker + text + childId + childCreatedAt)
         } else {
           pushIfNotEmpty(serializeNode(child, indent + 1))
         }

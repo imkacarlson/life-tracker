@@ -114,7 +114,6 @@ export const useEditorSetup = ({
           openOnClick: false,
           linkOnPaste: true,
           onNavigateHash: (href) => navigateRef.current?.(href),
-          getNavigateRef: () => navigateRef,
           HTMLAttributes: {
             target: '_self',
             rel: 'noopener noreferrer',
