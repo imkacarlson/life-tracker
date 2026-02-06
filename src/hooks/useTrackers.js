@@ -14,6 +14,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
+  const trackersRef = useRef(trackers)
 
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
 
@@ -24,6 +25,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   useEffect(() => {
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
+
+  useEffect(() => {
+    trackersRef.current = trackers
+  }, [trackers])
 
   useEffect(() => {
     if (userId) return
@@ -101,15 +106,19 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   }, [activeTrackerId, activeTracker])
 
   const scheduleSave = useCallback(
-    (nextContent, nextTitle) => {
-      const tracker = activeTrackerRef.current
+    (nextContent, nextTitle, trackerIdOverride = null) => {
+      const trackerId = trackerIdOverride ?? activeTrackerRef.current?.id
+      if (!trackerId) return
+      const tracker = trackersRef.current.find((item) => item.id === trackerId)
       if (!tracker) return
 
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
 
-      const title = (nextTitle ?? titleDraftRef.current)?.trim() || 'Untitled Tracker'
+      const fallbackTitle =
+        trackerIdOverride && !nextTitle ? tracker.title : titleDraftRef.current
+      const title = (nextTitle ?? fallbackTitle)?.trim() || 'Untitled Tracker'
       const payload = {
         title,
         content: sanitizeContentForSave(nextContent),
@@ -119,7 +128,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
-        const { error } = await supabase.from('pages').update(payload).eq('id', tracker.id)
+        const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
 
         if (error) {
           setMessage(error.message)
@@ -128,7 +137,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
         }
 
         setTrackers((prev) =>
-          prev.map((item) => (item.id === tracker.id ? { ...item, ...payload } : item)),
+          prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
         )
         setSaveStatus('Saved')
       }, 2000)
