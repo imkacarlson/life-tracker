@@ -236,7 +236,8 @@ const flattenBlocks = (node: any, into: FlattenedBlock[]) => {
   }
 }
 
-const isNextStepsHeader = (text: string) => /^next steps:?\s*$/i.test(normalizeText(text))
+const isNextStepsHeader = (text: string) =>
+  /^next steps\b(?:\s*(?:[:\-].*|\(.*\)))?$/i.test(normalizeText(text))
 
 const isSectionBoundary = (block: FlattenedBlock) => {
   if (block.kind !== 'text') return false
@@ -246,6 +247,11 @@ const isSectionBoundary = (block: FlattenedBlock) => {
 
   if (block.nodeType === 'heading') {
     return !isNextStepsHeader(text)
+  }
+
+  const isGenericSectionLabel = /^[A-Za-z0-9][A-Za-z0-9\s/&'()\-]{0,80}:\s*$/.test(text)
+  if (isGenericSectionLabel && !isNextStepsHeader(text)) {
+    return true
   }
 
   return /^(background|recurring(?:\s+things?)?|notes?)\s*:?\s*$/i.test(text)
