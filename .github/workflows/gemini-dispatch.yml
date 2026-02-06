@@ -24,8 +24,7 @@ defaults:
 
 jobs:
   debugger:
-    if: |-
-      ${{ fromJSON(vars.GEMINI_DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}
+    if: false
     runs-on: 'ubuntu-latest'
     permissions:
       contents: 'read'
@@ -46,18 +45,7 @@ jobs:
     # For PRs: only if not from a fork
     # For issues: only on open/reopen
     # For comments: only if user types @gemini-cli and is OWNER/MEMBER/COLLABORATOR
-    if: |-
-      (
-        github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.fork == false
-      ) || (
-        github.event_name == 'issues' &&
-        contains(fromJSON('["opened", "reopened"]'), github.event.action)
-      ) || (
-        github.event.sender.type == 'User' &&
-        startsWith(github.event.comment.body || github.event.review.body || github.event.issue.body, '@gemini-cli') &&
-        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
-      )
+    if: false
     runs-on: 'ubuntu-latest'
     permissions:
       contents: 'read'
@@ -125,8 +113,7 @@ jobs:
 
   review:
     needs: 'dispatch'
-    if: |-
-      ${{ needs.dispatch.outputs.command == 'review' }}
+    if: false
     uses: './.github/workflows/gemini-review.yml'
     permissions:
       contents: 'read'
@@ -139,8 +126,7 @@ jobs:
 
   triage:
     needs: 'dispatch'
-    if: |-
-      ${{ needs.dispatch.outputs.command == 'triage' }}
+    if: false
     uses: './.github/workflows/gemini-triage.yml'
     permissions:
       contents: 'read'
@@ -153,8 +139,7 @@ jobs:
 
   invoke:
     needs: 'dispatch'
-    if: |-
-      ${{ needs.dispatch.outputs.command == 'invoke' }}
+    if: false
     uses: './.github/workflows/gemini-invoke.yml'
     permissions:
       contents: 'read'
@@ -171,8 +156,7 @@ jobs:
       - 'review'
       - 'triage'
       - 'invoke'
-    if: |-
-      ${{ always() && !cancelled() && (failure() || needs.dispatch.outputs.command == 'fallthrough') }}
+    if: false
     runs-on: 'ubuntu-latest'
     permissions:
       contents: 'read'
