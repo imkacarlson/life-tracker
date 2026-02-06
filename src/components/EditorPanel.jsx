@@ -33,10 +33,14 @@ function EditorPanel({
   const shadingButtonRef = useRef(null)
   const shadingPickerRef = useRef(null)
   const shadingInputRef = useRef(null)
+  const aiDailyButtonRef = useRef(null)
+  const aiDailyPickerRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
   const findInputRef = useRef(null)
+  const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
+  const [aiDailyDate, setAiDailyDate] = useState(new Date())
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
@@ -58,6 +62,35 @@ function EditorPanel({
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const gridSize = 5
+
+  useEffect(() => {
+    if (aiDailyPickerOpen) {
+      setAiDailyDate(new Date())
+    }
+  }, [aiDailyPickerOpen])
+
+  const handleAiDailyPrevDay = () => {
+    setAiDailyDate((prev) => {
+      const next = new Date(prev)
+      next.setDate(next.getDate() - 1)
+      return next
+    })
+  }
+
+  const handleAiDailyNextDay = () => {
+    setAiDailyDate((prev) => {
+      const next = new Date(prev)
+      next.setDate(next.getDate() + 1)
+      return next
+    })
+  }
+
+  const handleAiDailyDateChange = (dateString) => {
+    const parsed = new Date(dateString + 'T00:00:00')
+    if (!isNaN(parsed.getTime())) {
+      setAiDailyDate(parsed)
+    }
+  }
 
   const handlePickImage = () => {
     fileInputRef.current?.click()
@@ -429,12 +462,13 @@ function EditorPanel({
   const handleGenerateToday = async () => {
     if (!editor || aiLoading) return
     setAiLoading(true)
+    setAiDailyPickerOpen(false)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
       const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
-      const now = new Date()
-      const today = now.toLocaleDateString('en-CA')
-      const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' })
+      const selectedDate = aiDailyDate
+      const today = selectedDate.toLocaleDateString('en-CA')
+      const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
       const trackerPages = (allTrackers || [])
         .filter((t) => t.id !== trackerId)
         .map((t) => ({
@@ -486,7 +520,7 @@ function EditorPanel({
         content: [
           {
             type: 'text',
-            text: new Date().toLocaleDateString('en-US', {
+            text: selectedDate.toLocaleDateString('en-US', {
               month: 'long',
               day: 'numeric',
               year: 'numeric',
@@ -765,6 +799,12 @@ function EditorPanel({
         if (picker?.contains(event.target) || button?.contains(event.target)) return
         setShadingPickerOpen(false)
       }
+      if (aiDailyPickerOpen) {
+        const picker = aiDailyPickerRef.current
+        const button = aiDailyButtonRef.current
+        if (picker?.contains(event.target) || button?.contains(event.target)) return
+        setAiDailyPickerOpen(false)
+      }
       if (contextMenu.open) {
         const menu = contextMenuRef.current
         if (menu?.contains(event.target)) return
@@ -777,6 +817,7 @@ function EditorPanel({
         setTablePickerOpen(false)
         setHighlightPickerOpen(false)
         setShadingPickerOpen(false)
+        setAiDailyPickerOpen(false)
         closeContextMenu()
       }
     }
@@ -788,7 +829,7 @@ function EditorPanel({
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, contextMenu.open, closeContextMenu])
+  }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, aiDailyPickerOpen, contextMenu.open, closeContextMenu])
 
   const tableGrid = useMemo(() => {
     return Array.from({ length: gridSize }, (_, rowIndex) =>
@@ -1414,9 +1455,37 @@ function EditorPanel({
           Export
         </button>
         {showAiDaily && (
-          <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
-            {aiLoading ? 'Generating...' : 'AI Daily'}
-          </button>
+          <div className="ai-daily-control" ref={aiDailyButtonRef}>
+            <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
+              {aiLoading ? 'Generating...' : 'AI Daily'}
+            </button>
+            <button
+              type="button"
+              className="ai-daily-dropdown"
+              onClick={() => setAiDailyPickerOpen((prev) => !prev)}
+              disabled={!hasTracker || aiLoading}
+              aria-label="Pick date for AI Daily"
+            >
+              ▾
+            </button>
+            {aiDailyPickerOpen && (
+              <div className="ai-daily-picker" ref={aiDailyPickerRef}>
+                <div className="ai-daily-date-nav">
+                  <button type="button" onClick={handleAiDailyPrevDay}>&#8249;</button>
+                  <span className="ai-daily-date-label">
+                    {aiDailyDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button type="button" onClick={handleAiDailyNextDay}>&#8250;</button>
+                </div>
+                <input
+                  type="date"
+                  value={aiDailyDate.toLocaleDateString('en-CA')}
+                  onChange={(e) => handleAiDailyDateChange(e.target.value)}
+                  className="ai-daily-date-input"
+                />
+              </div>
+            )}
+          </div>
         )}
 
         <div className="toolbar-divider" />
