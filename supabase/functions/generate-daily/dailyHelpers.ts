@@ -22,124 +22,281 @@ export type ParsedTaskBuckets = {
   asap: any[]
   fyi: any[]
   stale: any[]
-  format: 'empty' | 'legacy_array' | 'legacy_tasks' | 'asap_fyi'
+  format: 'empty' | 'asap_fyi'
+}
+
+type InlineSegment = {
+  text: string
+  highlighted: boolean
+}
+
+type DueMetadata = {
+  dueBucket: DueBucket
+  isOverdue: boolean
+  hasExplicitDate: boolean
+  hasAnyDateText: boolean
+}
+
+type FlattenedBlock = {
+  kind: 'text' | 'list' | 'divider'
+  nodeType?: string
+  text?: string
+  inlineContent?: any[]
+  paragraphAttrs?: Record<string, any>
+  itemAttrs?: Record<string, any>
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const DATE_TOKEN_REGEX = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g
 
 const toUtcDate = (value: string) => {
   const parsed = new Date(`${value}T00:00:00Z`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const parseCandidateDueDate = (text: string, defaultYear: number) => {
-  const dateMatch = text.match(
-    /(?:\b(?:by|due|on|eod|end of day)\b[^0-9]{0,8})?[\[(]?(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?[\])]?/i,
-  )
-  if (!dateMatch) return null
+const normalizeText = (value: string) =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-  const month = Number(dateMatch[1])
-  const day = Number(dateMatch[2])
-  const yearRaw = dateMatch[3]
+const parseDateToken = (monthValue: string, dayValue: string, yearValue: string | undefined, defaultYear: number) => {
+  const month = Number(monthValue)
+  const day = Number(dayValue)
 
   let year = defaultYear
-  if (yearRaw) {
-    const parsedYear = Number(yearRaw)
+  if (yearValue) {
+    const parsedYear = Number(yearValue)
     if (!Number.isFinite(parsedYear)) return null
-    if (yearRaw.length === 2) {
-      year = 2000 + parsedYear
-    } else {
-      year = parsedYear
-    }
+    year = yearValue.length === 2 ? 2000 + parsedYear : parsedYear
   }
 
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
 
-  const dueDate = new Date(Date.UTC(year, month - 1, day))
+  const date = new Date(Date.UTC(year, month - 1, day))
   if (
-    dueDate.getUTCFullYear() !== year ||
-    dueDate.getUTCMonth() !== month - 1 ||
-    dueDate.getUTCDate() !== day
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
   ) {
     return null
   }
 
-  return dueDate
+  return date
 }
 
-const buildDueMetadata = (text: string, todayDate: Date) => {
-  const dueDate = parseCandidateDueDate(text, todayDate.getUTCFullYear())
-  if (!dueDate) {
+const parseDatesFromText = (text: string, defaultYear: number) => {
+  const results: Date[] = []
+  const normalized = String(text || '')
+
+  DATE_TOKEN_REGEX.lastIndex = 0
+  let match: RegExpExecArray | null = DATE_TOKEN_REGEX.exec(normalized)
+  while (match) {
+    const date = parseDateToken(match[1], match[2], match[3], defaultYear)
+    if (date) results.push(date)
+    match = DATE_TOKEN_REGEX.exec(normalized)
+  }
+
+  return results
+}
+
+const buildDueMetadata = (highlightedDates: Date[], hasAnyDateText: boolean, todayDate: Date): DueMetadata => {
+  if (!highlightedDates.length) {
     return {
-      dueBucket: 'none' as DueBucket,
+      dueBucket: 'none',
       isOverdue: false,
       hasExplicitDate: false,
+      hasAnyDateText,
     }
   }
 
-  const diffDays = Math.floor((dueDate.getTime() - todayDate.getTime()) / DAY_MS)
+  const earliestDueDate = highlightedDates
+    .slice()
+    .sort((a, b) => a.getTime() - b.getTime())[0]
+
+  const diffDays = Math.floor((earliestDueDate.getTime() - todayDate.getTime()) / DAY_MS)
   if (diffDays < 0) {
     return {
-      dueBucket: 'overdue' as DueBucket,
+      dueBucket: 'overdue',
       isOverdue: true,
       hasExplicitDate: true,
+      hasAnyDateText,
     }
   }
+
   if (diffDays === 0) {
     return {
-      dueBucket: 'today' as DueBucket,
+      dueBucket: 'today',
       isOverdue: false,
       hasExplicitDate: true,
+      hasAnyDateText,
     }
   }
+
   if (diffDays <= 2) {
     return {
-      dueBucket: 'soon' as DueBucket,
+      dueBucket: 'soon',
       isOverdue: false,
       hasExplicitDate: true,
+      hasAnyDateText,
     }
   }
 
   return {
-    dueBucket: 'later' as DueBucket,
+    dueBucket: 'later',
     isOverdue: false,
     hasExplicitDate: true,
+    hasAnyDateText,
   }
 }
 
-export const extractNextStepsFromText = (text: string, today: string): NextStepItem[] => {
-  const lines = String(text || '').split('\n')
+const appendSegment = (segments: InlineSegment[], segment: InlineSegment) => {
+  if (!segment.text) return
+  const previous = segments[segments.length - 1]
+  if (previous && previous.highlighted === segment.highlighted) {
+    previous.text += segment.text
+    return
+  }
+  segments.push({ ...segment })
+}
+
+const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
+  const segments: InlineSegment[] = []
+
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return
+
+    if (node.type === 'text') {
+      const marks = Array.isArray(node.marks) ? node.marks : []
+      if (marks.some((mark) => mark?.type === 'strike')) return
+
+      appendSegment(segments, {
+        text: String(node.text || ''),
+        highlighted: marks.some((mark) => mark?.type === 'highlight'),
+      })
+      return
+    }
+
+    if (node.type === 'hardBreak') {
+      appendSegment(segments, { text: '\n', highlighted: false })
+      return
+    }
+
+    if (Array.isArray(node.content)) {
+      node.content.forEach(walk)
+    }
+  }
+
+  ;(nodes || []).forEach(walk)
+  return segments
+}
+
+const flattenBlocks = (node: any, into: FlattenedBlock[]) => {
+  if (!node || typeof node !== 'object') return
+
+  if (node.type === 'horizontalRule') {
+    into.push({ kind: 'divider' })
+    return
+  }
+
+  if (node.type === 'paragraph' || node.type === 'heading') {
+    const segments = collectInlineSegments(node.content || [])
+    into.push({
+      kind: 'text',
+      nodeType: node.type,
+      text: normalizeText(segments.map((segment) => segment.text).join('')),
+      inlineContent: node.content || [],
+      paragraphAttrs: node.attrs || {},
+    })
+    return
+  }
+
+  if (node.type === 'listItem' || node.type === 'taskItem') {
+    const firstParagraph = (node.content || []).find((child: any) => child?.type === 'paragraph')
+    const inlineContent = firstParagraph?.content || []
+    const segments = collectInlineSegments(inlineContent)
+
+    into.push({
+      kind: 'list',
+      nodeType: node.type,
+      text: normalizeText(segments.map((segment) => segment.text).join('')),
+      inlineContent,
+      paragraphAttrs: firstParagraph?.attrs || {},
+      itemAttrs: node.attrs || {},
+    })
+
+    ;(node.content || []).forEach((child: any) => {
+      if (child === firstParagraph) return
+      flattenBlocks(child, into)
+    })
+    return
+  }
+
+  if (Array.isArray(node.content)) {
+    node.content.forEach((child: any) => flattenBlocks(child, into))
+  }
+}
+
+const isNextStepsHeader = (text: string) => /^next steps:?\s*$/i.test(normalizeText(text))
+
+const isSectionBoundary = (block: FlattenedBlock) => {
+  if (block.kind !== 'text') return false
+
+  const text = normalizeText(block.text || '')
+  if (!text) return false
+
+  if (block.nodeType === 'heading') {
+    return !isNextStepsHeader(text)
+  }
+
+  return /^(background|recurring(?:\s+things?)?|notes?)\s*:?\s*$/i.test(text)
+}
+
+const toAgeDays = (createdAt: string | undefined, todayDate: Date) => {
+  if (!createdAt) return null
+  const createdDate = new Date(createdAt)
+  if (Number.isNaN(createdDate.getTime())) return null
+  const diffDays = Math.floor((todayDate.getTime() - createdDate.getTime()) / DAY_MS)
+  return Math.max(0, diffDays)
+}
+
+const getDueMetadataFromInline = (inlineContent: any[], todayDate: Date): DueMetadata => {
+  const segments = collectInlineSegments(inlineContent || [])
+  const text = segments.map((segment) => segment.text).join('')
+
+  const allDates = parseDatesFromText(text, todayDate.getUTCFullYear())
+  const highlightedDates = segments
+    .filter((segment) => segment.highlighted)
+    .flatMap((segment) => parseDatesFromText(segment.text, todayDate.getUTCFullYear()))
+
+  return buildDueMetadata(highlightedDates, allDates.length > 0, todayDate)
+}
+
+const extractNextStepsFromContent = (content: any, today: string): NextStepItem[] => {
+  const todayDate = toUtcDate(today)
+  if (!todayDate || !content || typeof content !== 'object') return []
+
+  const blocks: FlattenedBlock[] = []
+  flattenBlocks(content, blocks)
+
   const nextSteps: NextStepItem[] = []
   let inNextSteps = false
 
-  const todayDate = toUtcDate(today)
-  if (!todayDate) return nextSteps
+  for (const block of blocks) {
+    if (block.kind === 'divider') {
+      inNextSteps = false
+      continue
+    }
 
-  const toAgeDays = (createdAt?: string) => {
-    if (!createdAt) return null
-    const createdDate = new Date(createdAt)
-    if (Number.isNaN(createdDate.getTime())) return null
-    const diffDays = Math.floor((todayDate.getTime() - createdDate.getTime()) / DAY_MS)
-    return Math.max(0, diffDays)
-  }
+    if (block.kind === 'text') {
+      const text = normalizeText(block.text || '')
+      if (isNextStepsHeader(text)) {
+        inNextSteps = true
+        continue
+      }
 
-  const isNextStepsHeader = (value: string) => /^next steps:?\s*/i.test(value)
-  const isListLine = (value: string) =>
-    value.startsWith('- ') ||
-    /^\d+\.\s+/.test(value) ||
-    /^\[(?: |x|X)\]\s+/.test(value)
-
-  const cleanListText = (value: string) =>
-    value
-      .replace(/^\-\s+/, '')
-      .replace(/^\d+\.\s+/, '')
-      .replace(/^\[(?: |x|X)\]\s+/, '')
-      .trim()
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (isNextStepsHeader(trimmed)) {
-      inNextSteps = true
+      if (inNextSteps && isSectionBoundary(block)) {
+        inNextSteps = false
+      }
       continue
     }
 
@@ -147,35 +304,29 @@ export const extractNextStepsFromText = (text: string, today: string): NextStepI
       continue
     }
 
-    if (!trimmed) {
+    if (block.itemAttrs?.checked) {
       continue
     }
 
-    if (!isListLine(trimmed)) {
-      inNextSteps = false
+    const text = normalizeText(block.text || '')
+    if (!text) continue
+
+    const dueMeta = getDueMetadataFromInline(block.inlineContent || [], todayDate)
+
+    // Workflow rule: unhighlighted dates represent context/status notes, not due tasks.
+    if (dueMeta.hasAnyDateText && !dueMeta.hasExplicitDate) {
       continue
     }
 
-    const idMatch = line.match(/{{id:([^}]+)}}/)
-    const createdAtMatch = line.match(/{{created_at:([^}]+)}}/)
-    const blockId = idMatch?.[1]
-    const createdAt = createdAtMatch?.[1]
+    const blockId = block.paragraphAttrs?.id || block.itemAttrs?.id
+    if (!blockId) continue
 
-    const cleaned = cleanListText(trimmed)
-      .replace(/\s*{{id:[^}]+}}/g, '')
-      .replace(/\s*{{created_at:[^}]+}}/g, '')
-      .trim()
-
-    if (!blockId || !cleaned) {
-      continue
-    }
-
-    const dueMeta = buildDueMetadata(cleaned, todayDate)
+    const createdAt = block.paragraphAttrs?.created_at || block.itemAttrs?.created_at
 
     nextSteps.push({
-      text: cleaned,
+      text,
       blockId,
-      ageDays: toAgeDays(createdAt),
+      ageDays: toAgeDays(createdAt, todayDate),
       dueBucket: dueMeta.dueBucket,
       isOverdue: dueMeta.isOverdue,
       hasExplicitDate: dueMeta.hasExplicitDate,
@@ -187,7 +338,7 @@ export const extractNextStepsFromText = (text: string, today: string): NextStepI
 
 export const buildCandidatesForModel = (trackerPages: any[], today: string) => {
   const nextSteps = (trackerPages || []).flatMap((page: any) =>
-    extractNextStepsFromText(page?.textContent || '', today),
+    extractNextStepsFromContent(page?.content, today),
   )
 
   const cidToBlockId = new Map<string, string>()
@@ -239,19 +390,13 @@ export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
       }
     }
 
-    if (Array.isArray(parsed)) {
-      asap = parsed
-      format = 'legacy_array'
-    } else if (parsed && typeof parsed === 'object') {
+    if (parsed && typeof parsed === 'object') {
       if (Array.isArray(parsed.asap)) asap = parsed.asap
       if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
       if (Array.isArray(parsed.stale)) stale = parsed.stale
 
       if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi) || Array.isArray(parsed.stale)) {
         format = 'asap_fyi'
-      } else if (Array.isArray(parsed.tasks)) {
-        asap = parsed.tasks
-        format = 'legacy_tasks'
       }
     }
   } catch {

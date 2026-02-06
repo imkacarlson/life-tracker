@@ -138,6 +138,8 @@ Each candidate has metadata fields:
 
 Rules:
 - Metadata fields are deterministic server metadata. They are NOT literal due dates.
+- has_explicit_date=true means the source item contains a user-highlighted due date.
+- If has_explicit_date=false, treat date-like text as context/status notes, not due dates.
 - Do not infer due dates from age_days or any metadata value.
 - Use only candidate text + metadata to prioritize and bucket tasks.
 - If due_bucket is later, omit the item.
