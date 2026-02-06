@@ -466,7 +466,7 @@ function EditorPanel({
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
       const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
-      const selectedDate = aiDailyDate
+      const selectedDate = aiDailyPickerOpen ? aiDailyDate : new Date()
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
       const trackerPages = (allTrackers || [])
