@@ -440,8 +440,14 @@ function EditorPanel({
         .map((t) => ({
           title: t.title,
           pageId: t.id,
+          content: t.content || { type: 'doc', content: [] },
           textContent: serializeDocToText(t.content || { type: 'doc', content: [] }),
         }))
+      const trackerPagesForModel = trackerPages.map((page) => ({
+        title: page.title,
+        pageId: page.pageId,
+        content: page.content,
+      }))
 
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
@@ -449,7 +455,7 @@ function EditorPanel({
       }
 
       const { data, error } = await supabase.functions.invoke('generate-daily', {
-        body: { provider, model, trackerPages, today, dayOfWeek },
+        body: { provider, model, trackerPages: trackerPagesForModel, today, dayOfWeek },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
