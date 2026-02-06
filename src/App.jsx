@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { useNotebooks } from './hooks/useNotebooks'
 import { useSections } from './hooks/useSections'
@@ -99,6 +99,29 @@ function App() {
   })
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
+  const isSaving = saveStatus === 'Saving...' || templateSaveStatus === 'Saving...'
+
+  const confirmLeaveWhileSaving = useCallback(() => {
+    if (!isSaving) return true
+    return window.confirm('Changes are still saving. Leave this page anyway?')
+  }, [isSaving])
+
+  const runWithSaveGuard = useCallback(
+    (action) => {
+      if (!confirmLeaveWhileSaving()) return false
+      action()
+      return true
+    },
+    [confirmLeaveWhileSaving],
+  )
+
+  const guardedInternalHashNavigate = useCallback(
+    (href) => {
+      if (!confirmLeaveWhileSaving()) return
+      handleInternalHashNavigate(href)
+    },
+    [confirmLeaveWhileSaving, handleInternalHashNavigate],
+  )
   const setMessage = (msg) => {
     setAuthMessage(msg)
     setNotebookMessage(msg)
@@ -149,7 +172,18 @@ function App() {
     setTemplateSaveStatus('Saved')
   }, [settingsMode, setTemplateSaveStatus])
 
+  useEffect(() => {
+    const handleBeforeUnload = (event) => {
+      if (!isSaving) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isSaving])
+
   const handleSignOut = async () => {
+    if (!confirmLeaveWhileSaving()) return
     await signOut()
     setMessage('')
     setActiveNotebookId(null)
@@ -210,13 +244,16 @@ function App() {
             <select
               value={activeNotebookId ?? ''}
               onChange={(event) => {
-                if (settingsMode) {
-                  setSettingsMode(null)
-                }
-                navIntentRef.current = 'push'
-                hashBlockRef.current = null
-                pendingNavRef.current = null
-                setActiveNotebookId(event.target.value)
+                const nextNotebookId = event.target.value
+                runWithSaveGuard(() => {
+                  if (settingsMode) {
+                    setSettingsMode(null)
+                  }
+                  navIntentRef.current = 'push'
+                  hashBlockRef.current = null
+                  pendingNavRef.current = null
+                  setActiveNotebookId(nextNotebookId)
+                })
               }}
             >
               {notebooks.map((notebook) => (
@@ -225,7 +262,7 @@ function App() {
                 </option>
               ))}
             </select>
-            <button className="ghost" onClick={() => createNotebook(session)}>
+            <button className="ghost" onClick={() => runWithSaveGuard(() => createNotebook(session))}>
               New
             </button>
             <button className="ghost" onClick={() => renameNotebook(activeNotebook)} disabled={!activeNotebook}>
@@ -240,7 +277,7 @@ function App() {
           <button
             type="button"
             className={`ghost settings-button ${settingsMode ? 'active' : ''}`}
-            onClick={openSettings}
+            onClick={() => runWithSaveGuard(() => openSettings())}
           >
             Settings
           </button>
@@ -259,13 +296,15 @@ function App() {
             className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
             style={{ backgroundColor: section.color || '#eef2ff' }}
             onClick={() => {
-              if (settingsMode) {
-                setSettingsMode(null)
-              }
-              navIntentRef.current = 'push'
-              hashBlockRef.current = null
-              pendingNavRef.current = null
-              setActiveSectionId(section.id)
+              runWithSaveGuard(() => {
+                if (settingsMode) {
+                  setSettingsMode(null)
+                }
+                navIntentRef.current = 'push'
+                hashBlockRef.current = null
+                pendingNavRef.current = null
+                setActiveSectionId(section.id)
+              })
             }}
             onDoubleClick={() => renameSection(section)}
             onContextMenu={(event) => {
@@ -275,13 +314,15 @@ function App() {
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
-                if (settingsMode) {
-                  setSettingsMode(null)
-                }
-                navIntentRef.current = 'push'
-                hashBlockRef.current = null
-                pendingNavRef.current = null
-                setActiveSectionId(section.id)
+                runWithSaveGuard(() => {
+                  if (settingsMode) {
+                    setSettingsMode(null)
+                  }
+                  navIntentRef.current = 'push'
+                  hashBlockRef.current = null
+                  pendingNavRef.current = null
+                  setActiveSectionId(section.id)
+                })
               }
             }}
           >
@@ -298,7 +339,11 @@ function App() {
             </button>
           </div>
         ))}
-        <button className="section-add" onClick={() => createSection(session, activeNotebookId)} disabled={!activeNotebookId}>
+        <button
+          className="section-add"
+          onClick={() => runWithSaveGuard(() => createSection(session, activeNotebookId))}
+          disabled={!activeNotebookId}
+        >
           +
         </button>
       </div>
@@ -324,13 +369,13 @@ function App() {
             notebookId={activeNotebookId}
             sectionId={activeSectionId}
             trackerId={activeTrackerId}
-            onNavigateHash={handleInternalHashNavigate}
+            onNavigateHash={guardedInternalHashNavigate}
             allTrackers={trackers}
             userId={userId}
             titleReadOnly
             showDelete={false}
             headerActions={
-              <button type="button" className="ghost" onClick={backToSettingsHub}>
+              <button type="button" className="ghost" onClick={() => runWithSaveGuard(() => backToSettingsHub())}>
                 Back to Settings
               </button>
             }
@@ -351,7 +396,7 @@ function App() {
               notebookId={activeNotebookId}
               sectionId={activeSectionId}
               trackerId={activeTrackerId}
-              onNavigateHash={handleInternalHashNavigate}
+              onNavigateHash={guardedInternalHashNavigate}
               allTrackers={trackers}
               userId={userId}
             />
@@ -359,12 +404,14 @@ function App() {
               trackers={trackers}
               activeId={activeTrackerId}
               onSelect={(id) => {
-                navIntentRef.current = 'push'
-                hashBlockRef.current = null
-                pendingNavRef.current = null
-                setActiveTrackerId(id)
+                runWithSaveGuard(() => {
+                  navIntentRef.current = 'push'
+                  hashBlockRef.current = null
+                  pendingNavRef.current = null
+                  setActiveTrackerId(id)
+                })
               }}
-              onCreate={() => createTracker(session, activeSectionId)}
+              onCreate={() => runWithSaveGuard(() => createTracker(session, activeSectionId))}
               onReorder={reorderTrackers}
               loading={dataLoading}
               disabled={!activeSectionId}
