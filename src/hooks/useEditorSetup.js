@@ -11,7 +11,7 @@ import TextAlign from '@tiptap/extension-text-align'
 import { TableRow } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { EMPTY_DOC } from '../utils/constants'
-import { normalizeContent } from '../utils/contentHelpers'
+import { normalizeContent, sanitizeContentForSave } from '../utils/contentHelpers'
 import { summarizeSlice } from '../utils/pasteHelpers'
 import { scrollToBlock } from '../utils/navigationHelpers'
 import {
@@ -208,6 +208,10 @@ export const useEditorSetup = ({
       if (settingsMode) return
 
       const rawContent = normalizeContent(activeTracker?.content)
+      const currentContent = sanitizeContentForSave(editor.getJSON())
+      if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
+        return
+      }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
       if (!mounted) return
       editor.commands.setContent(hydrated, {
