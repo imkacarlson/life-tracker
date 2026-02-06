@@ -1,6 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+import {
+  buildCandidatesForModel,
+  mapTasksFromCids,
+  parseTaskBuckets,
+} from './dailyHelpers.ts'
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
 const PROVIDERS: Record<string, {
   url: string
   buildRequest: (model: string, systemPrompt: string, userMessage: string, apiKey: string) => { headers: Record<string, string>, body: string }
@@ -28,7 +39,7 @@ const PROVIDERS: Record<string, {
     buildRequest: (model, systemPrompt, userMessage, apiKey) => ({
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model,
@@ -42,7 +53,7 @@ const PROVIDERS: Record<string, {
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-    buildRequest: (model, systemPrompt, userMessage, apiKey) => ({
+    buildRequest: (model, systemPrompt, userMessage, _apiKey) => ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system_instruction: { parts: [{ text: systemPrompt }] },
@@ -53,22 +64,25 @@ const PROVIDERS: Record<string, {
   },
 }
 
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      'Content-Type': 'application/json',
+    },
+  })
+
+const appendWarning = (existing: string | null, next: string) => (existing ? `${existing} ${next}` : next)
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    })
+    return new Response('ok', { headers: CORS_HEADERS })
   }
 
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    })
+    return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
   const supabaseClient = createClient(
@@ -79,10 +93,7 @@ Deno.serve(async (req) => {
 
   const { data: { user }, error: authError } = await supabaseClient.auth.getUser()
   if (authError || !user) {
-    return new Response(JSON.stringify({ error: 'Invalid token' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    })
+    return jsonResponse({ error: 'Invalid token' }, 401)
   }
 
   try {
@@ -90,10 +101,7 @@ Deno.serve(async (req) => {
 
     const providerConfig = PROVIDERS[provider]
     if (!providerConfig) {
-      return new Response(JSON.stringify({ error: `Unknown provider: ${provider}` }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      })
+      return jsonResponse({ error: `Unknown provider: ${provider}` }, 400)
     }
 
     const apiKeyEnvMap: Record<string, string> = {
@@ -101,151 +109,54 @@ Deno.serve(async (req) => {
       openai: 'OPENAI_API_KEY',
       google: 'GOOGLE_API_KEY',
     }
+
     const apiKey = Deno.env.get(apiKeyEnvMap[provider])
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: `No API key configured for ${provider}` }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      return jsonResponse({ error: `No API key configured for ${provider}` }, 500)
+    }
+
+    const { candidates, cidToBlockId, cidToText } = buildCandidatesForModel(trackerPages, today)
+
+    if (!candidates.length) {
+      return jsonResponse({
+        asap: [],
+        fyi: [],
+        stale: [],
+        rawText: '',
+        warning: null,
       })
     }
 
-    const systemPrompt = `You are a daily planner assistant. The user will give you their notes/tracker pages as structured text with paragraph block IDs. Today is ${today} (${dayOfWeek}).
+    const systemPrompt = `You are a daily planner assistant. Today is ${today} (${dayOfWeek}).
 
-Your job: generate a prioritized daily task list based on what needs to be done today.
-
-TODAY: ${today}
+The user provides compact candidate tasks in JSON. Use only those candidates.
+Each candidate has metadata fields:
+- due_bucket: overdue | today | soon | later | none
+- is_overdue: boolean
+- has_explicit_date: boolean
+- age_days: integer or null
 
 Rules:
-- ONLY create tasks from items listed under NEXT_STEPS for each page
-- DO NOT create tasks from Background or Recurring sections; those are context only
-- SKIP anything with strikethrough (marked with ~~text~~) - those are completed
-- Dates may be embedded in text (examples: "by 3/7", "by end of day 3/7", "EOD 3/7", "on 3/7", "due 3/7") and may be wrapped in brackets
-- Metadata like age_days is NOT a due date; only explicit date text in the task counts as a due date
-- Assume numeric dates are MM/DD in the current year when no year is provided
-- Tomorrow is TODAY + 1 day. The day after tomorrow is TODAY + 2 days.
-- If a task has an explicit due date:
-  - If the due date is BEFORE today, include it and append " (overdue)" to the task text
-  - If the due date is TODAY, include it in ASAP
-  - If the due date is TOMORROW or the day after tomorrow, include it in FYI
-  - If the due date is MORE THAN 2 days away, OMIT it entirely (do not include in ASAP or FYI)
-- NEVER place any task with a future due date in ASAP (even if it seems important)
-- If a task has NO explicit date, include it in ASAP only if it is explicitly urgent in the text
-- It is OK for ASAP or FYI to be short or empty. Do NOT invent tasks or add filler
-- For each task, include the block_id of the source paragraph so we can link back to it
-- If a task relates to multiple source paragraphs, include all relevant block_ids
+- Metadata fields are deterministic server metadata. They are NOT literal due dates.
+- Do not infer due dates from age_days or any metadata value.
+- Use only candidate text + metadata to prioritize and bucket tasks.
+- If due_bucket is later, omit the item.
+- STALE is only for has_explicit_date=false and age_days >= 7.
+- ASAP is overdue/today items plus undated urgent items.
+- FYI is due_bucket=soon.
+- Keep task text concise and actionable.
+- Use cids (not block IDs) in output.
 
-Respond with ONLY a JSON object, no other text. Do NOT return a JSON array or wrap in code fences. Use this shape:
-{"asap":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}],"stale":[{"task":"short task description","block_ids":["uuid1","uuid2"],"priority":"high"|"medium"|"low"}]}
+Respond with ONLY a JSON object, no other text. Use this exact shape:
+{"asap":[{"task":"short task description","cids":["c1","c2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}],"stale":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}]}
 
-Bucket rules:
-- ASAP: overdue tasks, tasks due today, and undated urgent tasks
-- FYI: tasks due in 1-2 days (tomorrow or day after tomorrow)
-- STALE: undated tasks with age_days >= 7
-- Omit anything due more than 2 days out (unless it is STALE)
+If a bucket is empty, return an empty array.`
 
-Note: STALE items should only be included if they have NO explicit due date in the text.
-
-If a bucket is empty, return an empty array for it.
-
-Ordering:
-- ASAP: overdue first (most recently overdue at top), then due today, then undated urgent
-- FYI: soonest due date first
-- Within the same due date, high priority first.`
-
-    const extractNextStepsFromText = (text: string) => {
-      const lines = String(text || '').split('\n')
-      const nextSteps: { text: string, blockId: string, ageDays?: number }[] = []
-      const contextLines: string[] = []
-      let inNextSteps = false
-      const todayDate = new Date(`${today}T00:00:00Z`)
-
-      const toAgeDays = (createdAt?: string): number | null => {
-        if (!createdAt) return null
-        const createdDate = new Date(createdAt)
-        if (Number.isNaN(createdDate.getTime()) || Number.isNaN(todayDate.getTime())) return null
-        const millisPerDay = 24 * 60 * 60 * 1000
-        const diffDays = Math.floor((todayDate.getTime() - createdDate.getTime()) / millisPerDay)
-        return Math.max(0, diffDays)
-      }
-
-      const isNextStepsHeader = (value: string) => /^next steps:?\s*/i.test(value)
-      const isListLine = (value: string) =>
-        value.startsWith('- ') ||
-        /^\d+\.\s+/.test(value) ||
-        /^\[(?: |x|X)\]\s+/.test(value)
-
-      const cleanListText = (value: string) =>
-        value
-          .replace(/^\-\s+/, '')
-          .replace(/^\d+\.\s+/, '')
-          .replace(/^\[(?: |x|X)\]\s+/, '')
-          .trim()
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (isNextStepsHeader(trimmed)) {
-          inNextSteps = true
-          continue
-        }
-        if (inNextSteps) {
-          if (!trimmed) continue
-          if (isListLine(trimmed)) {
-            const idMatch = line.match(/{{id:([^}]+)}}/)
-            const blockId = idMatch?.[1]
-            const createdAtMatch = line.match(/{{created_at:([^}]+)}}/)
-            const createdAt = createdAtMatch?.[1]
-            const ageDays = toAgeDays(createdAt)
-            const cleaned = cleanListText(trimmed)
-              .replace(/\s*{{id:[^}]+}}/g, '')
-              .replace(/\s*{{created_at:[^}]+}}/g, '')
-              .trim()
-            if (blockId && cleaned) {
-              nextSteps.push({ text: cleaned, blockId, ageDays: ageDays ?? undefined })
-            }
-            continue
-          }
-          inNextSteps = false
-        }
-        contextLines.push(line)
-      }
-
-      return {
-        nextSteps,
-        context: contextLines.join('\n').trim(),
-      }
-    }
-
-    const preparedPages = (trackerPages || []).map((page: any) => {
-      const { nextSteps, context } = extractNextStepsFromText(page.textContent || '')
-      return {
-        ...page,
-        nextSteps,
-        context,
-      }
-    })
-
-    const allowedBlockIds = new Set<string>()
-    preparedPages.forEach((page: any) => {
-      page.nextSteps?.forEach((item: { blockId: string }) => allowedBlockIds.add(item.blockId))
-    })
-
-    const userMessage = preparedPages.map((page: any) => {
-      const nextStepsText = page.nextSteps?.length
-        ? page.nextSteps.map((item: any) => {
-            const ageInfo = Number.isInteger(item.ageDays) ? ` age_days: ${item.ageDays}` : ''
-            return `- ${item.text} (block_id: ${item.blockId}${ageInfo})`
-          }).join('\n')
-        : '(none)'
-      const contextText = page.context?.trim() ? page.context : '(none)'
-      return [
-        `=== Page: ${page.title} (pageId: ${page.pageId}) ===`,
-        'NEXT_STEPS (only these can become tasks):',
-        nextStepsText,
-        '',
-        'CONTEXT (background/recurring/notes; do not create tasks from this):',
-        contextText,
-      ].join('\n')
-    }).join('\n\n')
+    const userMessage = [
+      `TODAY: ${today}`,
+      `DAY_OF_WEEK: ${dayOfWeek}`,
+      `CANDIDATES_JSON: ${JSON.stringify(candidates)}`,
+    ].join('\n')
 
     let fetchUrl = providerConfig.url
     if (provider === 'google') {
@@ -258,102 +169,59 @@ Ordering:
     const data = await response.json()
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: 'LLM API error', details: data }), {
-        status: 502,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      })
-    }
-
-    const parseTasks = (text: string) => {
-      let asap: any[] = []
-      let fyi: any[] = []
-      let stale: any[] = []
-      let format = 'empty'
-      try {
-        const trimmed = text.trim()
-        let parsed: any = null
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-          parsed = JSON.parse(trimmed)
-        } else {
-          const objStart = trimmed.indexOf('{')
-          const objEnd = trimmed.lastIndexOf('}')
-          const arrStart = trimmed.indexOf('[')
-          const arrEnd = trimmed.lastIndexOf(']')
-          if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
-            parsed = JSON.parse(trimmed.slice(objStart, objEnd + 1))
-          } else if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
-            parsed = JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
-          }
-        }
-
-        if (Array.isArray(parsed)) {
-          asap = parsed
-          format = 'legacy_array'
-        } else if (parsed && typeof parsed === 'object') {
-          if (Array.isArray(parsed.asap)) asap = parsed.asap
-          if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
-          if (Array.isArray(parsed.stale)) stale = parsed.stale
-          if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi) || Array.isArray(parsed.stale)) {
-            format = 'asap_fyi'
-          } else if (Array.isArray(parsed.tasks)) {
-            asap = parsed.tasks
-            format = 'legacy_tasks'
-          }
-        }
-      } catch {
-        asap = []
-        fyi = []
-        stale = []
-        format = 'empty'
-      }
-      return { asap, fyi, stale, format }
+      return jsonResponse({ error: 'LLM API error', details: data }, 502)
     }
 
     const rawText = providerConfig.extractResponse(data)
-    const parsed = parseTasks(rawText)
+    const parsed = parseTaskBuckets(rawText)
 
-    const filterToNextSteps = (tasks: any[]) =>
-      (tasks || [])
-        .map((task) => {
-          const blockIds = Array.isArray(task.block_ids)
-            ? task.block_ids.filter((id: string) => allowedBlockIds.has(id))
-            : []
-          if (!blockIds.length) return null
-          return { ...task, block_ids: blockIds }
-        })
-        .filter(Boolean)
+    const allowedCids = new Set(candidates.map((candidate) => candidate.cid))
 
-    const asap = filterToNextSteps(parsed.asap)
-    const fyi = filterToNextSteps(parsed.fyi)
-    const stale = filterToNextSteps(parsed.stale)
-    const removedCount =
+    const mappedAsap = mapTasksFromCids(parsed.asap, allowedCids, cidToBlockId, cidToText)
+    const mappedFyi = mapTasksFromCids(parsed.fyi, allowedCids, cidToBlockId, cidToText)
+    const mappedStale = mapTasksFromCids(parsed.stale, allowedCids, cidToBlockId, cidToText)
+
+    const asap = mappedAsap.mapped
+    const fyi = mappedFyi.mapped
+    const stale = mappedStale.mapped
+
+    const totalParsedCount =
       (parsed.asap?.length || 0) +
       (parsed.fyi?.length || 0) +
-      (parsed.stale?.length || 0) -
-      (asap.length + fyi.length + stale.length)
+      (parsed.stale?.length || 0)
+    const totalMappedCount = asap.length + fyi.length + stale.length
 
     let warning =
       parsed.format === 'asap_fyi'
         ? null
         : 'FYI: AI response did not follow the ASAP/FYI format. Results may be incomplete.'
-    if (removedCount > 0) {
-      const note = 'FYI: Some tasks were removed because they were not under Next steps.'
-      warning = warning ? `${warning} ${note}` : note
+
+    if (totalParsedCount > totalMappedCount) {
+      warning = appendWarning(
+        warning,
+        'FYI: Some tasks were removed because AI returned missing or invalid candidate IDs.',
+      )
     }
 
-    return new Response(JSON.stringify({
+    if (
+      mappedAsap.removedForInvalidCids > 0 ||
+      mappedFyi.removedForInvalidCids > 0 ||
+      mappedStale.removedForInvalidCids > 0
+    ) {
+      warning = appendWarning(
+        warning,
+        'FYI: AI output must use cids from CANDIDATES_JSON. Non-cid references were ignored.',
+      )
+    }
+
+    return jsonResponse({
       asap,
       fyi,
       stale,
       rawText,
       warning,
-    }), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     })
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    })
+    return jsonResponse({ error: String(err) }, 500)
   }
 })
