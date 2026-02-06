@@ -435,7 +435,8 @@ h2 {
 .ai-daily-picker {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
+  right: auto;
   padding: 10px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
