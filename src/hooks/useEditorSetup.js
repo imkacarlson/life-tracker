@@ -53,6 +53,8 @@ export const useEditorSetup = ({
   navigateRef,
   uploadImageRef,
 }) => {
+  const suppressSaveRef = useRef(false)
+  const contentOwnerTrackerIdRef = useRef(null)
   const pasteInfoRef = useRef({
     summary: null,
     preFrom: null,
@@ -192,6 +194,7 @@ export const useEditorSetup = ({
     if (!editor) return
     let mounted = true
     const setContent = async () => {
+      suppressSaveRef.current = true
       if (settingsMode === 'daily-template') {
         const rawContent = normalizeContent(templateContentRef.current)
         const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -202,13 +205,21 @@ export const useEditorSetup = ({
             preserveWhitespace: 'full',
           },
         })
+        contentOwnerTrackerIdRef.current = null
+        suppressSaveRef.current = false
         return
       }
-      if (settingsMode) return
+      if (settingsMode) {
+        contentOwnerTrackerIdRef.current = null
+        suppressSaveRef.current = false
+        return
+      }
 
       const rawContent = normalizeContent(activeTracker?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
+        contentOwnerTrackerIdRef.current = activeTrackerId ?? null
+        suppressSaveRef.current = false
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -219,6 +230,8 @@ export const useEditorSetup = ({
           preserveWhitespace: 'full',
         },
       })
+      contentOwnerTrackerIdRef.current = activeTrackerId ?? null
+      suppressSaveRef.current = false
       const attemptScroll = (attempts = 0) => {
         if (!mounted) return
         const pending = pendingNavRef.current
@@ -233,6 +246,7 @@ export const useEditorSetup = ({
     setContent()
     return () => {
       mounted = false
+      suppressSaveRef.current = false
     }
   }, [
     editor,
@@ -252,11 +266,14 @@ export const useEditorSetup = ({
         scheduleSettingsSave(editor.getJSON())
         return
       }
-      scheduleSave(editor.getJSON())
+      if (suppressSaveRef.current) return
+      const targetTrackerId = contentOwnerTrackerIdRef.current ?? activeTrackerId
+      if (!targetTrackerId) return
+      scheduleSave(editor.getJSON(), undefined, targetTrackerId)
     }
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)
-  }, [editor, scheduleSave, scheduleSettingsSave, settingsMode])
+  }, [editor, activeTrackerId, scheduleSave, scheduleSettingsSave, settingsMode])
 
   useEffect(() => {
     if (!editor) return

@@ -14,6 +14,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
+  const trackersRef = useRef(trackers)
+  const pendingTitleByTrackerRef = useRef({})
 
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
 
@@ -26,6 +28,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   }, [activeTracker])
 
   useEffect(() => {
+    trackersRef.current = trackers
+  }, [trackers])
+
+  useEffect(() => {
     if (userId) return
     setTrackers([])
     setActiveTrackerId(null)
@@ -33,6 +39,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setMessage('')
     setTitleDraft('')
     setSaveStatus('Saved')
+    pendingTitleByTrackerRef.current = {}
   }, [userId])
 
   useEffect(() => {
@@ -101,15 +108,25 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   }, [activeTrackerId, activeTracker])
 
   const scheduleSave = useCallback(
-    (nextContent, nextTitle) => {
-      const tracker = activeTrackerRef.current
+    (nextContent, nextTitle, trackerIdOverride = null) => {
+      const trackerId = trackerIdOverride ?? activeTrackerRef.current?.id
+      if (!trackerId) return
+      const tracker = trackersRef.current.find((item) => item.id === trackerId)
       if (!tracker) return
 
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
 
-      const title = (nextTitle ?? titleDraftRef.current)?.trim() || 'Untitled Tracker'
+      if (typeof nextTitle === 'string') {
+        pendingTitleByTrackerRef.current[trackerId] = nextTitle
+      }
+
+      const pendingTitle = pendingTitleByTrackerRef.current[trackerId]
+      const fallbackTitle =
+        pendingTitle ??
+        (trackerId === activeTrackerRef.current?.id ? titleDraftRef.current : tracker.title)
+      const title = (nextTitle ?? fallbackTitle)?.trim() || 'Untitled Tracker'
       const payload = {
         title,
         content: sanitizeContentForSave(nextContent),
@@ -119,7 +136,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       setSaveStatus('Saving...')
 
       saveTimerRef.current = setTimeout(async () => {
-        const { error } = await supabase.from('pages').update(payload).eq('id', tracker.id)
+        const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
 
         if (error) {
           setMessage(error.message)
@@ -127,8 +144,12 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
           return
         }
 
+        if (pendingTitleByTrackerRef.current[trackerId] === payload.title) {
+          delete pendingTitleByTrackerRef.current[trackerId]
+        }
+
         setTrackers((prev) =>
-          prev.map((item) => (item.id === tracker.id ? { ...item, ...payload } : item)),
+          prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
         )
         setSaveStatus('Saved')
       }, 2000)
@@ -208,6 +229,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
+    delete pendingTitleByTrackerRef.current[tracker.id]
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
