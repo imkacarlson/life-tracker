@@ -15,6 +15,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
   const trackersRef = useRef(trackers)
+  const pendingTitleByTrackerRef = useRef({})
 
   const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
 
@@ -38,6 +39,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setMessage('')
     setTitleDraft('')
     setSaveStatus('Saved')
+    pendingTitleByTrackerRef.current = {}
   }, [userId])
 
   useEffect(() => {
@@ -116,8 +118,14 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
         clearTimeout(saveTimerRef.current)
       }
 
+      if (typeof nextTitle === 'string') {
+        pendingTitleByTrackerRef.current[trackerId] = nextTitle
+      }
+
+      const pendingTitle = pendingTitleByTrackerRef.current[trackerId]
       const fallbackTitle =
-        trackerIdOverride && !nextTitle ? tracker.title : titleDraftRef.current
+        pendingTitle ??
+        (trackerId === activeTrackerRef.current?.id ? titleDraftRef.current : tracker.title)
       const title = (nextTitle ?? fallbackTitle)?.trim() || 'Untitled Tracker'
       const payload = {
         title,
@@ -134,6 +142,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
           setMessage(error.message)
           setSaveStatus('Error')
           return
+        }
+
+        if (pendingTitleByTrackerRef.current[trackerId] === payload.title) {
+          delete pendingTitleByTrackerRef.current[trackerId]
         }
 
         setTrackers((prev) =>
@@ -217,6 +229,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
+    delete pendingTitleByTrackerRef.current[tracker.id]
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
