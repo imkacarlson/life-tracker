@@ -1,6 +1,14 @@
 import { useRef, useState } from 'react'
 
-function Sidebar({ trackers, activeId, onSelect, onCreate, onReorder, loading, disabled }) {
+function Sidebar({
+  trackers,
+  activeId,
+  onSelect,
+  onCreate,
+  onReorder,
+  loading,
+  disabled,
+}) {
   const dragIdRef = useRef(null)
   const [overId, setOverId] = useState(null)
 
@@ -66,20 +74,32 @@ function Sidebar({ trackers, activeId, onSelect, onCreate, onReorder, loading, d
       ) : (
         <div className="sidebar-list">
           {trackers.map((tracker) => (
-            <button
+            <div
               key={tracker.id}
-              className={`sidebar-item ${tracker.id === activeId ? 'active' : ''} ${
+              className={`sidebar-row ${
                 overId === tracker.id ? 'drag-over' : ''
               }`}
-              onClick={() => onSelect(tracker.id)}
               draggable={!disabled && !loading}
               onDragStart={handleDragStart(tracker.id)}
               onDragOver={handleDragOver(tracker.id)}
               onDrop={handleDrop(tracker.id)}
               onDragEnd={handleDragEnd}
             >
-              <span className="sidebar-title">{tracker.title}</span>
-            </button>
+              <button
+                type="button"
+                className={`sidebar-item ${tracker.id === activeId ? 'active' : ''} ${
+                  overId === tracker.id ? 'drag-over' : ''
+                }`}
+                onClick={() => onSelect(tracker.id)}
+              >
+                <span className="sidebar-title">{tracker.title}</span>
+              </button>
+              {tracker.is_tracker_page ? (
+                <span className="tracker-page-badge" title="Tracker page for AI Daily">
+                  TRACKER
+                </span>
+              ) : null}
+            </div>
           ))}
         </div>
       )}

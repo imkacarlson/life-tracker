@@ -73,16 +73,19 @@ function App() {
     activeTrackerId,
     setActiveTrackerId,
     activeTracker,
+    sectionTrackerPage,
     titleDraft,
     saveStatus,
     setSaveStatus,
     dataLoading,
+    trackerPageSaving,
     message: trackerMessage,
     setMessage: setTrackerMessage,
     scheduleSave,
     handleTitleChange,
     createTracker,
     reorderTrackers,
+    setTrackerPage,
     deleteTracker,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
@@ -398,6 +401,9 @@ function App() {
               trackerId={activeTrackerId}
               onNavigateHash={guardedInternalHashNavigate}
               allTrackers={trackers}
+              trackerSourcePage={sectionTrackerPage}
+              onSetTrackerPage={setTrackerPage}
+              trackerPageSaving={trackerPageSaving}
               userId={userId}
             />
             <Sidebar

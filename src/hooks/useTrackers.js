@@ -7,6 +7,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [trackers, setTrackers] = useState([])
   const [activeTrackerId, setActiveTrackerId] = useState(null)
   const [dataLoading, setDataLoading] = useState(false)
+  const [trackerPageSaving, setTrackerPageSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [saveStatus, setSaveStatus] = useState('Saved')
@@ -36,6 +37,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTrackers([])
     setActiveTrackerId(null)
     setDataLoading(false)
+    setTrackerPageSaving(false)
     setMessage('')
     setTitleDraft('')
     setSaveStatus('Saved')
@@ -57,7 +59,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       setMessage('')
       const { data, error } = await supabase
         .from('pages')
-        .select('id, title, content, created_at, updated_at, section_id, sort_order')
+        .select('id, title, content, created_at, updated_at, section_id, sort_order, is_tracker_page')
         .eq('section_id', sectionId)
         .order('sort_order', { ascending: true, nullsLast: true })
         .order('updated_at', { ascending: false })
@@ -214,6 +216,59 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     [userId],
   )
 
+  const setTrackerPage = useCallback(
+    async (pageId) => {
+      if (!userId || !activeSectionId || !pageId) return
+      const currentTrackers = trackersRef.current
+      const target = currentTrackers.find((item) => item.id === pageId)
+      if (!target || target.is_tracker_page) return
+
+      setMessage('')
+      setTrackerPageSaving(true)
+      setTrackers((prev) =>
+        prev.map((item) => ({
+          ...item,
+          is_tracker_page: item.id === pageId,
+        })),
+      )
+
+      const { error: clearError } = await supabase
+        .from('pages')
+        .update({ is_tracker_page: false })
+        .eq('section_id', activeSectionId)
+        .eq('user_id', userId)
+        .eq('is_tracker_page', true)
+
+      if (clearError) {
+        setTrackers(currentTrackers)
+        setMessage(clearError.message)
+        setTrackerPageSaving(false)
+        return
+      }
+
+      const { error: setError } = await supabase
+        .from('pages')
+        .update({
+          is_tracker_page: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', pageId)
+        .eq('section_id', activeSectionId)
+        .eq('user_id', userId)
+
+      if (setError) {
+        setTrackers(currentTrackers)
+        setMessage(setError.message)
+        await loadTrackers(activeSectionId)
+        setTrackerPageSaving(false)
+        return
+      }
+
+      setTrackerPageSaving(false)
+    },
+    [userId, activeSectionId, loadTrackers],
+  )
+
   const deleteTracker = async () => {
     const tracker = activeTrackerRef.current
     if (!tracker) return
@@ -233,6 +288,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
+  const sectionTrackerPage = trackers.find((item) => item.is_tracker_page) ?? null
+
   return {
     trackers,
     activeTrackerId,
@@ -243,13 +300,16 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     saveStatus,
     setSaveStatus,
     dataLoading,
+    trackerPageSaving,
     message,
     setMessage,
     scheduleSave,
     handleTitleChange,
     createTracker,
     reorderTrackers,
+    setTrackerPage,
     deleteTracker,
     activeTrackerRef,
+    sectionTrackerPage,
   }
 }
