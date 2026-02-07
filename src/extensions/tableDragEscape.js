@@ -1,7 +1,16 @@
 import { Extension } from '@tiptap/core'
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 const tableDragEscapeKey = new PluginKey('tableDragEscape')
+
+function isInTableCell($pos) {
+  for (let d = $pos.depth; d > 0; d--) {
+    const name = $pos.node(d).type.name
+    if (name === 'tableCell' || name === 'tableHeader') return true
+  }
+  return false
+}
 
 const TableDragEscape = Extension.create({
   name: 'tableDragEscape',
@@ -11,6 +20,32 @@ const TableDragEscape = Extension.create({
       new Plugin({
         key: tableDragEscapeKey,
         props: {
+          // When a TextSelection crosses a table boundary, apply selectedCell
+          // decorations to the table cells so they stay visually highlighted
+          // (the native browser ::selection renders poorly across tables).
+          decorations(state) {
+            const { selection } = state
+            if (!(selection instanceof TextSelection)) return null
+
+            const { $from, $to, from, to } = selection
+            const fromInCell = isInTableCell($from)
+            const toInCell = isInTableCell($to)
+
+            // Only when selection crosses a table boundary
+            if (fromInCell === toInCell) return null
+
+            const decos = []
+            state.doc.nodesBetween(from, to, (node, pos) => {
+              if (node.type.name === 'tableCell' || node.type.name === 'tableHeader') {
+                decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'selectedCell' }))
+                return false
+              }
+            })
+
+            if (decos.length === 0) return null
+            return DecorationSet.create(state.doc, decos)
+          },
+
           handleDOMEvents: {
             mousedown(view, event) {
               if (event.button !== 0) return false
@@ -53,15 +88,30 @@ const TableDragEscape = Extension.create({
                 escaped = true
                 e.stopImmediatePropagation()
 
-                // Clear prosemirror-tables internal editing state
-                const tr = view.state.tr.setMeta('selectingCells$', -1)
-                view.dispatch(tr)
-
                 const headCoords = view.posAtCoords({ left: e.clientX, top: e.clientY })
                 if (!headCoords) return
 
-                const sel = TextSelection.create(view.state.doc, anchorPos, headCoords.pos)
-                view.dispatch(view.state.tr.setSelection(sel))
+                // Resolve the head position - when the mouse is in the gap
+                // between nodes (e.g. between heading and table), posAtCoords
+                // returns a doc-level position without inline content.
+                // TextSelection.create defaults to searching forward which
+                // snaps back INTO the table. Instead, search in the direction
+                // we're dragging (away from anchor) to find the heading.
+                let headPos = headCoords.pos
+                const $head = view.state.doc.resolve(headPos)
+                if (!$head.parent.inlineContent) {
+                  const dir = headPos < anchorPos ? -1 : 1
+                  const found =
+                    Selection.findFrom($head, dir, true) ||
+                    Selection.findFrom($head, -dir, true)
+                  if (found) headPos = found.$head.pos
+                }
+
+                // Clear table editing state and set TextSelection in one transaction
+                const tr = view.state.tr.setMeta('selectingCells$', -1)
+                const sel = TextSelection.create(view.state.doc, anchorPos, headPos)
+                tr.setSelection(sel)
+                view.dispatch(tr)
               }
 
               function onUp() {
