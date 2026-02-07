@@ -38,6 +38,7 @@ import {
   ListBackspaceOutdent,
 } from '../extensions/keyboardShortcuts'
 import FindInDoc from '../extensions/findInDoc'
+import TableDragEscape from '../extensions/tableDragEscape'
 
 export const useEditorSetup = ({
   session,
@@ -131,6 +132,7 @@ export const useEditorSetup = ({
         ListBackspaceOutdent,
         EnsureNodeIds,
         SecureImage.configure({ inline: false, allowBase64: false }),
+        TableDragEscape,
         TableWithId.configure({ resizable: true }),
         TableRow,
         TableHeaderWithBackground,
