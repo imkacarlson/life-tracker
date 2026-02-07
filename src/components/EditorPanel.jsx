@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent } from '@tiptap/react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
-import { serializeDocToText } from '../lib/serializeDoc'
 import { findInDocPluginKey } from '../extensions/findInDoc'
 
 function EditorPanel({
@@ -19,6 +18,7 @@ function EditorPanel({
   trackerId,
   onNavigateHash,
   allTrackers,
+  trackerSourcePage = null,
   userId,
   titleReadOnly = false,
   showDelete = true,
@@ -469,14 +469,21 @@ function EditorPanel({
       const selectedDate = aiDailyPickerOpen ? aiDailyDate : new Date()
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
-      const trackerPages = (allTrackers || [])
-        .filter((t) => t.id !== trackerId)
-        .map((t) => ({
-          title: t.title,
-          pageId: t.id,
-          content: t.content || { type: 'doc', content: [] },
-          textContent: serializeDocToText(t.content || { type: 'doc', content: [] }),
-        }))
+
+      const sourceTrackerPage =
+        trackerSourcePage ?? (allTrackers || []).find((page) => page.is_tracker_page) ?? null
+      if (!sourceTrackerPage) {
+        alert('Set a tracker page first (Pages sidebar > Set tracker).')
+        return
+      }
+
+      const trackerPages = [
+        {
+          title: sourceTrackerPage.title,
+          pageId: sourceTrackerPage.id,
+          content: sourceTrackerPage.content || { type: 'doc', content: [] },
+        },
+      ]
       const trackerPagesForModel = trackerPages.map((page) => ({
         title: page.title,
         pageId: page.pageId,
@@ -533,19 +540,13 @@ function EditorPanel({
           const content = [{ type: 'text', text: task.task }]
           if (task.block_ids?.length) {
             task.block_ids.forEach((blockId, i) => {
-              const sourcePageInfo = trackerPages.find((tp) => tp.textContent.includes(blockId))
-              const sourcePage = sourcePageInfo
-                ? (allTrackers || []).find((t) => t.id === sourcePageInfo.pageId)
-                : null
-              if (sourcePage) {
-                const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourcePage.id}&block=${blockId}`
-                content.push({ type: 'text', text: ' ' })
-                content.push({
-                  type: 'text',
-                  text: `[${i + 1}]`,
-                  marks: [{ type: 'link', attrs: { href: hash, target: '_self' } }],
-                })
-              }
+              const hash = `#nb=${notebookId}&sec=${sectionId}&pg=${sourceTrackerPage.id}&block=${blockId}`
+              content.push({ type: 'text', text: ' ' })
+              content.push({
+                type: 'text',
+                text: `[${i + 1}]`,
+                marks: [{ type: 'link', attrs: { href: hash, target: '_self' } }],
+              })
             })
           }
           return { type: 'listItem', content: [{ type: 'paragraph', content }] }
