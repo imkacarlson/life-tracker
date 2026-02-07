@@ -402,6 +402,8 @@ function App() {
               onNavigateHash={guardedInternalHashNavigate}
               allTrackers={trackers}
               trackerSourcePage={sectionTrackerPage}
+              onSetTrackerPage={setTrackerPage}
+              trackerPageSaving={trackerPageSaving}
               userId={userId}
             />
             <Sidebar
@@ -417,9 +419,7 @@ function App() {
               }}
               onCreate={() => runWithSaveGuard(() => createTracker(session, activeSectionId))}
               onReorder={reorderTrackers}
-              onSetTrackerPage={setTrackerPage}
               loading={dataLoading}
-              trackerPageSaving={trackerPageSaving}
               disabled={!activeSectionId}
             />
           </>

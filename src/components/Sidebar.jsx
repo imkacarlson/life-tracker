@@ -6,9 +6,7 @@ function Sidebar({
   onSelect,
   onCreate,
   onReorder,
-  onSetTrackerPage,
   loading,
-  trackerPageSaving = false,
   disabled,
 }) {
   const dragIdRef = useRef(null)
@@ -100,17 +98,7 @@ function Sidebar({
                 <span className="tracker-page-badge" title="Tracker page for AI Daily">
                   TRACKER
                 </span>
-              ) : (
-                <button
-                  type="button"
-                  className="tracker-page-action"
-                  onClick={() => onSetTrackerPage?.(tracker.id)}
-                  disabled={disabled || loading || trackerPageSaving}
-                  title="Set as tracker page for AI Daily"
-                >
-                  Set tracker
-                </button>
-              )}
+              ) : null}
             </div>
           ))}
         </div>

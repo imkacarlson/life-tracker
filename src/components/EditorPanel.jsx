@@ -19,6 +19,8 @@ function EditorPanel({
   onNavigateHash,
   allTrackers,
   trackerSourcePage = null,
+  onSetTrackerPage = null,
+  trackerPageSaving = false,
   userId,
   titleReadOnly = false,
   showDelete = true,
@@ -1197,9 +1199,17 @@ function EditorPanel({
     return `#nb=${notebookId}&sec=${sectionId}&pg=${trackerId}&block=${contextMenu.blockId}`
   }, [contextMenu.blockId, notebookId, sectionId, trackerId])
 
+  const isCurrentPageTracker = Boolean(trackerId && trackerSourcePage?.id === trackerId)
+
   const handleCopyLink = async () => {
     if (!deepLinkHash) return
     await navigator.clipboard.writeText(deepLinkHash)
+    closeContextMenu()
+  }
+
+  const handleSetTrackerPageFromMenu = async () => {
+    if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
+    await onSetTrackerPage(trackerId)
     closeContextMenu()
   }
 
@@ -1712,6 +1722,14 @@ function EditorPanel({
             disabled={!deepLinkHash}
           >
             Copy link to paragraph
+          </button>
+          <button
+            type="button"
+            className={`table-context-item ${isCurrentPageTracker || trackerPageSaving ? 'disabled' : ''}`}
+            onClick={handleSetTrackerPageFromMenu}
+            disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
+          >
+            {isCurrentPageTracker ? 'This page is the tracker page' : trackerPageSaving ? 'Setting tracker page...' : 'Set this page as tracker'}
           </button>
           {contextMenu.inTable && (
             <div

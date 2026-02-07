@@ -222,38 +222,6 @@ h2 {
   white-space: nowrap;
 }
 
-.tracker-page-action {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
-  border-radius: 999px;
-  padding: 0.15rem 0.45rem;
-  font-size: 0.68rem;
-  line-height: 1.2;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-.sidebar-row:hover .tracker-page-action,
-.sidebar-row:focus-within .tracker-page-action {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.tracker-page-action:disabled {
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-@media (hover: none) {
-  .tracker-page-action {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
 .settings-hub {
   background: #ffffff;
   border: 1px solid #e2e8f0;
