@@ -640,7 +640,10 @@ function EditorPanel({
     if (nextNode?.type?.name === listType) {
       const nextNodePos = clampPos(targetMatch.pos + targetMatch.node.nodeSize)
       return {
-        pos: clampPos(nextNodePos + 1),
+        // Insert at the end of the list (append), not the start.
+        // This prevents "AI Insert" from adding items to the top of an existing list
+        // when the target block is a heading/label immediately above the list.
+        pos: clampPos(nextNodePos + nextNode.nodeSize - 1),
         content: items,
       }
     }
