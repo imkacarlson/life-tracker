@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { EMPTY_DOC } from '../utils/constants'
 import { sanitizeContentForSave } from '../utils/contentHelpers'
+import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
@@ -11,14 +12,33 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [message, setMessage] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
   const [saveStatus, setSaveStatus] = useState('Saved')
+  const [hasPendingSaves, setHasPendingSaves] = useState(false)
 
-  const saveTimerRef = useRef(null)
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
   const trackersRef = useRef(trackers)
   const pendingTitleByTrackerRef = useRef({})
 
-  const activeTracker = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+  const saveTimersByTrackerRef = useRef({})
+  const retryTimersByTrackerRef = useRef({})
+  const inFlightByTrackerRef = useRef({})
+  const queuedPayloadByTrackerRef = useRef({})
+
+  const draftWriteTimersByTrackerRef = useRef({})
+  const latestDraftKeyByTrackerRef = useRef({})
+
+  const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+  // Drafts are only needed when entering a page; we don't need to re-read localStorage every render.
+  const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId])
+  const activeTracker = useMemo(() => {
+    if (!activeTrackerServer) return null
+    if (!activeDraft) return activeTrackerServer
+    return {
+      ...activeTrackerServer,
+      title: typeof activeDraft.title === 'string' ? activeDraft.title : activeTrackerServer.title,
+      content: activeDraft.content ?? activeTrackerServer.content,
+    }
+  }, [activeDraft, activeTrackerServer])
 
   useEffect(() => {
     titleDraftRef.current = titleDraft
@@ -41,16 +61,157 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setMessage('')
     setTitleDraft('')
     setSaveStatus('Saved')
+    setHasPendingSaves(false)
     pendingTitleByTrackerRef.current = {}
+    saveTimersByTrackerRef.current = {}
+    retryTimersByTrackerRef.current = {}
+    inFlightByTrackerRef.current = {}
+    queuedPayloadByTrackerRef.current = {}
+    draftWriteTimersByTrackerRef.current = {}
+    latestDraftKeyByTrackerRef.current = {}
   }, [userId])
 
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
-      }
+      const timers = saveTimersByTrackerRef.current
+      Object.values(timers).forEach((timerId) => {
+        if (timerId) clearTimeout(timerId)
+      })
+      const retryTimers = retryTimersByTrackerRef.current
+      Object.values(retryTimers).forEach((timerId) => {
+        if (timerId) clearTimeout(timerId)
+      })
+      const draftTimers = draftWriteTimersByTrackerRef.current
+      Object.values(draftTimers).forEach((timerId) => {
+        if (timerId) clearTimeout(timerId)
+      })
     }
   }, [])
+
+  const recomputeHasPendingSaves = useCallback(() => {
+    const timers = saveTimersByTrackerRef.current
+    const retries = retryTimersByTrackerRef.current
+    const inflight = inFlightByTrackerRef.current
+    const queued = queuedPayloadByTrackerRef.current
+    const hasPending =
+      Object.values(timers).some(Boolean) ||
+      Object.values(retries).some(Boolean) ||
+      Object.values(inflight).some(Boolean) ||
+      Object.values(queued).some(Boolean)
+    setHasPendingSaves((prev) => (prev === hasPending ? prev : hasPending))
+    return hasPending
+  }, [])
+
+  const getHasPendingForTracker = useCallback((trackerId) => {
+    if (!trackerId) return false
+    const timer = saveTimersByTrackerRef.current[trackerId]
+    const retry = retryTimersByTrackerRef.current[trackerId]
+    const inflight = inFlightByTrackerRef.current[trackerId]
+    const queued = queuedPayloadByTrackerRef.current[trackerId]
+    return Boolean(timer || retry || inflight || queued)
+  }, [])
+
+  const scheduleLocalDraftWrite = useCallback((trackerId, draft, draftKey) => {
+    if (!trackerId) return
+    latestDraftKeyByTrackerRef.current[trackerId] = draftKey
+    const existingTimer = draftWriteTimersByTrackerRef.current[trackerId]
+    if (existingTimer) clearTimeout(existingTimer)
+    draftWriteTimersByTrackerRef.current[trackerId] = setTimeout(() => {
+      writePageDraft(trackerId, draft)
+      draftWriteTimersByTrackerRef.current[trackerId] = null
+    }, 250)
+  }, [])
+
+  const maybeClearLocalDraft = useCallback((trackerId, payloadKey) => {
+    if (!trackerId || !payloadKey) return
+    if (getHasPendingForTracker(trackerId)) return
+    const latestKey = latestDraftKeyByTrackerRef.current[trackerId]
+    if (!latestKey || latestKey !== payloadKey) return
+    const existingTimer = draftWriteTimersByTrackerRef.current[trackerId]
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+      draftWriteTimersByTrackerRef.current[trackerId] = null
+    }
+    clearPageDraft(trackerId)
+    delete latestDraftKeyByTrackerRef.current[trackerId]
+  }, [getHasPendingForTracker])
+
+  const flushSaveForTracker = useCallback(
+    async function flushSaveForTrackerImpl(trackerId) {
+      if (!trackerId) return
+      if (inFlightByTrackerRef.current[trackerId]) return
+
+      const queued = queuedPayloadByTrackerRef.current[trackerId]
+      if (!queued) {
+        recomputeHasPendingSaves()
+        return
+      }
+
+      const timer = saveTimersByTrackerRef.current[trackerId]
+      if (timer) {
+        clearTimeout(timer)
+        saveTimersByTrackerRef.current[trackerId] = null
+      }
+
+      queuedPayloadByTrackerRef.current[trackerId] = null
+      inFlightByTrackerRef.current[trackerId] = true
+      recomputeHasPendingSaves()
+
+      const { payload, payloadKey } = queued
+      const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
+
+      inFlightByTrackerRef.current[trackerId] = false
+
+      if (error) {
+        // If nothing newer is queued, keep this payload as the next attempt.
+        if (!queuedPayloadByTrackerRef.current[trackerId]) {
+          queuedPayloadByTrackerRef.current[trackerId] = queued
+        }
+        if (!retryTimersByTrackerRef.current[trackerId]) {
+          retryTimersByTrackerRef.current[trackerId] = setTimeout(() => {
+            retryTimersByTrackerRef.current[trackerId] = null
+            flushSaveForTrackerImpl(trackerId)
+            recomputeHasPendingSaves()
+          }, 5000)
+        }
+        setMessage(error.message)
+        if (trackerId === activeTrackerRef.current?.id) {
+          setSaveStatus('Error')
+        }
+        recomputeHasPendingSaves()
+        return
+      }
+
+      const retryTimer = retryTimersByTrackerRef.current[trackerId]
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimersByTrackerRef.current[trackerId] = null
+      }
+
+      if (pendingTitleByTrackerRef.current[trackerId] === payload.title) {
+        delete pendingTitleByTrackerRef.current[trackerId]
+      }
+
+      setTrackers((prev) =>
+        prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
+      )
+
+      if (trackerId === activeTrackerRef.current?.id) {
+        setSaveStatus('Saved')
+      }
+
+      // If this was the latest draft we know about for this page and nothing else is pending,
+      // clear local draft storage.
+      maybeClearLocalDraft(trackerId, payloadKey)
+
+      if (queuedPayloadByTrackerRef.current[trackerId]) {
+        setTimeout(() => flushSaveForTrackerImpl(trackerId), 0)
+      }
+
+      recomputeHasPendingSaves()
+    },
+    [maybeClearLocalDraft, recomputeHasPendingSaves],
+  )
 
   const loadTrackers = useCallback(
     async (sectionId) => {
@@ -106,8 +267,20 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     } else {
       setTitleDraft('')
     }
+    if (!activeTrackerId) {
+      setSaveStatus('Saved')
+      return
+    }
+    if (getHasPendingForTracker(activeTrackerId)) {
+      setSaveStatus('Saving...')
+      return
+    }
+    if (activeDraft) {
+      setSaveStatus('Unsaved (local)')
+      return
+    }
     setSaveStatus('Saved')
-  }, [activeTrackerId, activeTracker])
+  }, [activeDraft, activeTrackerId, activeTracker, getHasPendingForTracker])
 
   const scheduleSave = useCallback(
     (nextContent, nextTitle, trackerIdOverride = null) => {
@@ -115,10 +288,6 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       if (!trackerId) return
       const tracker = trackersRef.current.find((item) => item.id === trackerId)
       if (!tracker) return
-
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current)
-      }
 
       if (typeof nextTitle === 'string') {
         pendingTitleByTrackerRef.current[trackerId] = nextTitle
@@ -134,29 +303,39 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
         content: sanitizeContentForSave(nextContent),
         updated_at: new Date().toISOString(),
       }
+      const payloadKey = JSON.stringify({ title: payload.title, content: payload.content })
 
-      setSaveStatus('Saving...')
+      scheduleLocalDraftWrite(
+        trackerId,
+        { title: payload.title, content: payload.content, ts: Date.now() },
+        payloadKey,
+      )
 
-      saveTimerRef.current = setTimeout(async () => {
-        const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
+      queuedPayloadByTrackerRef.current[trackerId] = { payload, payloadKey }
 
-        if (error) {
-          setMessage(error.message)
-          setSaveStatus('Error')
-          return
-        }
+      const existingTimer = saveTimersByTrackerRef.current[trackerId]
+      if (existingTimer) {
+        clearTimeout(existingTimer)
+      }
+      const retryTimer = retryTimersByTrackerRef.current[trackerId]
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimersByTrackerRef.current[trackerId] = null
+      }
 
-        if (pendingTitleByTrackerRef.current[trackerId] === payload.title) {
-          delete pendingTitleByTrackerRef.current[trackerId]
-        }
+      if (trackerId === activeTrackerRef.current?.id) {
+        setSaveStatus('Saving...')
+      }
 
-        setTrackers((prev) =>
-          prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
-        )
-        setSaveStatus('Saved')
+      saveTimersByTrackerRef.current[trackerId] = setTimeout(() => {
+        saveTimersByTrackerRef.current[trackerId] = null
+        flushSaveForTracker(trackerId)
+        recomputeHasPendingSaves()
       }, 2000)
+
+      recomputeHasPendingSaves()
     },
-    [],
+    [flushSaveForTracker, recomputeHasPendingSaves, scheduleLocalDraftWrite],
   )
 
   const handleTitleChange = (value, editor) => {
@@ -285,6 +464,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
     delete pendingTitleByTrackerRef.current[tracker.id]
+    clearPageDraft(tracker.id)
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
@@ -299,6 +479,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTitleDraft,
     saveStatus,
     setSaveStatus,
+    hasPendingSaves,
     dataLoading,
     trackerPageSaving,
     message,
