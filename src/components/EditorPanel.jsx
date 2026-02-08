@@ -635,27 +635,105 @@ function EditorPanel({
       }
     }
 
-    const parent = resolved.parent
-    const index = resolved.index()
-    const nextNode = parent.child(index + 1)
-    if (nextNode?.type?.name === listType) {
-      const nextNodePos = clampPos(targetMatch.pos + targetMatch.node.nodeSize)
-      return {
-        // Insert at the end of the list (append), not the start.
-        // This prevents "AI Insert" from adding items to the top of an existing list
-        // when the target block is a heading/label immediately above the list.
-        pos: clampPos(nextNodePos + nextNode.nodeSize - 1),
-        content: items,
+    // If the target is a paragraph/heading that sits directly above/below a list,
+    // append into that adjacent list (at the end), instead of creating a new list
+    // which "splits" the section into two separate lists.
+    //
+    // Be careful to reason at the *block* level: `resolved.parent` can be the paragraph
+    // itself (inline children), which can throw "Index out of range for <\"Next steps:\">"
+    // when probing sibling blocks.
+    let blockDepth = null
+    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
+      const typeName = resolved.node(depth).type?.name
+      if (typeName === 'paragraph' || typeName === 'heading') {
+        blockDepth = depth
+        break
       }
     }
+    if (blockDepth === null || blockDepth < 1) return null
 
-    const prevNode = index > 0 ? parent.child(index - 1) : null
-    if (prevNode?.type?.name === listType) {
-      const prevNodePos = clampPos(targetMatch.pos - prevNode.nodeSize)
-      return {
-        pos: clampPos(prevNodePos + prevNode.nodeSize - 1),
-        content: items,
+    const doc = editor.state.doc
+    const isBlankTextBlock = (node) => {
+      const name = node?.type?.name
+      if (name !== 'paragraph' && name !== 'heading') return false
+      return (node.textContent || '').trim() === ''
+    }
+
+    const appendPosForListAt = (listStartPos) => {
+      const inside = clampPos(listStartPos + 1)
+      const listResolved = doc.resolve(inside)
+      let depth = null
+      for (let d = listResolved.depth; d >= 1; d -= 1) {
+        if (listResolved.node(d).type?.name === listType) {
+          depth = d
+          break
+        }
       }
+      if (depth === null) return null
+      return clampPos(listResolved.end(depth))
+    }
+
+    const findForwardListRun = (fromPos) => {
+      let pos = clampPos(fromPos)
+      let node = doc.nodeAt(pos)
+      while (node && isBlankTextBlock(node)) {
+        pos = clampPos(pos + node.nodeSize)
+        node = doc.nodeAt(pos)
+      }
+      if (!node || node.type?.name !== listType) return null
+
+      // If there are multiple consecutive lists of the same type, append to the last one
+      // so the inserted item ends up at the bottom of the "list section".
+      let lastPos = pos
+      let lastNode = node
+      let scanPos = clampPos(pos + node.nodeSize)
+      while (scanPos <= docSize) {
+        const next = doc.nodeAt(scanPos)
+        if (!next) break
+        if (isBlankTextBlock(next)) {
+          scanPos = clampPos(scanPos + next.nodeSize)
+          continue
+        }
+        if (next.type?.name !== listType) break
+        lastPos = scanPos
+        lastNode = next
+        scanPos = clampPos(scanPos + next.nodeSize)
+      }
+
+      return { pos: lastPos, node: lastNode }
+    }
+
+    const findBackwardList = (fromPos) => {
+      let pos = clampPos(fromPos)
+      while (pos > 0) {
+        const $pos = doc.resolve(pos)
+        const prev = $pos.nodeBefore
+        if (!prev) return null
+        const prevStartPos = clampPos(pos - prev.nodeSize)
+        if (isBlankTextBlock(prev)) {
+          pos = prevStartPos
+          continue
+        }
+        if (prev.type?.name === listType) {
+          return { pos: prevStartPos, node: prev }
+        }
+        return null
+      }
+      return null
+    }
+
+    const blockEndPos = resolved.after(blockDepth)
+    const forward = findForwardListRun(blockEndPos)
+    if (forward) {
+      const pos = appendPosForListAt(forward.pos)
+      if (pos !== null) return { pos, content: items }
+    }
+
+    const blockStartPos = resolved.before(blockDepth)
+    const backward = findBackwardList(blockStartPos)
+    if (backward) {
+      const pos = appendPosForListAt(backward.pos)
+      if (pos !== null) return { pos, content: items }
     }
 
     return null
