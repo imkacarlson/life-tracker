@@ -135,7 +135,7 @@ function App() {
 
   const uploadImageRef = useRef(null)
 
-  const editor = useEditorSetup({
+  const { editor, editorLocked } = useEditorSetup({
     session,
     activeTrackerId,
     activeTracker,
@@ -362,6 +362,7 @@ function App() {
         {isTemplateEditing && (
           <EditorPanel
             editor={editor}
+            editorLocked={editorLocked}
             title="Daily Template"
             onTitleChange={() => {}}
             onDelete={() => {}}
@@ -389,6 +390,7 @@ function App() {
           <>
             <EditorPanel
               editor={editor}
+              editorLocked={editorLocked}
               title={titleDraft}
               onTitleChange={(value) => handleTitleChange(value, editor)}
               onDelete={deleteTracker}

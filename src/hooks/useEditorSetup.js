@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ListItem from '@tiptap/extension-list-item'
@@ -56,6 +56,7 @@ export const useEditorSetup = ({
 }) => {
   const suppressSaveRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
+  const [editorLocked, setEditorLocked] = useState(false)
   const pasteInfoRef = useRef({
     summary: null,
     preFrom: null,
@@ -192,11 +193,15 @@ export const useEditorSetup = ({
     [session?.user?.id],
   )
 
-  useEffect(() => {
+  // Lock the editor during page/settings transitions so users can't type into content
+  // that is about to be replaced (which can otherwise feel like "lost edits").
+  useLayoutEffect(() => {
     if (!editor) return
     let mounted = true
     const setContent = async () => {
       suppressSaveRef.current = true
+      setEditorLocked(true)
+      if (!editor.isDestroyed) editor.setEditable(false)
       if (settingsMode === 'daily-template') {
         const rawContent = normalizeContent(templateContentRef.current)
         const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -209,11 +214,14 @@ export const useEditorSetup = ({
         })
         contentOwnerTrackerIdRef.current = null
         suppressSaveRef.current = false
+        setEditorLocked(false)
+        if (!editor.isDestroyed) editor.setEditable(true)
         return
       }
       if (settingsMode) {
         contentOwnerTrackerIdRef.current = null
         suppressSaveRef.current = false
+        setEditorLocked(false)
         return
       }
 
@@ -222,6 +230,8 @@ export const useEditorSetup = ({
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
         suppressSaveRef.current = false
+        setEditorLocked(false)
+        if (!editor.isDestroyed) editor.setEditable(true)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -234,6 +244,8 @@ export const useEditorSetup = ({
       })
       contentOwnerTrackerIdRef.current = activeTrackerId ?? null
       suppressSaveRef.current = false
+      setEditorLocked(false)
+      if (!editor.isDestroyed) editor.setEditable(true)
       const attemptScroll = (attempts = 0) => {
         if (!mounted) return
         const pending = pendingNavRef.current
@@ -248,7 +260,11 @@ export const useEditorSetup = ({
     setContent()
     return () => {
       mounted = false
-      suppressSaveRef.current = false
+      // When switching pages/settings, there is a brief window where the editor doc may still
+      // reflect the previous page while React state already points at the next page.
+      // Keep saves suppressed until the next effect finishes setting content/owner.
+      suppressSaveRef.current = true
+      if (!editor.isDestroyed) editor.setEditable(false)
     }
   }, [
     editor,
@@ -269,7 +285,9 @@ export const useEditorSetup = ({
         return
       }
       if (suppressSaveRef.current) return
-      const targetTrackerId = contentOwnerTrackerIdRef.current ?? activeTrackerId
+      // Never fall back to activeTrackerId here.
+      // If we don't know who owns the current editor doc, we must not write it to any page.
+      const targetTrackerId = contentOwnerTrackerIdRef.current
       if (!targetTrackerId) return
       scheduleSave(editor.getJSON(), undefined, targetTrackerId)
     }
@@ -373,5 +391,5 @@ export const useEditorSetup = ({
     return () => editor.off('transaction', handleTransaction)
   }, [editor, getListDepthAt, getListItemTypeAt])
 
-  return editor
+  return { editor, editorLocked }
 }
