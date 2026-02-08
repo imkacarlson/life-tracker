@@ -539,25 +539,42 @@ function EditorPanel({
   const resolveInsertPosCandidatesFromTargetBlock = (targetBlockId) => {
     if (!editor || !targetBlockId) return []
     let targetPos = null
+    let targetNode = null
     editor.state.doc.descendants((node, pos) => {
       if (node?.attrs?.id === targetBlockId) {
         targetPos = pos
+        targetNode = node
         return false
       }
       return true
     })
-    if (targetPos === null) return []
+    if (targetPos === null || !targetNode) return []
 
-    const resolved = editor.state.doc.resolve(targetPos)
-    if (resolved.depth < 1) return []
-
+    const docSize = editor.state.doc.content.size
+    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
     const candidates = []
     const seen = new Set()
+
+    const addCandidate = (value) => {
+      const nextValue = clampPos(value)
+      if (seen.has(nextValue)) return
+      seen.add(nextValue)
+      candidates.push(nextValue)
+    }
+
+    // Prefer placing content exactly after the matched block node.
+    addCandidate(targetPos + targetNode.nodeSize)
+
+    // Fallback to parent nodes, but avoid table structure boundaries (they can split tables).
+    const insidePos = clampPos(targetPos + 1)
+    const resolved = editor.state.doc.resolve(insidePos)
+    if (resolved.depth < 1) return candidates
+
+    const blockedTypes = new Set(['table', 'tableRow', 'tableCell', 'tableHeader'])
     for (let depth = resolved.depth; depth >= 1; depth -= 1) {
-      const posAfter = resolved.after(depth)
-      if (seen.has(posAfter)) continue
-      seen.add(posAfter)
-      candidates.push(posAfter)
+      const ancestor = resolved.node(depth)
+      if (blockedTypes.has(ancestor.type?.name)) continue
+      addCandidate(resolved.after(depth))
     }
 
     return candidates
