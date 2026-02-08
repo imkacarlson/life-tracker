@@ -536,8 +536,8 @@ function EditorPanel({
     ]
   }
 
-  const resolveInsertPosFromTargetBlock = (targetBlockId) => {
-    if (!editor || !targetBlockId) return null
+  const resolveInsertPosCandidatesFromTargetBlock = (targetBlockId) => {
+    if (!editor || !targetBlockId) return []
     let targetPos = null
     editor.state.doc.descendants((node, pos) => {
       if (node?.attrs?.id === targetBlockId) {
@@ -546,18 +546,28 @@ function EditorPanel({
       }
       return true
     })
-    if (targetPos === null) return null
+    if (targetPos === null) return []
 
     const resolved = editor.state.doc.resolve(targetPos)
-    if (resolved.depth < 1) return null
-    const topNodePos = resolved.before(1)
-    const topNode = resolved.node(1)
-    return topNodePos + topNode.nodeSize
+    if (resolved.depth < 1) return []
+
+    const candidates = []
+    const seen = new Set()
+    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
+      const posAfter = resolved.after(depth)
+      if (seen.has(posAfter)) continue
+      seen.add(posAfter)
+      candidates.push(posAfter)
+    }
+
+    return candidates
   }
 
   const isTopUncategorizedHeader = (node) => {
     if (!node || node.type?.name !== 'paragraph') return false
-    const text = (node.content || [])
+    const children = []
+    node.content?.forEach((child) => children.push(child))
+    const text = children
       .filter((child) => child.type?.name === 'text')
       .map((child) => child.text || '')
       .join('')
@@ -565,7 +575,7 @@ function EditorPanel({
       .toLowerCase()
     if (text !== 'uncategorized') return false
 
-    return (node.content || []).some((child) =>
+    return children.some((child) =>
       (child.marks || []).some((mark) => mark.type?.name === 'bold'),
     )
   }
@@ -657,10 +667,24 @@ function EditorPanel({
       const insertedContent = buildAiInsertContent(format, items)
       const firstInsertedId = insertedContent[0]?.attrs?.id ?? null
 
-      const targetInsertPos = resolveInsertPosFromTargetBlock(targetBlockId)
-      const insertPos = targetInsertPos === null ? resolveFallbackInsertPos() : targetInsertPos
+      let inserted = false
+      const candidatePositions = resolveInsertPosCandidatesFromTargetBlock(targetBlockId)
+      for (const candidatePos of candidatePositions) {
+        if (editor.chain().focus().insertContentAt(candidatePos, insertedContent).run()) {
+          inserted = true
+          break
+        }
+      }
 
-      editor.chain().focus().insertContentAt(insertPos, insertedContent).run()
+      if (!inserted) {
+        const fallbackPos = resolveFallbackInsertPos()
+        inserted = editor.chain().focus().insertContentAt(fallbackPos, insertedContent).run()
+      }
+
+      if (!inserted) {
+        throw new Error('AI Insert could not find a valid insertion point.')
+      }
+
       scrollInsertedContentIntoView(firstInsertedId)
       setAiInsertOpen(false)
       setAiInsertText('')
