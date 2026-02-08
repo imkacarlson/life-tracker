@@ -536,19 +536,26 @@ function EditorPanel({
     ]
   }
 
-  const resolveInsertPosCandidatesFromTargetBlock = (targetBlockId) => {
-    if (!editor || !targetBlockId) return []
-    let targetPos = null
-    let targetNode = null
+  const findTargetBlockMatch = (targetBlockId) => {
+    if (!editor || !targetBlockId) return null
+    let match = null
     editor.state.doc.descendants((node, pos) => {
       if (node?.attrs?.id === targetBlockId) {
-        targetPos = pos
-        targetNode = node
+        match = { node, pos }
         return false
       }
       return true
     })
-    if (targetPos === null || !targetNode) return []
+    return match
+  }
+
+  const resolveInsertPosCandidatesFromTargetMatch = (targetMatch) => {
+    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
+      return []
+    }
+
+    const targetPos = targetMatch.pos
+    const targetNode = targetMatch.node
 
     const docSize = editor.state.doc.content.size
     const clampPos = (value) => Math.max(0, Math.min(value, docSize))
@@ -578,6 +585,76 @@ function EditorPanel({
     }
 
     return candidates
+  }
+
+  const resolveListInsertPlan = (targetMatch, insertedContent) => {
+    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
+      return null
+    }
+    if (!Array.isArray(insertedContent) || insertedContent.length !== 1) return null
+
+    const wrapper = insertedContent[0]
+    if (!wrapper || (wrapper.type !== 'bulletList' && wrapper.type !== 'taskList')) {
+      return null
+    }
+
+    const items = Array.isArray(wrapper.content) ? wrapper.content : []
+    if (items.length === 0) return null
+
+    const listType = wrapper.type
+    const itemType = listType === 'taskList' ? 'taskItem' : 'listItem'
+    const docSize = editor.state.doc.content.size
+    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
+    const insidePos = clampPos(targetMatch.pos + 1)
+    const resolved = editor.state.doc.resolve(insidePos)
+
+    let itemDepth = null
+    let listDepth = null
+    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
+      const typeName = resolved.node(depth).type?.name
+      if (itemDepth === null && typeName === itemType) {
+        itemDepth = depth
+      }
+      if (listDepth === null && typeName === listType) {
+        listDepth = depth
+      }
+    }
+
+    if (itemDepth !== null && listDepth === itemDepth - 1) {
+      return {
+        pos: clampPos(resolved.after(itemDepth)),
+        content: items,
+      }
+    }
+
+    if (listDepth !== null) {
+      return {
+        pos: clampPos(resolved.end(listDepth)),
+        content: items,
+      }
+    }
+
+    const parent = resolved.parent
+    const index = resolved.index()
+    const nextNode = parent.child(index + 1)
+    if (nextNode?.type?.name === listType) {
+      const nextNodePos = clampPos(targetMatch.pos + targetMatch.node.nodeSize)
+      return {
+        pos: clampPos(nextNodePos + 1),
+        content: items,
+      }
+    }
+
+    const prevNode = index > 0 ? parent.child(index - 1) : null
+    if (prevNode?.type?.name === listType) {
+      const prevNodePos = clampPos(targetMatch.pos - prevNode.nodeSize)
+      return {
+        pos: clampPos(prevNodePos + prevNode.nodeSize - 1),
+        content: items,
+      }
+    }
+
+    return null
   }
 
   const isTopUncategorizedHeader = (node) => {
@@ -685,8 +762,19 @@ function EditorPanel({
       const firstInsertedId = insertedContent[0]?.attrs?.id ?? null
 
       let inserted = false
-      const candidatePositions = resolveInsertPosCandidatesFromTargetBlock(targetBlockId)
+      const targetMatch = findTargetBlockMatch(targetBlockId)
+      const listInsertPlan = resolveListInsertPlan(targetMatch, insertedContent)
+      if (listInsertPlan) {
+        inserted = editor
+          .chain()
+          .focus()
+          .insertContentAt(listInsertPlan.pos, listInsertPlan.content)
+          .run()
+      }
+
+      const candidatePositions = resolveInsertPosCandidatesFromTargetMatch(targetMatch)
       for (const candidatePos of candidatePositions) {
+        if (inserted) break
         if (editor.chain().focus().insertContentAt(candidatePos, insertedContent).run()) {
           inserted = true
           break
