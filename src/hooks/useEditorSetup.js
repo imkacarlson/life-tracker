@@ -248,7 +248,10 @@ export const useEditorSetup = ({
     setContent()
     return () => {
       mounted = false
-      suppressSaveRef.current = false
+      // When switching pages/settings, there is a brief window where the editor doc may still
+      // reflect the previous page while React state already points at the next page.
+      // Keep saves suppressed until the next effect finishes setting content/owner.
+      suppressSaveRef.current = true
     }
   }, [
     editor,
@@ -269,7 +272,9 @@ export const useEditorSetup = ({
         return
       }
       if (suppressSaveRef.current) return
-      const targetTrackerId = contentOwnerTrackerIdRef.current ?? activeTrackerId
+      // Never fall back to activeTrackerId here.
+      // If we don't know who owns the current editor doc, we must not write it to any page.
+      const targetTrackerId = contentOwnerTrackerIdRef.current
       if (!targetTrackerId) return
       scheduleSave(editor.getJSON(), undefined, targetTrackerId)
     }
