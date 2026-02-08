@@ -251,17 +251,26 @@ export const useEditorSetup = ({
       contentOwnerTrackerIdRef.current = activeTrackerId ?? null
       suppressSaveRef.current = false
       setEditorLocked(false)
-      if (!editor.isDestroyed) editor.setEditable(true)
-      const attemptScroll = (attempts = 0) => {
-        if (!mounted) return
-        const pending = pendingNavRef.current
-        if (!pending?.blockId || pending.pageId !== activeTrackerId) return
-        const success = scrollToBlock(pending.blockId, attempts)
-        if (success || attempts >= 10) {
-          pendingNavRef.current = null
-        }
+      // Move selection to the start of the document before re-enabling
+      // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
+      // which causes the browser to auto-scroll to the caret.  By placing
+      // the caret at position 1 (start), that native scroll targets the top.
+      if (!editor.isDestroyed) {
+        editor.commands.setTextSelection(1)
       }
-      requestAnimationFrame(() => attemptScroll())
+      if (!editor.isDestroyed) editor.setEditable(true)
+      const pending = pendingNavRef.current
+      const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
+      if (hasPendingBlock) {
+        const attemptScroll = (attempts = 0) => {
+          if (!mounted) return
+          const success = scrollToBlock(pending.blockId, attempts)
+          if (success || attempts >= 10) {
+            pendingNavRef.current = null
+          }
+        }
+        requestAnimationFrame(() => attemptScroll())
+      }
     }
     setContent()
     return () => {
@@ -327,7 +336,11 @@ export const useEditorSetup = ({
         if (!selectionInEditor) return
         if (editor.view.hasFocus()) return
 
+        const scrollX = window.scrollX
+        const scrollY = window.scrollY
         editor.view.focus()
+        // Browser may auto-scroll to the caret after focus; restore in next frame.
+        requestAnimationFrame(() => window.scrollTo(scrollX, scrollY))
       })
     }
 
