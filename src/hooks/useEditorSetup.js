@@ -298,6 +298,10 @@ export const useEditorSetup = ({
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName
+        // Only restore focus when focus has fallen back to the page itself (BODY/HTML),
+        // not when the user is interacting with other controls (e.g. clicking the sidebar),
+        // otherwise the browser may scroll to the current caret position (often near the end).
+        if (activeTag && activeTag !== 'BODY' && activeTag !== 'HTML') return
         if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return
 
         const sel = window.getSelection?.()
