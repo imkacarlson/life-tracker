@@ -3,6 +3,7 @@ import { EditorContent } from '@tiptap/react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
+import { serializeDocToText } from '../lib/serializeDoc'
 
 function EditorPanel({
   editor,
@@ -27,6 +28,7 @@ function EditorPanel({
   showDelete = true,
   headerActions = null,
   showAiDaily = true,
+  showAiInsert = true,
 }) {
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
@@ -42,6 +44,7 @@ function EditorPanel({
   const submenuRef = useRef(null)
   const longPressTimerRef = useRef(null)
   const findInputRef = useRef(null)
+  const aiInsertInputRef = useRef(null)
   const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
   const [aiDailyDate, setAiDailyDate] = useState(new Date())
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
@@ -51,6 +54,9 @@ function EditorPanel({
   const [shadingPickerOpen, setShadingPickerOpen] = useState(false)
   const [shadingColor, setShadingColor] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
+  const [aiInsertOpen, setAiInsertOpen] = useState(false)
+  const [aiInsertLoading, setAiInsertLoading] = useState(false)
+  const [aiInsertText, setAiInsertText] = useState('')
   const [inTable, setInTable] = useState(false)
   const [contextMenu, setContextMenu] = useState({
     open: false,
@@ -71,6 +77,13 @@ function EditorPanel({
       setAiDailyDate(new Date())
     }
   }, [aiDailyPickerOpen])
+
+  useEffect(() => {
+    if (!aiInsertOpen) return
+    requestAnimationFrame(() => {
+      aiInsertInputRef.current?.focus()
+    })
+  }, [aiInsertOpen])
 
   const handleAiDailyPrevDay = () => {
     setAiDailyDate((prev) => {
@@ -462,8 +475,338 @@ function EditorPanel({
     return JSON.parse(JSON.stringify(nodes))
   }
 
+  const createNodeId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 10)
+
+  const REVIEW_HIGHLIGHT_COLOR = '#fef08a'
+
+  const makeHighlightedTextNode = (text) => ({
+    type: 'text',
+    text,
+    marks: [{ type: 'highlight', attrs: { color: REVIEW_HIGHLIGHT_COLOR } }],
+  })
+
+  const buildAiInsertContent = (format, items) => {
+    const createdAt = new Date().toISOString()
+
+    if (format === 'task_list') {
+      return [
+        {
+          type: 'taskList',
+          attrs: { id: createNodeId(), created_at: createdAt },
+          content: items.map((item) => ({
+            type: 'taskItem',
+            attrs: { checked: false },
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { id: createNodeId(), created_at: createdAt },
+                content: [makeHighlightedTextNode(item)],
+              },
+            ],
+          })),
+        },
+      ]
+    }
+
+    if (format === 'paragraphs') {
+      return items.map((item) => ({
+        type: 'paragraph',
+        attrs: { id: createNodeId(), created_at: createdAt },
+        content: [makeHighlightedTextNode(item)],
+      }))
+    }
+
+    return [
+      {
+        type: 'bulletList',
+        attrs: { id: createNodeId(), created_at: createdAt },
+        content: items.map((item) => ({
+          type: 'listItem',
+          content: [
+            {
+              type: 'paragraph',
+              attrs: { id: createNodeId(), created_at: createdAt },
+              content: [makeHighlightedTextNode(item)],
+            },
+          ],
+        })),
+      },
+    ]
+  }
+
+  const findTargetBlockMatch = (targetBlockId) => {
+    if (!editor || !targetBlockId) return null
+    let match = null
+    editor.state.doc.descendants((node, pos) => {
+      if (node?.attrs?.id === targetBlockId) {
+        match = { node, pos }
+        return false
+      }
+      return true
+    })
+    return match
+  }
+
+  const resolveInsertPosCandidatesFromTargetMatch = (targetMatch) => {
+    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
+      return []
+    }
+
+    const targetPos = targetMatch.pos
+    const targetNode = targetMatch.node
+
+    const docSize = editor.state.doc.content.size
+    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
+    const candidates = []
+    const seen = new Set()
+
+    const addCandidate = (value) => {
+      const nextValue = clampPos(value)
+      if (seen.has(nextValue)) return
+      seen.add(nextValue)
+      candidates.push(nextValue)
+    }
+
+    // Prefer placing content exactly after the matched block node.
+    addCandidate(targetPos + targetNode.nodeSize)
+
+    // Fallback to parent nodes, but avoid table structure boundaries (they can split tables).
+    const insidePos = clampPos(targetPos + 1)
+    const resolved = editor.state.doc.resolve(insidePos)
+    if (resolved.depth < 1) return candidates
+
+    const blockedTypes = new Set(['table', 'tableRow', 'tableCell', 'tableHeader'])
+    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
+      const ancestor = resolved.node(depth)
+      if (blockedTypes.has(ancestor.type?.name)) continue
+      addCandidate(resolved.after(depth))
+    }
+
+    return candidates
+  }
+
+  const resolveListInsertPlan = (targetMatch, insertedContent) => {
+    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
+      return null
+    }
+    if (!Array.isArray(insertedContent) || insertedContent.length !== 1) return null
+
+    const wrapper = insertedContent[0]
+    if (!wrapper || (wrapper.type !== 'bulletList' && wrapper.type !== 'taskList')) {
+      return null
+    }
+
+    const items = Array.isArray(wrapper.content) ? wrapper.content : []
+    if (items.length === 0) return null
+
+    const listType = wrapper.type
+    const itemType = listType === 'taskList' ? 'taskItem' : 'listItem'
+    const docSize = editor.state.doc.content.size
+    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
+    const insidePos = clampPos(targetMatch.pos + 1)
+    const resolved = editor.state.doc.resolve(insidePos)
+
+    let itemDepth = null
+    let listDepth = null
+    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
+      const typeName = resolved.node(depth).type?.name
+      if (itemDepth === null && typeName === itemType) {
+        itemDepth = depth
+      }
+      if (listDepth === null && typeName === listType) {
+        listDepth = depth
+      }
+    }
+
+    if (itemDepth !== null && listDepth === itemDepth - 1) {
+      return {
+        pos: clampPos(resolved.after(itemDepth)),
+        content: items,
+      }
+    }
+
+    if (listDepth !== null) {
+      return {
+        pos: clampPos(resolved.end(listDepth)),
+        content: items,
+      }
+    }
+
+    const parent = resolved.parent
+    const index = resolved.index()
+    const nextNode = parent.child(index + 1)
+    if (nextNode?.type?.name === listType) {
+      const nextNodePos = clampPos(targetMatch.pos + targetMatch.node.nodeSize)
+      return {
+        // Insert at the end of the list (append), not the start.
+        // This prevents "AI Insert" from adding items to the top of an existing list
+        // when the target block is a heading/label immediately above the list.
+        pos: clampPos(nextNodePos + nextNode.nodeSize - 1),
+        content: items,
+      }
+    }
+
+    const prevNode = index > 0 ? parent.child(index - 1) : null
+    if (prevNode?.type?.name === listType) {
+      const prevNodePos = clampPos(targetMatch.pos - prevNode.nodeSize)
+      return {
+        pos: clampPos(prevNodePos + prevNode.nodeSize - 1),
+        content: items,
+      }
+    }
+
+    return null
+  }
+
+  const isTopUncategorizedHeader = (node) => {
+    if (!node || node.type?.name !== 'paragraph') return false
+    const children = []
+    node.content?.forEach((child) => children.push(child))
+    const text = children
+      .filter((child) => child.type?.name === 'text')
+      .map((child) => child.text || '')
+      .join('')
+      .trim()
+      .toLowerCase()
+    if (text !== 'uncategorized') return false
+
+    return children.some((child) =>
+      (child.marks || []).some((mark) => mark.type?.name === 'bold'),
+    )
+  }
+
+  const buildUncategorizedHeader = () => {
+    const createdAt = new Date().toISOString()
+    return {
+      type: 'paragraph',
+      attrs: { id: createNodeId(), created_at: createdAt },
+      content: [{ type: 'text', text: 'Uncategorized', marks: [{ type: 'bold' }] }],
+    }
+  }
+
+  const resolveFallbackInsertPos = () => {
+    if (!editor) return 0
+    const firstNode = editor.state.doc.firstChild
+    if (isTopUncategorizedHeader(firstNode)) {
+      return firstNode.nodeSize
+    }
+    const header = buildUncategorizedHeader()
+    const headerNodeSize = editor.schema.nodeFromJSON(header).nodeSize
+    editor.chain().focus().insertContentAt(0, header).run()
+    return headerNodeSize
+  }
+
+  const normalizeAiInsertResponse = (data) => {
+    const targetBlockId =
+      typeof data?.targetBlockId === 'string' && data.targetBlockId.trim()
+        ? data.targetBlockId.trim()
+        : null
+    const items = Array.isArray(data?.items)
+      ? data.items.map((item) => String(item || '').trim()).filter(Boolean)
+      : []
+    if (!items.length) {
+      throw new Error('AI Insert returned no content to insert.')
+    }
+
+    const allowedFormats = new Set(['bullet_list', 'task_list', 'paragraphs'])
+    const format = allowedFormats.has(data?.format) ? data.format : 'bullet_list'
+
+    return { targetBlockId, format, items }
+  }
+
+  const scrollInsertedContentIntoView = (insertedBlockId) => {
+    if (!insertedBlockId) return
+    requestAnimationFrame(() => {
+      const insertedElement = document.getElementById(insertedBlockId)
+      if (!insertedElement) return
+      insertedElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }
+
+  const handleAiInsertSubmit = async () => {
+    if (!editor || !hasTracker || aiInsertLoading) return
+    const pastedText = aiInsertText.trim()
+    if (!pastedText) {
+      alert('Paste content before using AI Insert.')
+      return
+    }
+
+    setAiInsertLoading(true)
+    try {
+      const provider = localStorage.getItem('ai-provider') || 'anthropic'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+      const pageText = serializeDocToText(editor.getJSON())
+
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        throw new Error('You must be logged in to use AI Insert')
+      }
+
+      const { data, error } = await supabase.functions.invoke('ai-insert', {
+        body: {
+          provider,
+          model,
+          pastedText,
+          pageTitle: title?.trim() || 'Untitled',
+          pageText,
+          pageId: trackerId,
+        },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      if (error) throw error
+
+      const { targetBlockId, format, items } = normalizeAiInsertResponse(data)
+      const insertedContent = buildAiInsertContent(format, items)
+      const firstInsertedId = insertedContent[0]?.attrs?.id ?? null
+
+      let inserted = false
+      const targetMatch = findTargetBlockMatch(targetBlockId)
+      const listInsertPlan = resolveListInsertPlan(targetMatch, insertedContent)
+      if (listInsertPlan) {
+        inserted = editor
+          .chain()
+          .focus()
+          .insertContentAt(listInsertPlan.pos, listInsertPlan.content)
+          .run()
+      }
+
+      const candidatePositions = resolveInsertPosCandidatesFromTargetMatch(targetMatch)
+      for (const candidatePos of candidatePositions) {
+        if (inserted) break
+        if (editor.chain().focus().insertContentAt(candidatePos, insertedContent).run()) {
+          inserted = true
+          break
+        }
+      }
+
+      if (!inserted) {
+        const fallbackPos = resolveFallbackInsertPos()
+        inserted = editor.chain().focus().insertContentAt(fallbackPos, insertedContent).run()
+      }
+
+      if (!inserted) {
+        throw new Error('AI Insert could not find a valid insertion point.')
+      }
+
+      scrollInsertedContentIntoView(firstInsertedId)
+      setAiInsertOpen(false)
+      setAiInsertText('')
+    } catch (err) {
+      console.error('AI insert failed:', err)
+      alert('Failed to insert content: ' + (err.message || String(err)))
+    } finally {
+      setAiInsertLoading(false)
+    }
+  }
+
   const handleGenerateToday = async () => {
-    if (!editor || aiLoading) return
+    if (!editor || aiLoading || aiInsertLoading) return
     setAiLoading(true)
     setAiDailyPickerOpen(false)
     try {
@@ -824,6 +1167,9 @@ function EditorPanel({
         setHighlightPickerOpen(false)
         setShadingPickerOpen(false)
         setAiDailyPickerOpen(false)
+        if (!aiInsertLoading) {
+          setAiInsertOpen(false)
+        }
         closeContextMenu()
       }
     }
@@ -835,7 +1181,15 @@ function EditorPanel({
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, aiDailyPickerOpen, contextMenu.open, closeContextMenu])
+  }, [
+    tablePickerOpen,
+    highlightPickerOpen,
+    shadingPickerOpen,
+    aiDailyPickerOpen,
+    contextMenu.open,
+    aiInsertLoading,
+    closeContextMenu,
+  ])
 
   const tableGrid = useMemo(() => {
     return Array.from({ length: gridSize }, (_, rowIndex) =>
@@ -1253,9 +1607,13 @@ function EditorPanel({
   useEffect(() => {
     if (!hasTracker) {
       closeFind()
+      setAiInsertOpen(false)
+      setAiInsertText('')
       return
     }
     closeFind()
+    setAiInsertOpen(false)
+    setAiInsertText('')
   }, [hasTracker, trackerId, closeFind])
 
   const hasHeaderActions = Boolean(headerActions) || showDelete
@@ -1472,14 +1830,14 @@ function EditorPanel({
         </button>
         {showAiDaily && (
           <div className="ai-daily-control" ref={aiDailyButtonRef}>
-            <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading}>
+            <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading || aiInsertLoading}>
               {aiLoading ? 'Generating...' : 'AI Daily'}
             </button>
             <button
               type="button"
               className="ai-daily-dropdown"
               onClick={() => setAiDailyPickerOpen((prev) => !prev)}
-              disabled={!hasTracker || aiLoading}
+              disabled={!hasTracker || aiLoading || aiInsertLoading}
               aria-label="Pick date for AI Daily"
             >
               ▾
@@ -1502,6 +1860,18 @@ function EditorPanel({
               </div>
             )}
           </div>
+        )}
+        {showAiInsert && (
+          <button
+            type="button"
+            onClick={() => {
+              setAiDailyPickerOpen(false)
+              setAiInsertOpen(true)
+            }}
+            disabled={!hasTracker || aiLoading || aiInsertLoading}
+          >
+            {aiInsertLoading ? 'Inserting...' : 'AI Insert'}
+          </button>
         )}
 
         <div className="toolbar-divider" />
@@ -1703,6 +2073,49 @@ function EditorPanel({
           </div>
         )}
       </div>
+
+      {aiInsertOpen && (
+        <div
+          className="ai-insert-modal-backdrop"
+          onMouseDown={() => {
+            if (aiInsertLoading) return
+            setAiInsertOpen(false)
+          }}
+        >
+          <div className="ai-insert-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <h3>AI Insert</h3>
+            <p className="subtle">
+              Paste content and AI will place it into the current page.
+            </p>
+            <textarea
+              ref={aiInsertInputRef}
+              className="ai-insert-textarea"
+              value={aiInsertText}
+              onChange={(event) => setAiInsertText(event.target.value)}
+              placeholder="Paste your content here..."
+              rows={8}
+              disabled={aiInsertLoading}
+            />
+            <div className="ai-insert-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setAiInsertOpen(false)}
+                disabled={aiInsertLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAiInsertSubmit}
+                disabled={aiInsertLoading || !aiInsertText.trim() || !hasTracker}
+              >
+                {aiInsertLoading ? 'Inserting...' : 'Insert into page'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="editor-shell">
         {hasTracker ? (
