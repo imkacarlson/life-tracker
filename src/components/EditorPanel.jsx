@@ -149,7 +149,15 @@ function EditorPanel({
     setFindOpen(false)
     setFindQuery('')
     editor?.commands?.clearFind?.()
-  }, [editor])
+
+    // Closing the find bar unmounts the focused input. If we don't restore focus to the
+    // editor, users can end up with highlighted text but no keyboard input (Backspace/typing
+    // does nothing because focus falls back to <body>).
+    if (!editor || editorLocked) return
+    requestAnimationFrame(() => {
+      editor.chain().focus().run()
+    })
+  }, [editor, editorLocked])
 
   const handleFindQueryChange = (value) => {
     setFindQuery(value)

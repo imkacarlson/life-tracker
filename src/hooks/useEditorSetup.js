@@ -56,6 +56,12 @@ export const useEditorSetup = ({
 }) => {
   const suppressSaveRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
+  // activeTracker objects change frequently (e.g. autosave updates), but we only want to
+  // reload/lock the editor on real navigation (tracker id or settings changes).
+  const activeTrackerRef = useRef(activeTracker)
+  useLayoutEffect(() => {
+    activeTrackerRef.current = activeTracker
+  }, [activeTracker])
   const [editorLocked, setEditorLocked] = useState(false)
   const pasteInfoRef = useRef({
     summary: null,
@@ -225,7 +231,7 @@ export const useEditorSetup = ({
         return
       }
 
-      const rawContent = normalizeContent(activeTracker?.content)
+      const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
@@ -269,13 +275,64 @@ export const useEditorSetup = ({
   }, [
     editor,
     activeTrackerId,
-    activeTracker,
     hydrateContentWithSignedUrls,
     settingsMode,
     settingsContentVersion,
     templateContentRef,
     pendingNavRef,
   ])
+
+  // If the DOM selection is inside the editor but focus has fallen back to <body>,
+  // typing/backspace does nothing. This can happen after programmatic selections,
+  // table interactions, or (historically) during autosave UI updates.
+  useEffect(() => {
+    if (!editor) return
+
+    let raf = null
+    const handleSelectionChange = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        if (!editor || editor.isDestroyed) return
+        if (editorLocked) return
+
+        const activeEl = document.activeElement
+        const activeTag = activeEl?.tagName
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return
+
+        const sel = window.getSelection?.()
+        if (!sel || sel.rangeCount === 0) return
+
+        const anchorNode = sel.anchorNode
+        const focusNode = sel.focusNode
+        const anchorEl = anchorNode
+          ? anchorNode.nodeType === 1
+            ? anchorNode
+            : anchorNode.parentElement
+          : null
+        const focusEl = focusNode
+          ? focusNode.nodeType === 1
+            ? focusNode
+            : focusNode.parentElement
+          : null
+
+        const root = editor.view?.dom
+        if (!root) return
+        const selectionInEditor =
+          (anchorEl && root.contains(anchorEl)) || (focusEl && root.contains(focusEl))
+        if (!selectionInEditor) return
+        if (editor.view.hasFocus()) return
+
+        editor.view.focus()
+      })
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [editor, editorLocked])
 
   useEffect(() => {
     if (!editor) return

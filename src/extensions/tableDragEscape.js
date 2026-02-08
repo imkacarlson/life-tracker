@@ -112,6 +112,8 @@ const TableDragEscape = Extension.create({
                 const sel = TextSelection.create(view.state.doc, anchorPos, headPos)
                 tr.setSelection(sel)
                 view.dispatch(tr)
+                // Keep keyboard editing active after a table drag selection escapes the table.
+                view.focus()
               }
 
               function onUp() {
