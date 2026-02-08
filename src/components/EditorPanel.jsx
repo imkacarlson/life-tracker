@@ -6,6 +6,7 @@ import { findInDocPluginKey } from '../extensions/findInDoc'
 
 function EditorPanel({
   editor,
+  editorLocked = false,
   title,
   onTitleChange,
   onDelete,
@@ -707,6 +708,7 @@ function EditorPanel({
     const dom = editor.view.dom
 
     const handleContextMenu = (event) => {
+      if (editorLocked) return
       if (event.shiftKey) return
       event.preventDefault()
       focusFromCoords({ left: event.clientX, top: event.clientY })
@@ -716,6 +718,7 @@ function EditorPanel({
     }
 
     const handleTouchStart = (event) => {
+      if (editorLocked) return
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current)
       }
@@ -753,7 +756,7 @@ function EditorPanel({
       dom.removeEventListener('touchend', cancelLongPress)
       dom.removeEventListener('touchcancel', cancelLongPress)
     }
-  }, [editor, openContextMenu])
+  }, [editor, editorLocked, openContextMenu])
 
   useEffect(() => {
     if (!contextMenu.open) return
@@ -1256,6 +1259,7 @@ function EditorPanel({
   }, [hasTracker, trackerId, closeFind])
 
   const hasHeaderActions = Boolean(headerActions) || showDelete
+  const controlsDisabled = !hasTracker || editorLocked
 
   return (
     <section className="editor-panel">
@@ -1265,18 +1269,18 @@ function EditorPanel({
             className="title-input"
             value={title}
             onChange={(event) => {
-              if (titleReadOnly) return
+              if (titleReadOnly || editorLocked) return
               onTitleChange(event.target.value)
             }}
             placeholder="Tracker title"
-            disabled={!hasTracker}
-            readOnly={titleReadOnly}
+            disabled={controlsDisabled}
+            readOnly={titleReadOnly || editorLocked}
           />
           {hasHeaderActions && (
             <div className="title-actions">
               {headerActions}
               {showDelete && (
-                <button className="ghost" onClick={onDelete} disabled={!hasTracker}>
+                <button className="ghost" onClick={onDelete} disabled={controlsDisabled}>
                   Delete
                 </button>
               )}
@@ -1285,11 +1289,12 @@ function EditorPanel({
         </div>
         <div className="status-row">
           <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
+          {editorLocked && hasTracker && <span className="subtle">Switching...</span>}
           {message && <span className="message-inline">{message}</span>}
         </div>
       </div>
 
-      <div className={`toolbar ${!hasTracker ? 'disabled' : ''}`}>
+      <div className={`toolbar ${controlsDisabled ? 'disabled' : ''}`}>
         <button
           type="button"
           className={editor?.isActive('bold') ? 'active' : ''}
