@@ -34,12 +34,24 @@ export const updateHash = (hash, mode = 'replace') => {
 export const scrollToBlock = (blockId, attempts = 0) => {
   const target = document.getElementById(blockId)
   if (target) {
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // Order matters for consistency:
+    // 1) Apply the programmatic selection (may cause the browser to auto-scroll).
+    // 2) Then perform a final centering scroll after selection-related side effects.
     const range = document.createRange()
     range.selectNodeContents(target)
     const sel = window.getSelection()
     sel.removeAllRanges()
     sel.addRange(range)
+
+    // Use a deterministic final scroll position. We avoid smooth scrolling here because it can be
+    // interrupted/overridden by selection and focus adjustments, which is what caused "lands at bottom".
+    //
+    // Two rAF hops ensures we run after any rAF work triggered by selectionchange handlers.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: 'auto', block: 'center' })
+      })
+    })
     return true
   } else if (attempts < 10) {
     setTimeout(() => scrollToBlock(blockId, attempts + 1), 50)
