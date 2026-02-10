@@ -121,7 +121,6 @@ Deno.serve(async (req) => {
       return jsonResponse({
         asap: [],
         fyi: [],
-        stale: [],
         rawText: '',
         warning: null,
       })
@@ -134,23 +133,20 @@ Each candidate has metadata fields:
 - due_bucket: overdue | today | soon | later | none
 - is_overdue: boolean
 - has_explicit_date: boolean
-- age_days: integer or null
 
 Rules:
 - Metadata fields are deterministic server metadata. They are NOT literal due dates.
 - has_explicit_date=true means the source item contains a user-highlighted due date.
 - If has_explicit_date=false, treat date-like text as context/status notes, not due dates.
-- Do not infer due dates from age_days or any metadata value.
 - Use only candidate text + metadata to prioritize and bucket tasks.
 - If due_bucket is later, omit the item.
-- STALE is only for has_explicit_date=false and age_days >= 7.
 - ASAP is overdue/today items plus undated urgent items.
 - FYI is due_bucket=soon.
 - Keep task text concise and actionable.
 - Use cids (not block IDs) in output.
 
 Respond with ONLY a JSON object, no other text. Use this exact shape:
-{"asap":[{"task":"short task description","cids":["c1","c2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}],"stale":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}]}
+{"asap":[{"task":"short task description","cids":["c1","c2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}]}
 
 If a bucket is empty, return an empty array.`
 
@@ -181,17 +177,14 @@ If a bucket is empty, return an empty array.`
 
     const mappedAsap = mapTasksFromCids(parsed.asap, allowedCids, cidToBlockId, cidToText)
     const mappedFyi = mapTasksFromCids(parsed.fyi, allowedCids, cidToBlockId, cidToText)
-    const mappedStale = mapTasksFromCids(parsed.stale, allowedCids, cidToBlockId, cidToText)
 
     const asap = mappedAsap.mapped
     const fyi = mappedFyi.mapped
-    const stale = mappedStale.mapped
 
     const totalParsedCount =
       (parsed.asap?.length || 0) +
-      (parsed.fyi?.length || 0) +
-      (parsed.stale?.length || 0)
-    const totalMappedCount = asap.length + fyi.length + stale.length
+      (parsed.fyi?.length || 0)
+    const totalMappedCount = asap.length + fyi.length
 
     let warning =
       parsed.format === 'asap_fyi'
@@ -207,8 +200,7 @@ If a bucket is empty, return an empty array.`
 
     if (
       mappedAsap.removedForInvalidCids > 0 ||
-      mappedFyi.removedForInvalidCids > 0 ||
-      mappedStale.removedForInvalidCids > 0
+      mappedFyi.removedForInvalidCids > 0
     ) {
       warning = appendWarning(
         warning,
@@ -219,7 +211,6 @@ If a bucket is empty, return an empty array.`
     return jsonResponse({
       asap,
       fyi,
-      stale,
       rawText,
       warning,
     })

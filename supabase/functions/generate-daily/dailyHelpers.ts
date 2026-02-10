@@ -3,7 +3,6 @@ export type DueBucket = 'overdue' | 'today' | 'soon' | 'later' | 'none'
 export type NextStepItem = {
   text: string
   blockId: string
-  ageDays: number | null
   dueBucket: DueBucket
   isOverdue: boolean
   hasExplicitDate: boolean
@@ -15,13 +14,11 @@ export type CandidateForModel = {
   due_bucket: DueBucket
   is_overdue: boolean
   has_explicit_date: boolean
-  age_days: number | null
 }
 
 export type ParsedTaskBuckets = {
   asap: any[]
   fyi: any[]
-  stale: any[]
   format: 'empty' | 'asap_fyi'
 }
 
@@ -257,14 +254,6 @@ const isSectionBoundary = (block: FlattenedBlock) => {
   return /^(background|recurring(?:\s+things?)?|notes?)\s*:?\s*$/i.test(text)
 }
 
-const toAgeDays = (createdAt: string | undefined, todayDate: Date) => {
-  if (!createdAt) return null
-  const createdDate = new Date(createdAt)
-  if (Number.isNaN(createdDate.getTime())) return null
-  const diffDays = Math.floor((todayDate.getTime() - createdDate.getTime()) / DAY_MS)
-  return Math.max(0, diffDays)
-}
-
 const getDueMetadataFromInline = (inlineContent: any[], todayDate: Date): DueMetadata => {
   const segments = collectInlineSegments(inlineContent || [])
   const text = segments.map((segment) => segment.text).join('')
@@ -327,12 +316,9 @@ const extractNextStepsFromContent = (content: any, today: string): NextStepItem[
     const blockId = block.paragraphAttrs?.id || block.itemAttrs?.id
     if (!blockId) continue
 
-    const createdAt = block.paragraphAttrs?.created_at || block.itemAttrs?.created_at
-
     nextSteps.push({
       text,
       blockId,
-      ageDays: toAgeDays(createdAt, todayDate),
       dueBucket: dueMeta.dueBucket,
       isOverdue: dueMeta.isOverdue,
       hasExplicitDate: dueMeta.hasExplicitDate,
@@ -361,7 +347,6 @@ export const buildCandidatesForModel = (trackerPages: any[], today: string) => {
       due_bucket: item.dueBucket,
       is_overdue: item.isOverdue,
       has_explicit_date: item.hasExplicitDate,
-      age_days: Number.isInteger(item.ageDays) ? item.ageDays : null,
     }
   })
 
@@ -375,7 +360,6 @@ export const buildCandidatesForModel = (trackerPages: any[], today: string) => {
 export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
   let asap: any[] = []
   let fyi: any[] = []
-  let stale: any[] = []
   let format: ParsedTaskBuckets['format'] = 'empty'
 
   try {
@@ -399,20 +383,18 @@ export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
     if (parsed && typeof parsed === 'object') {
       if (Array.isArray(parsed.asap)) asap = parsed.asap
       if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
-      if (Array.isArray(parsed.stale)) stale = parsed.stale
 
-      if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi) || Array.isArray(parsed.stale)) {
+      if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi)) {
         format = 'asap_fyi'
       }
     }
   } catch {
     asap = []
     fyi = []
-    stale = []
     format = 'empty'
   }
 
-  return { asap, fyi, stale, format }
+  return { asap, fyi, format }
 }
 
 export const mapTasksFromCids = (
