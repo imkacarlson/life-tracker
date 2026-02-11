@@ -4,6 +4,7 @@ import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
+import { serializeDocForExport } from '../lib/serializeDocForExport'
 
 function EditorPanel({
   editor,
@@ -67,6 +68,7 @@ function EditorPanel({
   })
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const [submenuDirection, setSubmenuDirection] = useState('right')
+  const [copyLabel, setCopyLabel] = useState('Copy')
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
@@ -202,144 +204,7 @@ function EditorPanel({
     const rawTitle = title?.trim() || 'Untitled'
     const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
     const doc = editor.getJSON()
-    const lines = []
-
-    const serializeInline = (content) => {
-      if (!content) return ''
-      return content
-        .map((node) => {
-          if (node.type === 'text') {
-            let text = node.text || ''
-            const marks = node.marks || []
-            const hasBold = marks.some((m) => m.type === 'bold')
-            const hasItalic = marks.some((m) => m.type === 'italic')
-            const hasStrike = marks.some((m) => m.type === 'strike')
-            const hasHighlight = marks.some((m) => m.type === 'highlight')
-            if (hasBold) text = `**${text}**`
-            if (hasItalic) text = `_${text}_`
-            if (hasStrike) text = `~~${text}~~`
-            if (hasHighlight) text = `[${text}]`
-            return text
-          }
-          if (node.type === 'hardBreak') return '\n'
-          if (node.type === 'image') return '[image]'
-          return ''
-        })
-        .join('')
-    }
-
-    const serializeNode = (node, indent = 0, listIndex = null) => {
-      const prefix = '  '.repeat(indent)
-
-      switch (node.type) {
-        case 'doc':
-          node.content?.forEach((child) => serializeNode(child, indent))
-          break
-
-        case 'paragraph': {
-          const text = serializeInline(node.content)
-          lines.push(prefix + text)
-          break
-        }
-
-        case 'heading': {
-          const text = serializeInline(node.content)
-          if (lines.length > 0) lines.push('')
-          lines.push(prefix + text.toUpperCase())
-          lines.push('')
-          break
-        }
-
-        case 'bulletList':
-          node.content?.forEach((child) => serializeNode(child, indent, 'bullet'))
-          break
-
-        case 'orderedList': {
-          let counter = 1
-          node.content?.forEach((child) => {
-            serializeNode(child, indent, counter)
-            counter += 1
-          })
-          break
-        }
-
-        case 'taskList':
-          node.content?.forEach((child) => serializeNode(child, indent, 'task'))
-          break
-
-        case 'listItem':
-        case 'taskItem': {
-          const marker =
-            listIndex === 'bullet'
-              ? '- '
-              : listIndex === 'task'
-                ? node.attrs?.checked
-                  ? '[x] '
-                  : '[ ] '
-                : `${listIndex}. `
-          const children = node.content || []
-          children.forEach((child, i) => {
-            if (i === 0 && child.type === 'paragraph') {
-              lines.push(prefix + marker + serializeInline(child.content))
-            } else {
-              serializeNode(child, indent + 1)
-            }
-          })
-          break
-        }
-
-        case 'table':
-          node.content?.forEach((row, rowIdx) => {
-            row.content?.forEach((cell) => {
-              cell.content?.forEach((child) => serializeNode(child, indent))
-            })
-            if (rowIdx < (node.content?.length || 0) - 1) {
-              const cellText =
-                row.content
-                  ?.map((c) => c.content?.map((n) => serializeInline(n.content)).join(''))
-                  .join('') || ''
-              if (cellText.trim()) lines.push(prefix + '---')
-            }
-          })
-          break
-
-        case 'tableRow':
-        case 'tableCell':
-        case 'tableHeader':
-          node.content?.forEach((child) => serializeNode(child, indent))
-          break
-
-        case 'blockquote':
-          node.content?.forEach((child) => serializeNode(child, indent + 1))
-          break
-
-        case 'codeBlock': {
-          lines.push(prefix + '```')
-          const text = node.content?.map((n) => n.text || '').join('') || ''
-          text.split('\n').forEach((line) => lines.push(prefix + line))
-          lines.push(prefix + '```')
-          break
-        }
-
-        case 'horizontalRule':
-          lines.push(prefix + '---')
-          break
-
-        default:
-          if (node.content) {
-            node.content.forEach((child) => serializeNode(child, indent))
-          }
-          break
-      }
-    }
-
-    serializeNode(doc)
-
-    const text = lines
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .replace(/[ \t]+\n/g, '\n')
-      .trim()
+    const text = serializeDocForExport(doc, rawTitle)
 
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -350,6 +215,20 @@ function EditorPanel({
     link.click()
     link.remove()
     URL.revokeObjectURL(url)
+  }
+
+  const handleCopyText = async () => {
+    if (!editor || !hasTracker) return
+    const rawTitle = title?.trim() || 'Untitled'
+    const doc = editor.getJSON()
+    const text = serializeDocForExport(doc, rawTitle)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyLabel('Copied!')
+      setTimeout(() => setCopyLabel('Copy'), 2000)
+    } catch {
+      window.alert('Failed to copy to clipboard.')
+    }
   }
 
   const normalizeTemplateContent = (content) => {
@@ -1911,6 +1790,9 @@ function EditorPanel({
         </button>
         <button type="button" onClick={handleExportText} disabled={!hasTracker}>
           Export
+        </button>
+        <button type="button" onClick={handleCopyText} disabled={!hasTracker}>
+          {copyLabel}
         </button>
         {showAiDaily && (
           <div className="ai-daily-control" ref={aiDailyButtonRef}>
