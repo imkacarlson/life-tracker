@@ -84,18 +84,41 @@ function serializeNode(node, lines, indent = 0, listIndex = null) {
 
     case 'table': {
       const rows = node.content || []
-      rows.forEach((row, rowIdx) => {
-        const cells = (row.content || []).map((cell) => {
-          const cellLines = []
-          cell.content?.forEach((child) => serializeNode(child, cellLines, 0))
-          return cellLines.join(' ').trim()
+      if (rows.length === 0) break
+
+      // Detect column count from first row
+      const columnCount = rows[0]?.content?.length || 0
+
+      if (columnCount === 1) {
+        // Single-column table: use --- separators, preserve structure
+        rows.forEach((row, rowIdx) => {
+          const cell = row.content?.[0]
+          if (cell) {
+            // Serialize cell content normally to preserve formatting
+            cell.content?.forEach((child) => serializeNode(child, lines, indent))
+          }
+          // Add separator after each row except the last
+          if (rowIdx < rows.length - 1) {
+            lines.push('')
+            lines.push(prefix + '---')
+            lines.push('')
+          }
         })
-        lines.push(prefix + '| ' + cells.join(' | ') + ' |')
-        if (rowIdx === 0) {
-          const separator = cells.map((c) => '-'.repeat(Math.max(c.length, 3))).join(' | ')
-          lines.push(prefix + '| ' + separator + ' |')
-        }
-      })
+      } else {
+        // Multi-column table: use pipe format
+        rows.forEach((row, rowIdx) => {
+          const cells = (row.content || []).map((cell) => {
+            const cellLines = []
+            cell.content?.forEach((child) => serializeNode(child, cellLines, 0))
+            return cellLines.join(' ').trim()
+          })
+          lines.push(prefix + '| ' + cells.join(' | ') + ' |')
+          if (rowIdx === 0) {
+            const separator = cells.map((c) => '-'.repeat(Math.max(c.length, 3))).join(' | ')
+            lines.push(prefix + '| ' + separator + ' |')
+          }
+        })
+      }
       break
     }
 
