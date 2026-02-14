@@ -93,7 +93,12 @@ function App() {
     deleteTracker,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
-  const { navIntentRef, hashBlockRef, handleInternalHashNavigate } = useNavigation({
+  const {
+    navIntentRef,
+    hashBlockRef,
+    handleInternalHashNavigate,
+    clearBlockAnchorIfPresent,
+  } = useNavigation({
     session,
     notebooks,
     activeNotebookId,
@@ -113,6 +118,25 @@ function App() {
     if (!isSaving) return true
     return window.confirm('Changes are still saving. Leave this page anyway?')
   }, [isSaving])
+  const handleAppPointerDownCapture = useCallback(
+    (event) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest('a[href^="#nb="]')) return
+      clearBlockAnchorIfPresent()
+    },
+    [clearBlockAnchorIfPresent],
+  )
+  const handleAppKeyDownCapture = useCallback(
+    (event) => {
+      if (event.isComposing) return
+      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
+      const target = event.target
+      if (target instanceof Element && target.closest('a[href^="#nb="]')) return
+      clearBlockAnchorIfPresent()
+    },
+    [clearBlockAnchorIfPresent],
+  )
   const setMessage = (msg) => {
     setAuthMessage(msg)
     setNotebookMessage(msg)
@@ -215,7 +239,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" onPointerDownCapture={handleAppPointerDownCapture} onKeyDownCapture={handleAppKeyDownCapture}>
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">
