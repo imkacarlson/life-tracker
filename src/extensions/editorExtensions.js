@@ -86,7 +86,7 @@ export const InternalLink = Link.extend({
           if (!href) return false
           event.preventDefault()
           event.stopPropagation()
-          if (href.startsWith('#nb=')) {
+          if (href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')) {
             onNavigateHash?.(href)
             return true
           }
