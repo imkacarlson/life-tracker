@@ -77,6 +77,20 @@ export const useNavigation = ({
     [navigateToHash],
   )
 
+  const clearBlockAnchorIfPresent = useCallback(() => {
+    const parsed = parseDeepLink(window.location.hash)
+    if (!parsed?.blockId) return
+    const hash = buildHash({
+      notebookId: parsed.notebookId,
+      sectionId: parsed.sectionId,
+      pageId: parsed.pageId,
+      blockId: null,
+    })
+    if (!hash) return
+    hashBlockRef.current = null
+    updateHash(hash, 'replace')
+  }, [])
+
   useEffect(() => {
     navigateRef.current = handleInternalHashNavigate
   }, [handleInternalHashNavigate])
@@ -140,5 +154,6 @@ export const useNavigation = ({
     hashBlockRef,
     navigateRef,
     handleInternalHashNavigate,
+    clearBlockAnchorIfPresent,
   }
 }

@@ -89,7 +89,13 @@ function App() {
     deleteTracker,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
-  const { navIntentRef, hashBlockRef, navigateRef, handleInternalHashNavigate } = useNavigation({
+  const {
+    navIntentRef,
+    hashBlockRef,
+    navigateRef,
+    handleInternalHashNavigate,
+    clearBlockAnchorIfPresent,
+  } = useNavigation({
     session,
     notebooks,
     activeNotebookId,
@@ -130,6 +136,7 @@ function App() {
     scheduleSettingsSave,
     pendingNavRef,
     navigateRef,
+    clearBlockAnchorIfPresent,
     uploadImageRef,
   })
 
