@@ -155,7 +155,6 @@ function App() {
     scheduleSettingsSave,
     pendingNavRef,
     navigateRef,
-    clearBlockAnchorIfPresent,
     uploadImageRef,
   })
 

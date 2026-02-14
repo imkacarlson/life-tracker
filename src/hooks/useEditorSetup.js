@@ -52,7 +52,6 @@ export const useEditorSetup = ({
   scheduleSettingsSave,
   pendingNavRef,
   navigateRef,
-  clearBlockAnchorIfPresent,
   uploadImageRef,
 }) => {
   const suppressSaveRef = useRef(false)
@@ -73,22 +72,6 @@ export const useEditorSetup = ({
     applied: false,
   })
   const pendingPasteFixRef = useRef(false)
-  const clearAnchorKeySet = useRef(
-    new Set([
-      'ArrowUp',
-      'ArrowDown',
-      'ArrowLeft',
-      'ArrowRight',
-      'Backspace',
-      'Delete',
-      'Enter',
-      'Home',
-      'End',
-      'PageUp',
-      'PageDown',
-      'Tab',
-    ]),
-  )
 
   const getListDepthAt = useCallback((state, pos) => {
     const $pos = state.doc.resolve(pos)
@@ -367,37 +350,6 @@ export const useEditorSetup = ({
       if (raf) cancelAnimationFrame(raf)
     }
   }, [editor, editorLocked])
-
-  useEffect(() => {
-    if (!editor) return
-    const root = editor.view?.dom
-    if (!root) return
-
-    const handlePointerDown = (event) => {
-      if (editorLocked) return
-      const target = event.target
-      if (!(target instanceof Element)) return
-      if (target.closest('a[href^="#nb="]')) return
-      clearBlockAnchorIfPresent?.()
-    }
-
-    const handleKeyDown = (event) => {
-      if (editorLocked) return
-      if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') {
-        return
-      }
-      if (event.key.length === 1 || clearAnchorKeySet.current.has(event.key)) {
-        clearBlockAnchorIfPresent?.()
-      }
-    }
-
-    root.addEventListener('pointerdown', handlePointerDown)
-    root.addEventListener('keydown', handleKeyDown)
-    return () => {
-      root.removeEventListener('pointerdown', handlePointerDown)
-      root.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [editor, editorLocked, clearBlockAnchorIfPresent])
 
   useEffect(() => {
     if (!editor) return
