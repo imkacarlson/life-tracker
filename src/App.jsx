@@ -122,7 +122,7 @@ function App() {
     (event) => {
       const target = event.target
       if (!(target instanceof Element)) return
-      if (target.closest('a[href^="#nb="]')) return
+      if (target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -132,7 +132,7 @@ function App() {
       if (event.isComposing) return
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
       const target = event.target
-      if (target instanceof Element && target.closest('a[href^="#nb="]')) return
+      if (target instanceof Element && target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],

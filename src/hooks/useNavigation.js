@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { buildHash, parseDeepLink, updateHash, scrollToBlock } from '../utils/navigationHelpers'
+import { resolveNavHierarchy } from '../utils/resolveNavHierarchy'
 
 export const useNavigation = ({
   session,
@@ -19,38 +20,45 @@ export const useNavigation = ({
   const navigateToHashRef = useRef(null)
 
   const navigateToHash = useCallback(
-    (hash) => {
+    async (hash) => {
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
-      if (!parsed?.notebookId) return
-      if (parsed.pageId && parsed.blockId) {
-        hashBlockRef.current = { pageId: parsed.pageId, blockId: parsed.blockId }
+      if (!parsed) return
+
+      const resolved = await resolveNavHierarchy(parsed)
+      if (!resolved?.notebookId) return
+
+      if (resolved.pageId && resolved.blockId) {
+        hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
       } else {
         hashBlockRef.current = null
       }
-      setPendingNav(parsed)
-      if (parsed.pageId && parsed.pageId === activeTrackerId) {
+
+      setPendingNav(resolved)
+      if (resolved.pageId && resolved.pageId === activeTrackerId) {
         requestAnimationFrame(() => {
-          if (parsed.blockId) {
-            scrollToBlock(parsed.blockId)
+          if (resolved.blockId) {
+            scrollToBlock(resolved.blockId)
           }
           setPendingNav(null)
         })
         return
       }
-      if (parsed.notebookId === activeNotebookId) {
-        if (parsed.sectionId && parsed.sectionId !== activeSectionId) {
-          setActiveSectionId(parsed.sectionId)
+
+      if (resolved.notebookId === activeNotebookId) {
+        if (resolved.sectionId && resolved.sectionId !== activeSectionId) {
+          setActiveSectionId(resolved.sectionId)
           return
         }
-        if (parsed.pageId && parsed.pageId !== activeTrackerId) {
-          setActiveTrackerId(parsed.pageId)
+        if (resolved.pageId && resolved.pageId !== activeTrackerId) {
+          setActiveTrackerId(resolved.pageId)
           return
         }
         setPendingNav(null)
         return
       }
-      if (notebooks.some((item) => item.id === parsed.notebookId)) {
-        setActiveNotebookId(parsed.notebookId)
+
+      if (notebooks.some((item) => item.id === resolved.notebookId)) {
+        setActiveNotebookId(resolved.notebookId)
       }
     },
     [
@@ -65,17 +73,16 @@ export const useNavigation = ({
     ],
   )
 
-  const handleInternalHashNavigate = useCallback(
-    (href) => {
-      if (!href || !href.startsWith('#nb=')) return
-      if (window.location.hash === href) {
-        navigateToHashRef.current?.(href)
-        return
-      }
-      window.location.hash = href
-    },
-    [],
-  )
+  const handleInternalHashNavigate = useCallback((href) => {
+    if (!href) return
+    const isInternalHash = href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')
+    if (!isInternalHash) return
+    if (window.location.hash === href) {
+      navigateToHashRef.current?.(href)
+      return
+    }
+    window.location.hash = href
+  }, [])
 
   const clearBlockAnchorIfPresent = useCallback(() => {
     const parsed = parseDeepLink(window.location.hash)
@@ -122,17 +129,30 @@ export const useNavigation = ({
 
   useEffect(() => {
     if (!session) return
-    const initial = parseDeepLink(window.location.hash)
-    if (initial) {
-      setPendingNav(initial)
-      if (initial.pageId && initial.blockId) {
-        hashBlockRef.current = { pageId: initial.pageId, blockId: initial.blockId }
+    let cancelled = false
+
+    const syncInitialHash = async () => {
+      const initial = parseDeepLink(window.location.hash)
+      if (!initial) return
+
+      const resolved = await resolveNavHierarchy(initial)
+      if (!resolved || cancelled) return
+
+      setPendingNav(resolved)
+      if (resolved.pageId && resolved.blockId) {
+        hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
       } else {
         hashBlockRef.current = null
       }
-      if (notebooks.some((item) => item.id === initial.notebookId)) {
-        setActiveNotebookId(initial.notebookId)
+      if (notebooks.some((item) => item.id === resolved.notebookId)) {
+        setActiveNotebookId(resolved.notebookId)
       }
+    }
+
+    syncInitialHash()
+
+    return () => {
+      cancelled = true
     }
   }, [session, notebooks, setActiveNotebookId, setPendingNav])
 
