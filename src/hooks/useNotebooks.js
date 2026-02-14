@@ -6,13 +6,6 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    if (userId) return
-    setNotebooks([])
-    setActiveNotebookId(null)
-    setMessage('')
-  }, [userId])
-
   const loadNotebooks = useCallback(async () => {
     if (!userId) return
     setMessage('')
@@ -44,8 +37,16 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   }, [userId, pendingNavRef, savedSelectionRef])
 
   useEffect(() => {
-    if (!userId) return
-    loadNotebooks()
+    const timer = window.setTimeout(() => {
+      if (!userId) {
+        setNotebooks([])
+        setActiveNotebookId(null)
+        setMessage('')
+        return
+      }
+      void loadNotebooks()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [userId, loadNotebooks])
 
   const createNotebook = async (session) => {

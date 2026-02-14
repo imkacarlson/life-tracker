@@ -23,6 +23,10 @@ function App() {
 
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
+  const getPendingNav = useCallback(() => pendingNavRef.current, [])
+  const setPendingNav = useCallback((value) => {
+    pendingNavRef.current = value
+  }, [])
 
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
 
@@ -92,7 +96,6 @@ function App() {
   const {
     navIntentRef,
     hashBlockRef,
-    navigateRef,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
   } = useNavigation({
@@ -104,7 +107,8 @@ function App() {
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
-    pendingNavRef,
+    getPendingNav,
+    setPendingNav,
   })
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
@@ -154,7 +158,7 @@ function App() {
     scheduleSave,
     scheduleSettingsSave,
     pendingNavRef,
-    navigateRef,
+    onNavigateHash: handleInternalHashNavigate,
     uploadImageRef,
   })
 

@@ -51,7 +51,7 @@ export const useEditorSetup = ({
   scheduleSave,
   scheduleSettingsSave,
   pendingNavRef,
-  navigateRef,
+  onNavigateHash,
   uploadImageRef,
 }) => {
   const suppressSaveRef = useRef(false)
@@ -123,7 +123,7 @@ export const useEditorSetup = ({
           autolink: true,
           openOnClick: false,
           linkOnPaste: true,
-          onNavigateHash: (href) => navigateRef.current?.(href),
+          onNavigateHash,
           HTMLAttributes: {
             target: '_self',
             rel: 'noopener noreferrer',
@@ -196,7 +196,7 @@ export const useEditorSetup = ({
         },
       },
     },
-    [session?.user?.id],
+    [session?.user?.id, onNavigateHash],
   )
 
   // Lock the editor during page/settings transitions so users can't type into content

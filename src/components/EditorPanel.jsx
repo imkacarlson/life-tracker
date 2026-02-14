@@ -964,13 +964,13 @@ function EditorPanel({
     setShadingPickerOpen(false)
   }, [])
 
-  const getCellFromEvent = (event) => {
+  const getCellFromEvent = useCallback((event) => {
     const target = event.target
     if (!target?.closest) return null
     return target.closest('td, th')
-  }
+  }, [])
 
-  const focusCellFromEvent = (event) => {
+  const focusCellFromEvent = useCallback((event) => {
     if (!editor) return
     const cell = getCellFromEvent(event)
     if (!cell) return
@@ -982,17 +982,17 @@ function EditorPanel({
         editor.chain().focus().setTextSelection(pos).run()
       }
     }
-  }
+  }, [editor, getCellFromEvent])
 
-  const focusFromCoords = (coords) => {
+  const focusFromCoords = useCallback((coords) => {
     if (!editor) return
     const pos = editor.view?.posAtCoords(coords)
     if (pos?.pos !== undefined) {
       editor.chain().focus().setTextSelection(pos.pos).run()
     }
-  }
+  }, [editor])
 
-  const getActiveBlockId = () => {
+  const getActiveBlockId = useCallback(() => {
     if (!editor) return null
     const { $from } = editor.state.selection
     let fallbackId = null
@@ -1007,7 +1007,7 @@ function EditorPanel({
       if (!fallbackId) fallbackId = id
     }
     return fallbackId
-  }
+  }, [editor])
 
   useEffect(() => {
     if (!editor) return
@@ -1062,7 +1062,15 @@ function EditorPanel({
       dom.removeEventListener('touchend', cancelLongPress)
       dom.removeEventListener('touchcancel', cancelLongPress)
     }
-  }, [editor, editorLocked, openContextMenu])
+  }, [
+    editor,
+    editorLocked,
+    focusCellFromEvent,
+    focusFromCoords,
+    getActiveBlockId,
+    getCellFromEvent,
+    openContextMenu,
+  ])
 
   useEffect(() => {
     if (!contextMenu.open) return
@@ -1200,7 +1208,7 @@ function EditorPanel({
     shadingInputRef.current?.click()
   }
 
-  const hexToRgb = (hex) => {
+  const hexToRgb = useCallback((hex) => {
     const normalized = hex.replace('#', '')
     const value =
       normalized.length === 3
@@ -1215,16 +1223,16 @@ function EditorPanel({
       g: (intValue >> 8) & 255,
       b: intValue & 255,
     }
-  }
+  }, [])
 
-  const toHex = (value) => value.toString(16).padStart(2, '0')
+  const toHex = useCallback((value) => value.toString(16).padStart(2, '0'), [])
 
-  const mixColors = (base, mixWith, amount) => {
+  const mixColors = useCallback((base, mixWith, amount) => {
     const a = hexToRgb(base)
     const b = hexToRgb(mixWith)
     const mix = (start, end) => Math.round(start * (1 - amount) + end * amount)
     return `#${toHex(mix(a.r, b.r))}${toHex(mix(a.g, b.g))}${toHex(mix(a.b, b.b))}`
-  }
+  }, [hexToRgb, toHex])
 
   const themeBaseColors = useMemo(
     () => [
@@ -1259,7 +1267,7 @@ function EditorPanel({
         }),
       ),
     ]
-  }, [themeBaseColors])
+  }, [mixColors, themeBaseColors])
 
   const standardColors = useMemo(
     () => [
