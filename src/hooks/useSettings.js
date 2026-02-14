@@ -27,17 +27,6 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
     }
   }, [])
 
-  useEffect(() => {
-    if (userId) return
-    setSettingsMode(null)
-    setSettingsRow(null)
-    setSettingsLoading(false)
-    setTemplateSaveStatus('Saved')
-    setSettingsContentVersion(0)
-    templateContentRef.current = EMPTY_DOC
-    setMessage('')
-  }, [userId])
-
   const loadSettings = useCallback(async () => {
     if (!userId) return
     setSettingsLoading(true)
@@ -80,8 +69,20 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
   }, [userId, hydrateContentWithSignedUrls])
 
   useEffect(() => {
-    if (!userId) return
-    loadSettings()
+    const timer = window.setTimeout(() => {
+      if (!userId) {
+        setSettingsMode(null)
+        setSettingsRow(null)
+        setSettingsLoading(false)
+        setTemplateSaveStatus('Saved')
+        setSettingsContentVersion(0)
+        templateContentRef.current = EMPTY_DOC
+        setMessage('')
+        return
+      }
+      void loadSettings()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [userId, loadSettings])
 
   const scheduleSettingsSave = useCallback(

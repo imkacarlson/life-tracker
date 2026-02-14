@@ -7,13 +7,6 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
   const [activeSectionId, setActiveSectionId] = useState(null)
   const [message, setMessage] = useState('')
 
-  useEffect(() => {
-    if (userId) return
-    setSections([])
-    setActiveSectionId(null)
-    setMessage('')
-  }, [userId])
-
   const loadSections = useCallback(
     async (notebookId) => {
       if (!userId || !notebookId) return
@@ -49,15 +42,19 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
   )
 
   useEffect(() => {
-    if (!activeNotebookId) {
+    const timer = window.setTimeout(() => {
+      if (!userId || !activeNotebookId) {
+        setSections([])
+        setActiveSectionId(null)
+        setMessage('')
+        return
+      }
       setSections([])
       setActiveSectionId(null)
-      return
-    }
-    setSections([])
-    setActiveSectionId(null)
-    loadSections(activeNotebookId)
-  }, [activeNotebookId, loadSections])
+      void loadSections(activeNotebookId)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [userId, activeNotebookId, loadSections])
 
   const createSection = async (session, notebookId) => {
     if (!session || !notebookId) return
