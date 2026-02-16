@@ -96,6 +96,7 @@ function App() {
   const {
     navIntentRef,
     hashBlockRef,
+    initialNavReady,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
   } = useNavigation({
@@ -122,7 +123,7 @@ function App() {
     (event) => {
       const target = event.target
       if (!(target instanceof Element)) return
-      if (target.closest('a[href^="#nb="]')) return
+      if (target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -132,7 +133,7 @@ function App() {
       if (event.isComposing) return
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
       const target = event.target
-      if (target instanceof Element && target.closest('a[href^="#nb="]')) return
+      if (target instanceof Element && target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -169,10 +170,10 @@ function App() {
   }, [finalUploadImageAndInsert])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || !initialNavReady) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     savedSelectionRef.current = { notebookId: activeNotebookId, sectionId: activeSectionId, pageId: activeTrackerId }
-  }, [session, activeNotebookId, activeSectionId, activeTrackerId])
+  }, [session, initialNavReady, activeNotebookId, activeSectionId, activeTrackerId])
 
   useEffect(() => {
     if (settingsMode !== 'daily-template') return

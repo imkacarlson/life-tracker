@@ -80,13 +80,14 @@ export const InternalLink = Link.extend({
     const internalLinkPlugin = new Plugin({
       props: {
         handleClick: (_view, _pos, event) => {
-          const target = event.target
+          const raw = event.target
+          const target = raw instanceof Element ? raw : raw?.parentElement
           const link = target?.closest?.('a')
           const href = link?.getAttribute?.('href')
           if (!href) return false
           event.preventDefault()
           event.stopPropagation()
-          if (href.startsWith('#nb=')) {
+          if (href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')) {
             onNavigateHash?.(href)
             return true
           }

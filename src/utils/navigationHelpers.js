@@ -1,22 +1,27 @@
 export const buildHash = ({ notebookId, sectionId, pageId, blockId }) => {
-  if (!notebookId) return ''
   const params = new URLSearchParams()
-  params.set('nb', notebookId)
+  if (notebookId) params.set('nb', notebookId)
   if (sectionId) params.set('sec', sectionId)
   if (pageId) params.set('pg', pageId)
   if (blockId) params.set('block', blockId)
+  if (!params.size) return ''
   return `#${params.toString()}`
 }
 
 export const parseDeepLink = (hash) => {
-  if (!hash || !hash.startsWith('#nb=')) return null
+  if (!hash || !hash.startsWith('#')) return null
+  if (!hash.startsWith('#pg=') && !hash.startsWith('#sec=') && !hash.startsWith('#nb=')) {
+    return null
+  }
   const params = new URLSearchParams(hash.slice(1))
   const notebookId = params.get('nb')
-  if (!notebookId) return null
+  const sectionId = params.get('sec')
+  const pageId = params.get('pg')
+  if (!notebookId && !sectionId && !pageId) return null
   return {
     notebookId,
-    sectionId: params.get('sec'),
-    pageId: params.get('pg'),
+    sectionId,
+    pageId,
     blockId: params.get('block'),
   }
 }
