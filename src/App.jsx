@@ -96,6 +96,7 @@ function App() {
   const {
     navIntentRef,
     hashBlockRef,
+    initialNavReady,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
   } = useNavigation({
@@ -169,10 +170,10 @@ function App() {
   }, [finalUploadImageAndInsert])
 
   useEffect(() => {
-    if (!session) return
+    if (!session || !initialNavReady) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     savedSelectionRef.current = { notebookId: activeNotebookId, sectionId: activeSectionId, pageId: activeTrackerId }
-  }, [session, activeNotebookId, activeSectionId, activeTrackerId])
+  }, [session, initialNavReady, activeNotebookId, activeSectionId, activeTrackerId])
 
   useEffect(() => {
     if (settingsMode !== 'daily-template') return
