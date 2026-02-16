@@ -5,6 +5,13 @@ import { supabase } from '../lib/supabase'
  * Returns null when the target cannot be resolved.
  */
 export const resolveNavHierarchy = async ({ notebookId = null, sectionId = null, pageId = null, blockId = null }) => {
+  if (pageId && sectionId && notebookId) {
+    return { notebookId, sectionId, pageId, blockId: blockId ?? null }
+  }
+  if (sectionId && notebookId) {
+    return { notebookId, sectionId, pageId: null, blockId: null }
+  }
+
   if (pageId) {
     const { data, error } = await supabase
       .from('pages')

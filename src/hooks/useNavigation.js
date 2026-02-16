@@ -116,9 +116,9 @@ export const useNavigation = ({
     const blockId =
       blockInfo && blockInfo.pageId === activeTrackerId ? blockInfo.blockId : null
     const hash = buildHash({
-      notebookId: activeNotebookId,
-      sectionId: activeSectionId,
       pageId: activeTrackerId,
+      sectionId: !activeTrackerId ? activeSectionId : undefined,
+      notebookId: !activeTrackerId && !activeSectionId ? activeNotebookId : undefined,
       blockId,
     })
     if (!hash) return

@@ -851,7 +851,7 @@ function EditorPanel({
           const content = [{ type: 'text', text: task.task }]
           if (task.block_ids?.length) {
             task.block_ids.forEach((blockId, i) => {
-              const hash = buildHash({ pageId: sourceTrackerPage.id, blockId })
+              const hash = buildHash({ notebookId, sectionId, pageId: sourceTrackerPage.id, blockId })
               content.push({ type: 'text', text: ' ' })
               content.push({
                 type: 'text',
@@ -1524,9 +1524,9 @@ function EditorPanel({
   )
 
   const deepLinkHash = useMemo(() => {
-    if (!contextMenu.blockId || !trackerId) return null
-    return buildHash({ pageId: trackerId, blockId: contextMenu.blockId })
-  }, [contextMenu.blockId, trackerId])
+    if (!contextMenu.blockId || !trackerId || !notebookId || !sectionId) return null
+    return buildHash({ notebookId, sectionId, pageId: trackerId, blockId: contextMenu.blockId })
+  }, [contextMenu.blockId, trackerId, notebookId, sectionId])
 
   const isCurrentPageTracker = Boolean(trackerId && trackerSourcePage?.id === trackerId)
 

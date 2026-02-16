@@ -1,15 +1,10 @@
 export const buildHash = ({ notebookId, sectionId, pageId, blockId }) => {
   const params = new URLSearchParams()
-  if (pageId) {
-    params.set('pg', pageId)
-  } else if (sectionId) {
-    params.set('sec', sectionId)
-  } else if (notebookId) {
-    params.set('nb', notebookId)
-  } else {
-    return ''
-  }
+  if (notebookId) params.set('nb', notebookId)
+  if (sectionId) params.set('sec', sectionId)
+  if (pageId) params.set('pg', pageId)
   if (blockId) params.set('block', blockId)
+  if (!params.size) return ''
   return `#${params.toString()}`
 }
 
