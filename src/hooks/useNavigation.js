@@ -18,13 +18,16 @@ export const useNavigation = ({
   const ignoreNextHashChangeRef = useRef(0)
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
+  const navVersionRef = useRef(0)
 
   const navigateToHash = useCallback(
     async (hash) => {
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
       if (!parsed) return
 
+      const version = ++navVersionRef.current
       const resolved = await resolveNavHierarchy(parsed)
+      if (navVersionRef.current !== version) return
       if (!resolved?.notebookId) return
 
       if (resolved.pageId && resolved.blockId) {
