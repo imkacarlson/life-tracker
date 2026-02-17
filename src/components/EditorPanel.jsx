@@ -45,6 +45,8 @@ function EditorPanel({
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const moreMenuRef = useRef(null)
+  const lastInputTypeRef = useRef(null)
+  const lastInputAtRef = useRef(0)
   const findInputRef = useRef(null)
   const aiInsertInputRef = useRef(null)
   const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
@@ -973,20 +975,6 @@ function EditorPanel({
     return target.closest('td, th')
   }, [])
 
-  const focusCellFromEvent = useCallback((event) => {
-    if (!editor) return
-    const cell = getCellFromEvent(event)
-    if (!cell) return
-    const pos = editor.view?.posAtDOM(cell, 0)
-    if (pos !== null && pos !== undefined) {
-      try {
-        editor.chain().focus().setTextSelection(pos + 2).run()
-      } catch {
-        editor.chain().focus().setTextSelection(pos).run()
-      }
-    }
-  }, [editor, getCellFromEvent])
-
   const focusFromCoords = useCallback((coords) => {
     if (!editor) return
     const pos = editor.view?.posAtCoords(coords)
@@ -1015,10 +1003,39 @@ function EditorPanel({
   useEffect(() => {
     if (!editor) return
     const dom = editor.view.dom
+    const TOUCH_CONTEXT_MENU_WINDOW_MS = 900
+
+    const markInput = (type) => {
+      lastInputTypeRef.current = type
+      lastInputAtRef.current = Date.now()
+    }
+
+    const handlePointerDown = (event) => {
+      if (!event.pointerType) return
+      markInput(event.pointerType)
+    }
+
+    const handleMouseDown = () => {
+      markInput('mouse')
+    }
+
+    const handleTouchStart = () => {
+      markInput('touch')
+    }
+
+    const isTouchContextMenuEvent = (event) => {
+      if (event.pointerType) return event.pointerType === 'touch'
+      if (event.sourceCapabilities?.firesTouchEvents) return true
+      return (
+        lastInputTypeRef.current === 'touch'
+        && Date.now() - lastInputAtRef.current < TOUCH_CONTEXT_MENU_WINDOW_MS
+      )
+    }
 
     const handleContextMenu = (event) => {
       if (editorLocked) return
       if (event.shiftKey) return
+      if (isTouchContextMenuEvent(event)) return
       event.preventDefault()
       focusFromCoords({ left: event.clientX, top: event.clientY })
       const inTable = Boolean(getCellFromEvent(event))
@@ -1026,9 +1043,15 @@ function EditorPanel({
       openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
     }
 
+    dom.addEventListener('pointerdown', handlePointerDown, { passive: true })
+    dom.addEventListener('mousedown', handleMouseDown, { passive: true })
+    dom.addEventListener('touchstart', handleTouchStart, { passive: true })
     dom.addEventListener('contextmenu', handleContextMenu)
 
     return () => {
+      dom.removeEventListener('pointerdown', handlePointerDown)
+      dom.removeEventListener('mousedown', handleMouseDown)
+      dom.removeEventListener('touchstart', handleTouchStart)
       dom.removeEventListener('contextmenu', handleContextMenu)
     }
   }, [
