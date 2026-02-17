@@ -60,6 +60,7 @@ function EditorPanel({
   const [aiInsertLoading, setAiInsertLoading] = useState(false)
   const [aiInsertText, setAiInsertText] = useState('')
   const [inTable, setInTable] = useState(false)
+  const [currentBlockId, setCurrentBlockId] = useState(null)
   const [contextMenu, setContextMenu] = useState({
     open: false,
     x: 0,
@@ -1259,23 +1260,28 @@ function EditorPanel({
 
   useEffect(() => {
     if (!editor) return
-    const syncTableState = () => {
+    const syncEditorState = () => {
       const nextInTable =
         editor.isActive('table') || editor.isActive('tableCell') || editor.isActive('tableHeader')
       setInTable(nextInTable)
+
+      // Track current block ID for toolbar deep link
+      const blockId = getActiveBlockId()
+      setCurrentBlockId(blockId)
+
       if (!nextInTable) return
       const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
       const cellColor = editor.getAttributes('tableCell')?.backgroundColor
       setShadingColor(headerColor || cellColor || null)
     }
-    syncTableState()
-    editor.on('selectionUpdate', syncTableState)
-    editor.on('transaction', syncTableState)
+    syncEditorState()
+    editor.on('selectionUpdate', syncEditorState)
+    editor.on('transaction', syncEditorState)
     return () => {
-      editor.off('selectionUpdate', syncTableState)
-      editor.off('transaction', syncTableState)
+      editor.off('selectionUpdate', syncEditorState)
+      editor.off('transaction', syncEditorState)
     }
-  }, [editor])
+  }, [editor, getActiveBlockId])
 
   const handleApplyHighlight = () => {
     if (!editor) return
@@ -1500,10 +1506,9 @@ function EditorPanel({
   }, [contextMenu.blockId, trackerId, notebookId, sectionId])
 
   const toolbarDeepLinkHash = useMemo(() => {
-    const blockId = getActiveBlockId()
-    if (!blockId || !trackerId || !notebookId || !sectionId) return null
-    return buildHash({ notebookId, sectionId, pageId: trackerId, blockId })
-  }, [getActiveBlockId, trackerId, notebookId, sectionId])
+    if (!currentBlockId || !trackerId || !notebookId || !sectionId) return null
+    return buildHash({ notebookId, sectionId, pageId: trackerId, blockId: currentBlockId })
+  }, [currentBlockId, trackerId, notebookId, sectionId])
 
   const isCurrentPageTracker = Boolean(trackerId && trackerSourcePage?.id === trackerId)
 
