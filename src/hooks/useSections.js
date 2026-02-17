@@ -119,6 +119,59 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     setActiveSectionId((prev) => (prev === section.id ? nextSections[0]?.id ?? null : prev))
   }
 
+  const moveSection = async (section, destNotebookId) => {
+    if (!section || !destNotebookId) return
+    const { error } = await supabase
+      .from('sections')
+      .update({ notebook_id: destNotebookId, updated_at: new Date().toISOString() })
+      .eq('id', section.id)
+
+    if (error) {
+      setMessage(error.message)
+      return
+    }
+
+    setSections((prev) => prev.filter((item) => item.id !== section.id))
+  }
+
+  const copySection = async (section, destNotebookId, pages, session) => {
+    if (!section || !destNotebookId || !session) return
+    const { data: newSection, error: sectionError } = await supabase
+      .from('sections')
+      .insert({
+        title: section.title,
+        color: section.color,
+        user_id: session.user.id,
+        notebook_id: destNotebookId,
+      })
+      .select()
+      .single()
+
+    if (sectionError) {
+      setMessage(sectionError.message)
+      return
+    }
+
+    const sectionPages = pages.filter((p) => p.section_id === section.id)
+    if (sectionPages.length > 0) {
+      const pageInserts = sectionPages.map((page) =>
+        supabase.from('trackers').insert({
+          title: page.title,
+          content: page.content,
+          sort_order: page.sort_order,
+          is_tracker_page: page.is_tracker_page,
+          section_id: newSection.id,
+          user_id: session.user.id,
+        }),
+      )
+      const results = await Promise.all(pageInserts)
+      const firstError = results.find((r) => r.error)?.error
+      if (firstError) {
+        setMessage(firstError.message)
+      }
+    }
+  }
+
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
 
   return {
@@ -131,5 +184,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     createSection,
     renameSection,
     deleteSection,
+    moveSection,
+    copySection,
   }
 }
