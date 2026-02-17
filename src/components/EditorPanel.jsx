@@ -44,7 +44,7 @@ function EditorPanel({
   const aiDailyPickerRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
-  const longPressTimerRef = useRef(null)
+  const moreMenuRef = useRef(null)
   const findInputRef = useRef(null)
   const aiInsertInputRef = useRef(null)
   const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
@@ -70,6 +70,7 @@ function EditorPanel({
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const [submenuDirection, setSubmenuDirection] = useState('right')
   const [copyLabel, setCopyLabel] = useState('Copy')
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
@@ -1024,49 +1025,14 @@ function EditorPanel({
       openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
     }
 
-    const handleTouchStart = (event) => {
-      if (editorLocked) return
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current)
-      }
-      const touch = event.touches?.[0]
-      if (!touch) return
-      const inTable = Boolean(getCellFromEvent(event))
-      longPressTimerRef.current = setTimeout(() => {
-        if (inTable) {
-          focusCellFromEvent(event)
-        } else {
-          focusFromCoords({ left: touch.clientX, top: touch.clientY })
-        }
-        const blockId = getActiveBlockId()
-        openContextMenu({ x: touch.clientX, y: touch.clientY, blockId, inTable })
-      }, 550)
-    }
-
-    const cancelLongPress = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current)
-        longPressTimerRef.current = null
-      }
-    }
-
     dom.addEventListener('contextmenu', handleContextMenu)
-    dom.addEventListener('touchstart', handleTouchStart, { passive: true })
-    dom.addEventListener('touchmove', cancelLongPress, { passive: true })
-    dom.addEventListener('touchend', cancelLongPress)
-    dom.addEventListener('touchcancel', cancelLongPress)
 
     return () => {
       dom.removeEventListener('contextmenu', handleContextMenu)
-      dom.removeEventListener('touchstart', handleTouchStart)
-      dom.removeEventListener('touchmove', cancelLongPress)
-      dom.removeEventListener('touchend', cancelLongPress)
-      dom.removeEventListener('touchcancel', cancelLongPress)
     }
   }, [
     editor,
     editorLocked,
-    focusCellFromEvent,
     focusFromCoords,
     getActiveBlockId,
     getCellFromEvent,
@@ -1126,6 +1092,9 @@ function EditorPanel({
         if (picker?.contains(event.target) || button?.contains(event.target)) return
         setAiDailyPickerOpen(false)
       }
+      if (moreMenuOpen && moreMenuRef.current && !moreMenuRef.current.contains(event.target)) {
+        setMoreMenuOpen(false)
+      }
       if (contextMenu.open) {
         const menu = contextMenuRef.current
         if (menu?.contains(event.target)) return
@@ -1139,6 +1108,7 @@ function EditorPanel({
         setHighlightPickerOpen(false)
         setShadingPickerOpen(false)
         setAiDailyPickerOpen(false)
+        setMoreMenuOpen(false)
         if (!aiInsertLoading) {
           setAiInsertOpen(false)
         }
@@ -1158,6 +1128,7 @@ function EditorPanel({
     highlightPickerOpen,
     shadingPickerOpen,
     aiDailyPickerOpen,
+    moreMenuOpen,
     contextMenu.open,
     aiInsertLoading,
     closeContextMenu,
@@ -1528,6 +1499,12 @@ function EditorPanel({
     return buildHash({ notebookId, sectionId, pageId: trackerId, blockId: contextMenu.blockId })
   }, [contextMenu.blockId, trackerId, notebookId, sectionId])
 
+  const toolbarDeepLinkHash = useMemo(() => {
+    const blockId = getActiveBlockId()
+    if (!blockId || !trackerId || !notebookId || !sectionId) return null
+    return buildHash({ notebookId, sectionId, pageId: trackerId, blockId })
+  }, [getActiveBlockId, trackerId, notebookId, sectionId])
+
   const isCurrentPageTracker = Boolean(trackerId && trackerSourcePage?.id === trackerId)
 
   const handleCopyLink = async () => {
@@ -1540,6 +1517,18 @@ function EditorPanel({
     if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
     await onSetTrackerPage(trackerId)
     closeContextMenu()
+  }
+
+  const handleCopyLinkFromToolbar = async () => {
+    if (!toolbarDeepLinkHash) return
+    await navigator.clipboard.writeText(toolbarDeepLinkHash)
+    setMoreMenuOpen(false)
+  }
+
+  const handleSetTrackerFromToolbar = async () => {
+    if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
+    await onSetTrackerPage(trackerId)
+    setMoreMenuOpen(false)
   }
 
   useEffect(() => {
@@ -2003,6 +1992,58 @@ function EditorPanel({
           onChange={handleFileChange}
           className="file-input"
         />
+
+        <div className="toolbar-divider" />
+        <div className="more-menu-wrap" ref={moreMenuRef}>
+          <button
+            type="button"
+            onClick={() => setMoreMenuOpen(prev => !prev)}
+            disabled={!hasTracker}
+            aria-label="More actions"
+          >
+            More
+          </button>
+          {moreMenuOpen && (
+            <>
+              <div className="more-menu-backdrop" onClick={() => setMoreMenuOpen(false)} />
+              <div className="more-menu">
+                <button
+                  type="button"
+                  className="table-context-item"
+                  onClick={handleCopyLinkFromToolbar}
+                  disabled={!toolbarDeepLinkHash}
+                >
+                  Copy link to paragraph
+                </button>
+                <button
+                  type="button"
+                  className="table-context-item"
+                  onClick={handleSetTrackerFromToolbar}
+                  disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
+                >
+                  {isCurrentPageTracker ? 'This page is the tracker page'
+                    : trackerPageSaving ? 'Setting tracker page...'
+                    : 'Set this page as tracker'}
+                </button>
+                {inTable && (
+                  <>
+                    <div className="more-menu-divider" />
+                    {contextMenuItems.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        className="table-context-item"
+                        onClick={() => { item.action(); setMoreMenuOpen(false) }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         {findOpen && hasTracker && (
           <div className="find-bar">
