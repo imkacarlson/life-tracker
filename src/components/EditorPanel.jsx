@@ -45,8 +45,6 @@ function EditorPanel({
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
   const moreMenuRef = useRef(null)
-  const lastInputTypeRef = useRef(null)
-  const lastInputAtRef = useRef(0)
   const findInputRef = useRef(null)
   const aiInsertInputRef = useRef(null)
   const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
@@ -1003,33 +1001,17 @@ function EditorPanel({
   useEffect(() => {
     if (!editor) return
     const dom = editor.view.dom
-    const TOUCH_CONTEXT_MENU_WINDOW_MS = 900
 
-    const markInput = (type) => {
-      lastInputTypeRef.current = type
-      lastInputAtRef.current = Date.now()
-    }
-
-    const handlePointerDown = (event) => {
-      if (!event.pointerType) return
-      markInput(event.pointerType)
-    }
-
-    const handleMouseDown = () => {
-      markInput('mouse')
-    }
-
-    const handleTouchStart = () => {
-      markInput('touch')
-    }
+    const isTouchOnlyDevice = () =>
+      window.matchMedia('(any-pointer: coarse)').matches
+      && !window.matchMedia('(any-pointer: fine)').matches
+      && !window.matchMedia('(hover: hover)').matches
 
     const isTouchContextMenuEvent = (event) => {
+      if (isTouchOnlyDevice()) return true
       if (event.pointerType) return event.pointerType === 'touch'
       if (event.sourceCapabilities?.firesTouchEvents) return true
-      return (
-        lastInputTypeRef.current === 'touch'
-        && Date.now() - lastInputAtRef.current < TOUCH_CONTEXT_MENU_WINDOW_MS
-      )
+      return false
     }
 
     const handleContextMenu = (event) => {
@@ -1043,15 +1025,9 @@ function EditorPanel({
       openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
     }
 
-    dom.addEventListener('pointerdown', handlePointerDown, { passive: true })
-    dom.addEventListener('mousedown', handleMouseDown, { passive: true })
-    dom.addEventListener('touchstart', handleTouchStart, { passive: true })
     dom.addEventListener('contextmenu', handleContextMenu)
 
     return () => {
-      dom.removeEventListener('pointerdown', handlePointerDown)
-      dom.removeEventListener('mousedown', handleMouseDown)
-      dom.removeEventListener('touchstart', handleTouchStart)
       dom.removeEventListener('contextmenu', handleContextMenu)
     }
   }, [
