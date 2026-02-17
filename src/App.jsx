@@ -145,13 +145,15 @@ function App() {
     if (!destId) return
     setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
     if (action === 'move') {
-      await moveSection(section, destId)
-      navIntentRef.current = 'push'
-      hashBlockRef.current = null
-      pendingNavRef.current = null
-      setActiveNotebookId(destId)
+      const moved = await moveSection(section, destId)
+      if (moved) {
+        navIntentRef.current = 'push'
+        hashBlockRef.current = null
+        pendingNavRef.current = null
+        setActiveNotebookId(destId)
+      }
     } else {
-      await copySection(section, destId, trackers, session)
+      await copySection(section, destId, session)
     }
   }
 
