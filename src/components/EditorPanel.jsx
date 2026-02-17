@@ -1014,6 +1014,12 @@ function EditorPanel({
 
   useEffect(() => {
     if (!editor) return
+
+    // On touch devices, skip custom context menu to allow native long-press text selection.
+    // The toolbar "More" button provides all context menu functionality.
+    const isTouchDevice = navigator.maxTouchPoints > 0 || 'ontouchstart' in window
+    if (isTouchDevice) return
+
     const dom = editor.view.dom
 
     const handleContextMenu = (event) => {
