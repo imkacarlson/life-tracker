@@ -1,0 +1,96 @@
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 2rem;
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1.5rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+input {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 1rem;
+}
+
+input:focus {
+  outline: 2px solid #2563eb;
+  border-color: transparent;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.ghost {
+  background: transparent;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.message {
+  margin-top: 1rem;
+  color: #b91c1c;
+}
+
+.message-inline {
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.subtle {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.file-input {
+  display: none;
+}

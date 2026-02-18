@@ -1,0 +1,190 @@
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: calc(100vh - 140px);
+  flex: 1;
+}
+
+.editor-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.title-input {
+  font-size: 2rem;
+  font-weight: 600;
+  padding: 0;
+  border: none;
+  background: transparent;
+  width: 100%;
+}
+
+.title-input:focus {
+  outline: none;
+  border-bottom: 2px solid #2563eb;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.1rem;
+}
+
+.editor-shell {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: calc(100vh - 260px);
+  flex: 1;
+}
+
+.editor-content,
+.ProseMirror {
+  min-height: calc(100vh - 300px);
+  outline: none;
+  padding: 0.75rem 0 6rem;
+}
+
+.ProseMirror {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.editor-empty {
+  color: #64748b;
+}
+
+.editor-shell img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.editor-shell table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.editor-shell .ProseMirror ::selection {
+  background: Highlight;
+  color: HighlightText;
+}
+
+.editor-shell .ProseMirror ::-moz-selection {
+  background: Highlight;
+  color: HighlightText;
+}
+
+.editor-shell .ProseMirror-hideselection ::selection {
+  background: transparent;
+  color: inherit;
+}
+
+.editor-shell .ProseMirror-hideselection ::-moz-selection {
+  background: transparent;
+  color: inherit;
+}
+
+.editor-shell .ProseMirror .find-match {
+  background: #fde047;
+}
+
+.editor-shell .ProseMirror .find-match.current {
+  background: #facc15;
+  outline: 2px solid #f59e0b;
+}
+
+.editor-shell th,
+.editor-shell td {
+  border: 1px solid #333;
+  padding: 0.5rem;
+  position: relative;
+}
+
+.editor-shell td.selectedCell,
+.editor-shell th.selectedCell {
+  background: #e2e8f0;
+}
+
+.editor-shell th {
+  background: #eef2ff;
+  text-align: left;
+}
+
+.editor-shell td ul,
+.editor-shell td ol,
+.editor-shell th ul,
+.editor-shell th ol {
+  margin: 0.05rem 0 0.1rem;
+  padding-left: 3rem;
+}
+
+.editor-shell td li,
+.editor-shell th li {
+  margin: 0.1rem 0;
+  padding: 0;
+}
+
+.editor-shell td li > p,
+.editor-shell th li > p {
+  margin: 0;
+}
+
+.editor-shell td p:has(+ ul),
+.editor-shell td p:has(+ ol),
+.editor-shell th p:has(+ ul),
+.editor-shell th p:has(+ ol) {
+  margin-bottom: 0.1rem;
+}
+
+.ProseMirror .tableWrapper {
+  position: relative;
+}
+
+.ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: rgba(59, 130, 246, 0.5);
+  pointer-events: none;
+}
+
+.ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+
+.editor-shell a {
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.editor-shell ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.editor-shell li[data-type='taskItem'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
