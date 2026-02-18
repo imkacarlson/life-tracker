@@ -1,0 +1,37 @@
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    order: 2;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+    padding: 1rem;
+    width: 100%;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .section-tabs {
+    padding: 0 1.5rem 0.5rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar,
+  .workspace {
+    padding: 1.5rem;
+  }
+
+  .title-input {
+    font-size: 1.6rem;
+  }
+
+  .sidebar {
+    padding: 0.75rem;
+  }
+}

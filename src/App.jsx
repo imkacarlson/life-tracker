@@ -14,7 +14,11 @@ import EditorPanel from './components/EditorPanel'
 import SettingsHub from './components/SettingsHub'
 import AuthForm from './components/AuthForm'
 import WelcomeScreen from './components/WelcomeScreen'
-import './App.css'
+import TopBar from './components/app/TopBar'
+import SectionTabs from './components/app/SectionTabs'
+import SectionContextMenu from './components/app/SectionContextMenu'
+import CopyMoveModal from './components/app/CopyMoveModal'
+import './styles/index.css'
 
 function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -243,6 +247,43 @@ function App() {
     pendingNavRef.current = null
   }
 
+  const handleNotebookSelect = (nextNotebookId) => {
+    if (settingsMode) {
+      setSettingsMode(null)
+    }
+    navIntentRef.current = 'push'
+    hashBlockRef.current = null
+    pendingNavRef.current = null
+    setActiveNotebookId(nextNotebookId)
+  }
+
+  const handleSectionSelect = (sectionId) => {
+    if (settingsMode) {
+      setSettingsMode(null)
+    }
+    navIntentRef.current = 'push'
+    hashBlockRef.current = null
+    pendingNavRef.current = null
+    setActiveSectionId(sectionId)
+  }
+
+  const handleOpenSectionMenu = (event, section) => {
+    event.preventDefault()
+    setSectionMenu({ open: true, x: event.clientX, y: event.clientY, section })
+  }
+
+  const closeSectionMenu = () => {
+    setSectionMenu((prev) => ({ ...prev, open: false }))
+  }
+
+  const openCopyMoveModal = (action) => {
+    setCopyMoveModal({ open: true, action, section: sectionMenu.section, destId: '' })
+  }
+
+  const closeCopyMoveModal = () => {
+    setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
+  }
+
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
 
@@ -283,114 +324,29 @@ function App() {
 
   return (
     <div className="app" onPointerDownCapture={handleAppPointerDownCapture} onKeyDownCapture={handleAppKeyDownCapture}>
-      <header className="topbar">
-        <div className="topbar-left">
-          <div className="brand">
-            <h1>Life Tracker</h1>
-            <p className="subtle">Signed in as {session.user.email}</p>
-          </div>
-          <div className="notebook-switcher">
-            <label className="subtle">Notebook</label>
-            <select
-              value={activeNotebookId ?? ''}
-              onChange={(event) => {
-                const nextNotebookId = event.target.value
-                if (settingsMode) {
-                  setSettingsMode(null)
-                }
-                navIntentRef.current = 'push'
-                hashBlockRef.current = null
-                pendingNavRef.current = null
-                setActiveNotebookId(nextNotebookId)
-              }}
-            >
-              {notebooks.map((notebook) => (
-                <option key={notebook.id} value={notebook.id}>
-                  {notebook.title}
-                </option>
-              ))}
-            </select>
-            <button className="ghost" onClick={() => createNotebook(session)}>
-              New
-            </button>
-            <button className="ghost" onClick={() => renameNotebook(activeNotebook)} disabled={!activeNotebook}>
-              Rename
-            </button>
-            <button className="ghost" onClick={() => deleteNotebook(activeNotebook)} disabled={!activeNotebook}>
-              Delete
-            </button>
-          </div>
-        </div>
-        <div className="topbar-actions">
-          <button
-            type="button"
-            className={`ghost settings-button ${settingsMode ? 'active' : ''}`}
-            onClick={() => openSettings()}
-          >
-            Settings
-          </button>
-          <button className="secondary" onClick={handleSignOut}>
-            Log out
-          </button>
-        </div>
-      </header>
-
-      <div className="section-tabs">
-        {sections.map((section) => (
-          <div
-            key={section.id}
-            role="button"
-            tabIndex={0}
-            className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
-            style={{ backgroundColor: section.color || '#eef2ff' }}
-            onClick={() => {
-              if (settingsMode) {
-                setSettingsMode(null)
-              }
-              navIntentRef.current = 'push'
-              hashBlockRef.current = null
-              pendingNavRef.current = null
-              setActiveSectionId(section.id)
-            }}
-            onDoubleClick={() => renameSection(section)}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              setSectionMenu({ open: true, x: event.clientX, y: event.clientY, section })
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                if (settingsMode) {
-                  setSettingsMode(null)
-                }
-                navIntentRef.current = 'push'
-                hashBlockRef.current = null
-                pendingNavRef.current = null
-                setActiveSectionId(section.id)
-              }
-            }}
-          >
-            <span>{section.title}</span>
-            <button
-              type="button"
-              className="tab-delete"
-              onClick={(event) => {
-                event.stopPropagation()
-                deleteSection(section)
-              }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        <button
-          className="section-add"
-          onClick={() => createSection(session, activeNotebookId)}
-          disabled={!activeNotebookId}
-        >
-          +
-        </button>
-      </div>
+      <TopBar
+        session={session}
+        notebooks={notebooks}
+        activeNotebook={activeNotebook}
+        activeNotebookId={activeNotebookId}
+        settingsMode={settingsMode}
+        onNotebookChange={handleNotebookSelect}
+        onCreateNotebook={() => createNotebook(session)}
+        onRenameNotebook={() => renameNotebook(activeNotebook)}
+        onDeleteNotebook={() => deleteNotebook(activeNotebook)}
+        onOpenSettings={openSettings}
+        onSignOut={handleSignOut}
+      />
+      <SectionTabs
+        sections={sections}
+        activeSectionId={activeSectionId}
+        activeNotebookId={activeNotebookId}
+        onSelectSection={handleSectionSelect}
+        onRenameSection={renameSection}
+        onDeleteSection={deleteSection}
+        onOpenContextMenu={handleOpenSectionMenu}
+        onCreateSection={() => createSection(session, activeNotebookId)}
+      />
 
       <div className={`workspace ${settingsMode ? 'settings-mode' : ''}`}>
         {isSettingsHub && (
@@ -467,85 +423,29 @@ function App() {
           </>
         )}
       </div>
-      {sectionMenu.open && (
-        <div
-          className="section-context-menu"
-          style={{ top: sectionMenu.y, left: sectionMenu.x }}
-        >
-          <button
-            type="button"
-            className="section-context-item"
-            onClick={() => {
-              setSectionMenu((prev) => ({ ...prev, open: false }))
-              renameSection(sectionMenu.section)
-            }}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            className="section-context-item"
-            onClick={() => {
-              setSectionMenu((prev) => ({ ...prev, open: false }))
-              setCopyMoveModal({ open: true, action: 'copy', section: sectionMenu.section, destId: '' })
-            }}
-          >
-            Copy to…
-          </button>
-          <button
-            type="button"
-            className="section-context-item"
-            onClick={() => {
-              setSectionMenu((prev) => ({ ...prev, open: false }))
-              setCopyMoveModal({ open: true, action: 'move', section: sectionMenu.section, destId: '' })
-            }}
-          >
-            Move to…
-          </button>
-        </div>
-      )}
-
-      {copyMoveModal.open && (
-        <div
-          className="ai-insert-modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
-            }
-          }}
-        >
-          <div className="ai-insert-modal copy-move-modal">
-            <h3>{copyMoveModal.action === 'copy' ? 'Copy section to…' : 'Move section to…'}</h3>
-            <p className="subtle">Select a destination notebook.</p>
-            <select
-              className="copy-move-select"
-              value={copyMoveModal.destId}
-              onChange={(event) => setCopyMoveModal((prev) => ({ ...prev, destId: event.target.value }))}
-            >
-              <option value="">— choose notebook —</option>
-              {notebooks
-                .filter((nb) => nb.id !== activeNotebookId)
-                .map((nb) => (
-                  <option key={nb.id} value={nb.id}>
-                    {nb.title}
-                  </option>
-                ))}
-            </select>
-            <div className="ai-insert-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setCopyMoveModal({ open: false, action: null, section: null, destId: '' })}
-              >
-                Cancel
-              </button>
-              <button type="button" onClick={handleCopyMoveConfirm} disabled={!copyMoveModal.destId}>
-                {copyMoveModal.action === 'copy' ? 'Copy' : 'Move'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SectionContextMenu
+        menu={sectionMenu}
+        onRename={() => {
+          closeSectionMenu()
+          renameSection(sectionMenu.section)
+        }}
+        onCopy={() => {
+          closeSectionMenu()
+          openCopyMoveModal('copy')
+        }}
+        onMove={() => {
+          closeSectionMenu()
+          openCopyMoveModal('move')
+        }}
+      />
+      <CopyMoveModal
+        modal={copyMoveModal}
+        notebooks={notebooks}
+        activeNotebookId={activeNotebookId}
+        onDestChange={(destId) => setCopyMoveModal((prev) => ({ ...prev, destId }))}
+        onClose={closeCopyMoveModal}
+        onConfirm={handleCopyMoveConfirm}
+      />
     </div>
   )
 }

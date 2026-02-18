@@ -1,11 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EditorContent } from '@tiptap/react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { buildHash } from '../utils/navigationHelpers'
+import EditorHeader from './editor/EditorHeader'
+import FindBar from './editor/FindBar'
+import AiInsertModal from './editor/AiInsertModal'
+import EditorShell from './editor/EditorShell'
+import {
+  getMergeableTemplateList,
+  hasMeaningfulTemplate,
+  hydrateContentWithSignedUrls,
+  normalizeTemplateContent,
+} from './editor/templateHelpers'
+import {
+  buildAiInsertContent,
+  findTargetBlockMatch,
+  normalizeAiInsertResponse,
+  resolveFallbackInsertPos,
+  resolveInsertPosCandidatesFromTargetMatch,
+  resolveListInsertPlan,
+} from './editor/aiInsertHelpers'
 
 function EditorPanel({
   editor,
@@ -234,119 +251,6 @@ function EditorPanel({
     }
   }
 
-  const normalizeTemplateContent = (content) => {
-    if (content && typeof content === 'object' && content.type) return content
-    return { type: 'doc', content: [] }
-  }
-
-  const hasMeaningfulTemplate = (doc) => {
-    const content = Array.isArray(doc?.content) ? doc.content : []
-    if (content.length === 0) return false
-    if (content.length === 1 && content[0]?.type === 'paragraph') {
-      const text = (content[0].content || [])
-        .map((node) => node.text || '')
-        .join('')
-        .trim()
-      const hasNonText = (content[0].content || []).some(
-        (node) => node.type && node.type !== 'text' && node.type !== 'hardBreak',
-      )
-      return Boolean(text || hasNonText)
-    }
-    return true
-  }
-
-  const isWhitespaceText = (value) => !value || value.trim().length === 0
-
-  const isEmptyParagraphNode = (node) => {
-    if (!node || node.type !== 'paragraph') return false
-    const content = Array.isArray(node.content) ? node.content : []
-    if (content.length === 0) return true
-    return content.every((child) => {
-      if (child.type === 'hardBreak') return true
-      if (child.type === 'text') return isWhitespaceText(child.text || '')
-      return false
-    })
-  }
-
-  const trimTrailingEmptyParagraphs = (nodes) => {
-    if (!Array.isArray(nodes)) return []
-    const trimmed = [...nodes]
-    while (trimmed.length > 0 && isEmptyParagraphNode(trimmed[trimmed.length - 1])) {
-      trimmed.pop()
-    }
-    return trimmed
-  }
-
-  const getMergeableTemplateList = (nodes) => {
-    const trimmed = trimTrailingEmptyParagraphs(nodes)
-    if (trimmed.length === 0) return null
-    const lastIndex = trimmed.length - 1
-    const lastNode = trimmed[lastIndex]
-    if (lastNode?.type !== 'bulletList') return null
-    return {
-      prefix: trimmed.slice(0, lastIndex),
-      listNode: lastNode,
-    }
-  }
-
-  const collectStoragePaths = (node, paths) => {
-    if (!node) return
-    if (node.type === 'image' && node.attrs?.storagePath) {
-      paths.add(node.attrs.storagePath)
-    }
-    if (Array.isArray(node.content)) {
-      node.content.forEach((child) => collectStoragePaths(child, paths))
-    }
-  }
-
-  const applySignedUrls = (node, signedMap) => {
-    if (!node) return node
-    let updatedNode = node
-    if (node.type === 'image' && node.attrs?.storagePath) {
-      const nextSrc = signedMap[node.attrs.storagePath]
-      if (nextSrc) {
-        updatedNode = {
-          ...node,
-          attrs: {
-            ...node.attrs,
-            src: nextSrc,
-          },
-        }
-      }
-    }
-    if (Array.isArray(updatedNode.content)) {
-      return {
-        ...updatedNode,
-        content: updatedNode.content.map((child) => applySignedUrls(child, signedMap)),
-      }
-    }
-    return updatedNode
-  }
-
-  const hydrateContentWithSignedUrls = async (content) => {
-    const doc = normalizeTemplateContent(content)
-    const paths = new Set()
-    collectStoragePaths(doc, paths)
-    if (paths.size === 0) return doc
-
-    const entries = await Promise.all(
-      Array.from(paths).map(async (path) => {
-        const { data, error } = await supabase.storage
-          .from('tracker-images')
-          .createSignedUrl(path, 60 * 60)
-        if (error || !data?.signedUrl) return [path, null]
-        return [path, data.signedUrl]
-      }),
-    )
-
-    const signedMap = entries.reduce((acc, [path, url]) => {
-      if (url) acc[path] = url
-      return acc
-    }, {})
-
-    return applySignedUrls(doc, signedMap)
-  }
-
   const loadDailyTemplateNodes = async () => {
     if (!userId) return []
     const { data, error } = await supabase
@@ -360,329 +264,9 @@ function EditorPanel({
     }
     const doc = normalizeTemplateContent(data?.daily_template_content)
     if (!hasMeaningfulTemplate(doc)) return []
-    const hydrated = await hydrateContentWithSignedUrls(doc)
+    const hydrated = await hydrateContentWithSignedUrls(doc, supabase)
     const nodes = Array.isArray(hydrated.content) ? hydrated.content : []
     return JSON.parse(JSON.stringify(nodes))
-  }
-
-  const createNodeId = () =>
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2, 10)
-
-  const REVIEW_HIGHLIGHT_COLOR = '#fef08a'
-
-  const makeHighlightedTextNode = (text) => ({
-    type: 'text',
-    text,
-    marks: [{ type: 'highlight', attrs: { color: REVIEW_HIGHLIGHT_COLOR } }],
-  })
-
-  const buildAiInsertContent = (format, items) => {
-    const createdAt = new Date().toISOString()
-
-    if (format === 'task_list') {
-      return [
-        {
-          type: 'taskList',
-          attrs: { id: createNodeId(), created_at: createdAt },
-          content: items.map((item) => ({
-            type: 'taskItem',
-            attrs: { checked: false },
-            content: [
-              {
-                type: 'paragraph',
-                attrs: { id: createNodeId(), created_at: createdAt },
-                content: [makeHighlightedTextNode(item)],
-              },
-            ],
-          })),
-        },
-      ]
-    }
-
-    if (format === 'paragraphs') {
-      return items.map((item) => ({
-        type: 'paragraph',
-        attrs: { id: createNodeId(), created_at: createdAt },
-        content: [makeHighlightedTextNode(item)],
-      }))
-    }
-
-    return [
-      {
-        type: 'bulletList',
-        attrs: { id: createNodeId(), created_at: createdAt },
-        content: items.map((item) => ({
-          type: 'listItem',
-          content: [
-            {
-              type: 'paragraph',
-              attrs: { id: createNodeId(), created_at: createdAt },
-              content: [makeHighlightedTextNode(item)],
-            },
-          ],
-        })),
-      },
-    ]
-  }
-
-  const findTargetBlockMatch = (targetBlockId) => {
-    if (!editor || !targetBlockId) return null
-    let match = null
-    editor.state.doc.descendants((node, pos) => {
-      if (node?.attrs?.id === targetBlockId) {
-        match = { node, pos }
-        return false
-      }
-      return true
-    })
-    return match
-  }
-
-  const resolveInsertPosCandidatesFromTargetMatch = (targetMatch) => {
-    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
-      return []
-    }
-
-    const targetPos = targetMatch.pos
-    const targetNode = targetMatch.node
-
-    const docSize = editor.state.doc.content.size
-    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
-    const candidates = []
-    const seen = new Set()
-
-    const addCandidate = (value) => {
-      const nextValue = clampPos(value)
-      if (seen.has(nextValue)) return
-      seen.add(nextValue)
-      candidates.push(nextValue)
-    }
-
-    // Prefer placing content exactly after the matched block node.
-    addCandidate(targetPos + targetNode.nodeSize)
-
-    // Fallback to parent nodes, but avoid table structure boundaries (they can split tables).
-    const insidePos = clampPos(targetPos + 1)
-    const resolved = editor.state.doc.resolve(insidePos)
-    if (resolved.depth < 1) return candidates
-
-    const blockedTypes = new Set(['table', 'tableRow', 'tableCell', 'tableHeader'])
-    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
-      const ancestor = resolved.node(depth)
-      if (blockedTypes.has(ancestor.type?.name)) continue
-      addCandidate(resolved.after(depth))
-    }
-
-    return candidates
-  }
-
-  const resolveListInsertPlan = (targetMatch, insertedContent) => {
-    if (!editor || !targetMatch?.node || targetMatch.pos === null || targetMatch.pos === undefined) {
-      return null
-    }
-    if (!Array.isArray(insertedContent) || insertedContent.length !== 1) return null
-
-    const wrapper = insertedContent[0]
-    if (!wrapper || (wrapper.type !== 'bulletList' && wrapper.type !== 'taskList')) {
-      return null
-    }
-
-    const items = Array.isArray(wrapper.content) ? wrapper.content : []
-    if (items.length === 0) return null
-
-    const listType = wrapper.type
-    const itemType = listType === 'taskList' ? 'taskItem' : 'listItem'
-    const docSize = editor.state.doc.content.size
-    const clampPos = (value) => Math.max(0, Math.min(value, docSize))
-    const insidePos = clampPos(targetMatch.pos + 1)
-    const resolved = editor.state.doc.resolve(insidePos)
-
-    let itemDepth = null
-    let listDepth = null
-    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
-      const typeName = resolved.node(depth).type?.name
-      if (itemDepth === null && typeName === itemType) {
-        itemDepth = depth
-      }
-      if (listDepth === null && typeName === listType) {
-        listDepth = depth
-      }
-    }
-
-    if (itemDepth !== null && listDepth === itemDepth - 1) {
-      return {
-        pos: clampPos(resolved.after(itemDepth)),
-        content: items,
-      }
-    }
-
-    if (listDepth !== null) {
-      return {
-        pos: clampPos(resolved.end(listDepth)),
-        content: items,
-      }
-    }
-
-    // If the target is a paragraph/heading that sits directly above/below a list,
-    // append into that adjacent list (at the end), instead of creating a new list
-    // which "splits" the section into two separate lists.
-    //
-    // Be careful to reason at the *block* level: `resolved.parent` can be the paragraph
-    // itself (inline children), which can throw "Index out of range for <\"Next steps:\">"
-    // when probing sibling blocks.
-    let blockDepth = null
-    for (let depth = resolved.depth; depth >= 1; depth -= 1) {
-      const typeName = resolved.node(depth).type?.name
-      if (typeName === 'paragraph' || typeName === 'heading') {
-        blockDepth = depth
-        break
-      }
-    }
-    if (blockDepth === null || blockDepth < 1) return null
-
-    const doc = editor.state.doc
-    const isBlankTextBlock = (node) => {
-      const name = node?.type?.name
-      if (name !== 'paragraph' && name !== 'heading') return false
-      return (node.textContent || '').trim() === ''
-    }
-
-    const appendPosForListAt = (listStartPos) => {
-      const inside = clampPos(listStartPos + 1)
-      const listResolved = doc.resolve(inside)
-      let depth = null
-      for (let d = listResolved.depth; d >= 1; d -= 1) {
-        if (listResolved.node(d).type?.name === listType) {
-          depth = d
-          break
-        }
-      }
-      if (depth === null) return null
-      return clampPos(listResolved.end(depth))
-    }
-
-    const findForwardListRun = (fromPos) => {
-      let pos = clampPos(fromPos)
-      let node = doc.nodeAt(pos)
-      while (node && isBlankTextBlock(node)) {
-        pos = clampPos(pos + node.nodeSize)
-        node = doc.nodeAt(pos)
-      }
-      if (!node || node.type?.name !== listType) return null
-
-      // If there are multiple consecutive lists of the same type, append to the last one
-      // so the inserted item ends up at the bottom of the "list section".
-      let lastPos = pos
-      let lastNode = node
-      let scanPos = clampPos(pos + node.nodeSize)
-      while (scanPos <= docSize) {
-        const next = doc.nodeAt(scanPos)
-        if (!next) break
-        if (isBlankTextBlock(next)) {
-          scanPos = clampPos(scanPos + next.nodeSize)
-          continue
-        }
-        if (next.type?.name !== listType) break
-        lastPos = scanPos
-        lastNode = next
-        scanPos = clampPos(scanPos + next.nodeSize)
-      }
-
-      return { pos: lastPos, node: lastNode }
-    }
-
-    const findBackwardList = (fromPos) => {
-      let pos = clampPos(fromPos)
-      while (pos > 0) {
-        const $pos = doc.resolve(pos)
-        const prev = $pos.nodeBefore
-        if (!prev) return null
-        const prevStartPos = clampPos(pos - prev.nodeSize)
-        if (isBlankTextBlock(prev)) {
-          pos = prevStartPos
-          continue
-        }
-        if (prev.type?.name === listType) {
-          return { pos: prevStartPos, node: prev }
-        }
-        return null
-      }
-      return null
-    }
-
-    const blockEndPos = resolved.after(blockDepth)
-    const forward = findForwardListRun(blockEndPos)
-    if (forward) {
-      const pos = appendPosForListAt(forward.pos)
-      if (pos !== null) return { pos, content: items }
-    }
-
-    const blockStartPos = resolved.before(blockDepth)
-    const backward = findBackwardList(blockStartPos)
-    if (backward) {
-      const pos = appendPosForListAt(backward.pos)
-      if (pos !== null) return { pos, content: items }
-    }
-
-    return null
-  }
-
-  const isTopUncategorizedHeader = (node) => {
-    if (!node || node.type?.name !== 'paragraph') return false
-    const children = []
-    node.content?.forEach((child) => children.push(child))
-    const text = children
-      .filter((child) => child.type?.name === 'text')
-      .map((child) => child.text || '')
-      .join('')
-      .trim()
-      .toLowerCase()
-    if (text !== 'uncategorized') return false
-
-    return children.some((child) =>
-      (child.marks || []).some((mark) => mark.type?.name === 'bold'),
-    )
-  }
-
-  const buildUncategorizedHeader = () => {
-    const createdAt = new Date().toISOString()
-    return {
-      type: 'paragraph',
-      attrs: { id: createNodeId(), created_at: createdAt },
-      content: [{ type: 'text', text: 'Uncategorized', marks: [{ type: 'bold' }] }],
-    }
-  }
-
-  const resolveFallbackInsertPos = () => {
-    if (!editor) return 0
-    const firstNode = editor.state.doc.firstChild
-    if (isTopUncategorizedHeader(firstNode)) {
-      return firstNode.nodeSize
-    }
-    const header = buildUncategorizedHeader()
-    const headerNodeSize = editor.schema.nodeFromJSON(header).nodeSize
-    editor.chain().focus().insertContentAt(0, header).run()
-    return headerNodeSize
-  }
-
-  const normalizeAiInsertResponse = (data) => {
-    const targetBlockId =
-      typeof data?.targetBlockId === 'string' && data.targetBlockId.trim()
-        ? data.targetBlockId.trim()
-        : null
-    const items = Array.isArray(data?.items)
-      ? data.items.map((item) => String(item || '').trim()).filter(Boolean)
-      : []
-    if (!items.length) {
-      throw new Error('AI Insert returned no content to insert.')
-    }
-
-    const allowedFormats = new Set(['bullet_list', 'task_list', 'paragraphs'])
-    const format = allowedFormats.has(data?.format) ? data.format : 'bullet_list'
-
-    return { targetBlockId, format, items }
   }
 
   const scrollInsertedContentIntoView = (insertedBlockId) => {
@@ -734,8 +318,8 @@ function EditorPanel({
       const firstInsertedId = insertedContent[0]?.attrs?.id ?? null
 
       let inserted = false
-      const targetMatch = findTargetBlockMatch(targetBlockId)
-      const listInsertPlan = resolveListInsertPlan(targetMatch, insertedContent)
+      const targetMatch = findTargetBlockMatch(editor, targetBlockId)
+      const listInsertPlan = resolveListInsertPlan(editor, targetMatch, insertedContent)
       if (listInsertPlan) {
         inserted = editor
           .chain()
@@ -744,7 +328,7 @@ function EditorPanel({
           .run()
       }
 
-      const candidatePositions = resolveInsertPosCandidatesFromTargetMatch(targetMatch)
+      const candidatePositions = resolveInsertPosCandidatesFromTargetMatch(editor, targetMatch)
       for (const candidatePos of candidatePositions) {
         if (inserted) break
         if (editor.chain().focus().insertContentAt(candidatePos, insertedContent).run()) {
@@ -754,7 +338,7 @@ function EditorPanel({
       }
 
       if (!inserted) {
-        const fallbackPos = resolveFallbackInsertPos()
+        const fallbackPos = resolveFallbackInsertPos(editor)
         inserted = editor.chain().focus().insertContentAt(fallbackPos, insertedContent).run()
       }
 
@@ -1586,36 +1170,20 @@ function EditorPanel({
 
   return (
     <section className="editor-panel">
-      <div className="editor-header">
-        <div className="title-row">
-          <input
-            className="title-input"
-            value={title}
-            onChange={(event) => {
-              if (titleReadOnly || editorLocked) return
-              onTitleChange(event.target.value)
-            }}
-            placeholder="Tracker title"
-            disabled={controlsDisabled}
-            readOnly={titleReadOnly || editorLocked}
-          />
-          {hasHeaderActions && (
-            <div className="title-actions">
-              {headerActions}
-              {showDelete && (
-                <button className="ghost" onClick={onDelete} disabled={controlsDisabled}>
-                  Delete
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="status-row">
-          <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
-          {editorLocked && hasTracker && <span className="subtle">Switching...</span>}
-          {message && <span className="message-inline">{message}</span>}
-        </div>
-      </div>
+      <EditorHeader
+        title={title}
+        onTitleChange={onTitleChange}
+        onDelete={onDelete}
+        saveStatus={saveStatus}
+        hasTracker={hasTracker}
+        message={message}
+        titleReadOnly={titleReadOnly}
+        editorLocked={editorLocked}
+        controlsDisabled={controlsDisabled}
+        hasHeaderActions={hasHeaderActions}
+        headerActions={headerActions}
+        showDelete={showDelete}
+      />
 
       <div className={`toolbar ${controlsDisabled ? 'disabled' : ''}`}>
         <button
@@ -2050,102 +1618,30 @@ function EditorPanel({
         </div>
 
         {findOpen && hasTracker && (
-          <div className="find-bar">
-            <input
-              ref={findInputRef}
-              type="text"
-              className="find-input"
-              placeholder="Find in tracker"
-              value={findQuery}
-              onChange={(event) => handleFindQueryChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'F3') {
-                  event.preventDefault()
-                  if (event.shiftKey) {
-                    handleFindPrev()
-                  } else {
-                    handleFindNext()
-                  }
-                } else if (event.key === 'Enter' && event.shiftKey) {
-                  event.preventDefault()
-                  handleFindPrev()
-                } else if (event.key === 'Enter') {
-                  event.preventDefault()
-                  handleFindNext()
-                } else if (event.key === 'Escape') {
-                  event.preventDefault()
-                  closeFind()
-                }
-              }}
-            />
-            <span className="find-count">
-              {findStatus.matches.length > 0 ? findStatus.index + 1 : 0} of {findStatus.matches.length}
-            </span>
-            <button type="button" onClick={handleFindPrev} disabled={findStatus.matches.length === 0}>
-              Prev
-            </button>
-            <button type="button" onClick={handleFindNext} disabled={findStatus.matches.length === 0}>
-              Next
-            </button>
-            <button type="button" className="ghost" onClick={closeFind}>
-              Close
-            </button>
-          </div>
+          <FindBar
+            inputRef={findInputRef}
+            findQuery={findQuery}
+            findStatus={findStatus}
+            onFindQueryChange={handleFindQueryChange}
+            onFindPrev={handleFindPrev}
+            onFindNext={handleFindNext}
+            onClose={closeFind}
+          />
         )}
       </div>
 
-      {aiInsertOpen && (
-        <div
-          className="ai-insert-modal-backdrop"
-          onMouseDown={() => {
-            if (aiInsertLoading) return
-            setAiInsertOpen(false)
-          }}
-        >
-          <div className="ai-insert-modal" onMouseDown={(event) => event.stopPropagation()}>
-            <h3>AI Insert</h3>
-            <p className="subtle">
-              Paste content and AI will place it into the current page.
-            </p>
-            <textarea
-              ref={aiInsertInputRef}
-              className="ai-insert-textarea"
-              value={aiInsertText}
-              onChange={(event) => setAiInsertText(event.target.value)}
-              placeholder="Paste your content here..."
-              rows={8}
-              disabled={aiInsertLoading}
-            />
-            <div className="ai-insert-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => setAiInsertOpen(false)}
-                disabled={aiInsertLoading}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleAiInsertSubmit}
-                disabled={aiInsertLoading || !aiInsertText.trim() || !hasTracker}
-              >
-                {aiInsertLoading ? 'Inserting...' : 'Insert into page'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiInsertModal
+        inputRef={aiInsertInputRef}
+        open={aiInsertOpen}
+        loading={aiInsertLoading}
+        text={aiInsertText}
+        hasTracker={hasTracker}
+        onTextChange={setAiInsertText}
+        onClose={() => setAiInsertOpen(false)}
+        onSubmit={handleAiInsertSubmit}
+      />
 
-      <div className="editor-shell">
-        {hasTracker ? (
-          <EditorContent editor={editor} />
-        ) : (
-          <div className="editor-empty">
-            <p>Select a tracker or create a new one to start writing.</p>
-          </div>
-        )}
-      </div>
+      <EditorShell hasTracker={hasTracker} editor={editor} />
 
       {contextMenu.open && (
         <div

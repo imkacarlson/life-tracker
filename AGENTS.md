@@ -104,6 +104,19 @@ The user organizes tasks in monthly "trackers" that are rich text documents:
 - Break components into separate files when they get large (e.g., Toolbar, Sidebar, Editor should be separate components)
 - This is a personal project - working beats perfect
 
+## Modularization & Growth Control
+
+- Build and maintain code like a well-organized senior engineer: clear ownership, clear boundaries, minimal coupling.
+- Keep each file focused on one primary responsibility. If a file starts mixing rendering, async data, persistence, and feature orchestration, split it before adding more logic.
+- When editing an existing large file, do not increase responsibility sprawl. Prefer extracting helpers/hooks/subcomponents first, then add the new behavior.
+- Preserve external contracts during refactors (component props, hook return shapes, utility signatures) so behavior does not break while internals are reorganized.
+- Favor incremental extraction in the same change instead of deferring cleanup.
+- Keep styles organized by concern (base/layout/editor/toolbar/modal/responsive) rather than adding everything to one stylesheet.
+- For hotspot-file changes, include a short checklist in your summary:
+  - What concern was added/changed
+  - What was extracted (or why extraction was not needed)
+  - What regression checks were run
+
 ## Commands
 
 - `npm run dev` - Start dev server
