@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { useNotebooks } from './hooks/useNotebooks'
 import { useSections } from './hooks/useSections'
@@ -70,6 +70,8 @@ function App() {
     createSection,
     renameSection,
     deleteSection,
+    moveSection,
+    copySection,
   } = useSections(userId, activeNotebookId, pendingNavRef, savedSelectionRef)
 
   const {
@@ -114,6 +116,46 @@ function App() {
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
   const isSaving = hasPendingSaves || templateSaveStatus === 'Saving...'
+
+  const [sectionMenu, setSectionMenu] = useState({ open: false, x: 0, y: 0, section: null })
+  const [copyMoveModal, setCopyMoveModal] = useState({ open: false, action: null, section: null, destId: '' })
+
+  useEffect(() => {
+    if (!sectionMenu.open) return
+    const handleMouseDown = (event) => {
+      if (!event.target.closest('.section-context-menu')) {
+        setSectionMenu((prev) => ({ ...prev, open: false }))
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [sectionMenu.open])
+
+  useEffect(() => {
+    if (!sectionMenu.open) return
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setSectionMenu((prev) => ({ ...prev, open: false }))
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [sectionMenu.open])
+
+  const handleCopyMoveConfirm = async () => {
+    const { action, section, destId } = copyMoveModal
+    if (!destId) return
+    setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
+    if (action === 'move') {
+      const moved = await moveSection(section, destId)
+      if (moved) {
+        navIntentRef.current = 'push'
+        hashBlockRef.current = null
+        pendingNavRef.current = null
+        setActiveNotebookId(destId)
+      }
+    } else {
+      await copySection(section, destId, session)
+    }
+  }
 
   const confirmLeaveWhileSaving = useCallback(() => {
     if (!isSaving) return true
@@ -313,7 +355,7 @@ function App() {
             onDoubleClick={() => renameSection(section)}
             onContextMenu={(event) => {
               event.preventDefault()
-              renameSection(section)
+              setSectionMenu({ open: true, x: event.clientX, y: event.clientY, section })
             }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -425,6 +467,85 @@ function App() {
           </>
         )}
       </div>
+      {sectionMenu.open && (
+        <div
+          className="section-context-menu"
+          style={{ top: sectionMenu.y, left: sectionMenu.x }}
+        >
+          <button
+            type="button"
+            className="section-context-item"
+            onClick={() => {
+              setSectionMenu((prev) => ({ ...prev, open: false }))
+              renameSection(sectionMenu.section)
+            }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            className="section-context-item"
+            onClick={() => {
+              setSectionMenu((prev) => ({ ...prev, open: false }))
+              setCopyMoveModal({ open: true, action: 'copy', section: sectionMenu.section, destId: '' })
+            }}
+          >
+            Copy to…
+          </button>
+          <button
+            type="button"
+            className="section-context-item"
+            onClick={() => {
+              setSectionMenu((prev) => ({ ...prev, open: false }))
+              setCopyMoveModal({ open: true, action: 'move', section: sectionMenu.section, destId: '' })
+            }}
+          >
+            Move to…
+          </button>
+        </div>
+      )}
+
+      {copyMoveModal.open && (
+        <div
+          className="ai-insert-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
+            }
+          }}
+        >
+          <div className="ai-insert-modal copy-move-modal">
+            <h3>{copyMoveModal.action === 'copy' ? 'Copy section to…' : 'Move section to…'}</h3>
+            <p className="subtle">Select a destination notebook.</p>
+            <select
+              className="copy-move-select"
+              value={copyMoveModal.destId}
+              onChange={(event) => setCopyMoveModal((prev) => ({ ...prev, destId: event.target.value }))}
+            >
+              <option value="">— choose notebook —</option>
+              {notebooks
+                .filter((nb) => nb.id !== activeNotebookId)
+                .map((nb) => (
+                  <option key={nb.id} value={nb.id}>
+                    {nb.title}
+                  </option>
+                ))}
+            </select>
+            <div className="ai-insert-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setCopyMoveModal({ open: false, action: null, section: null, destId: '' })}
+              >
+                Cancel
+              </button>
+              <button type="button" onClick={handleCopyMoveConfirm} disabled={!copyMoveModal.destId}>
+                {copyMoveModal.action === 'copy' ? 'Copy' : 'Move'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
