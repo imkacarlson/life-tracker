@@ -36,6 +36,7 @@ import {
   ListEnterOutdent,
   ListExitOnEmpty,
   ListBackspaceOutdent,
+  MobileLongPressSelect,
 } from '../extensions/keyboardShortcuts'
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
@@ -134,6 +135,7 @@ export const useEditorSetup = ({
         ArrowMoveToLineEnd,
         ListIndentShortcut,
         ListSelectShortcut,
+        MobileLongPressSelect,
         ListEnterOutdent,
         ListExitOnEmpty,
         ListBackspaceOutdent,
