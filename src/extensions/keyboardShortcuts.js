@@ -7,4 +7,5 @@ export {
   ListExitOnEmpty,
   ListEnterOutdent,
   ListBackspaceOutdent,
+  MobileLongPressSelect,
 } from './keyboard'
