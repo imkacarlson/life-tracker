@@ -49,6 +49,7 @@ function EditorPanel({
   showAiDaily = true,
   showAiInsert = true,
 }) {
+  const editorPanelRef = useRef(null)
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
   const tablePickerRef = useRef(null)
@@ -190,21 +191,25 @@ function EditorPanel({
   const scrollMatchIntoView = useCallback(() => {
     if (!editor) return
     requestAnimationFrame(() => {
+      const container = editorPanelRef.current
+      if (!container) return
       const { view } = editor
       const { from } = view.state.selection
       const coords = view.coordsAtPos(from)
-      const toolbarHeight = 100 // Approximate height of toolbar + find bar
-      const bottomPadding = 50 // Padding from bottom of viewport
+      const containerRect = container.getBoundingClientRect()
+      const toolbarEl = container.querySelector('.toolbar')
+      const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
+      const bottomPadding = 50
 
       // If match is hidden behind toolbar (too high)
-      if (coords.top < toolbarHeight) {
-        const scrollAmount = toolbarHeight - coords.top + 20
-        window.scrollBy({ top: -scrollAmount, behavior: 'instant' })
+      if (coords.top < toolbarBottom) {
+        const scrollAmount = toolbarBottom - coords.top + 20
+        container.scrollBy({ top: -scrollAmount, behavior: 'instant' })
       }
-      // If match is below the visible viewport (too low)
-      else if (coords.bottom > window.innerHeight - bottomPadding) {
-        const scrollAmount = coords.bottom - window.innerHeight + bottomPadding + 20
-        window.scrollBy({ top: scrollAmount, behavior: 'instant' })
+      // If match is below the visible container (too low)
+      else if (coords.bottom > containerRect.bottom - bottomPadding) {
+        const scrollAmount = coords.bottom - containerRect.bottom + bottomPadding + 20
+        container.scrollBy({ top: scrollAmount, behavior: 'instant' })
       }
     })
   }, [editor])
@@ -1169,7 +1174,7 @@ function EditorPanel({
   const controlsDisabled = !hasTracker || editorLocked
 
   return (
-    <section className="editor-panel">
+    <section className="editor-panel" ref={editorPanelRef}>
       <EditorHeader
         title={title}
         onTitleChange={onTitleChange}
