@@ -198,18 +198,28 @@ function EditorPanel({
       const coords = view.coordsAtPos(from)
       const containerRect = container.getBoundingClientRect()
       const toolbarEl = container.querySelector('.toolbar')
-      const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
       const bottomPadding = 50
 
-      // If match is hidden behind toolbar (too high)
-      if (coords.top < toolbarBottom) {
-        const scrollAmount = toolbarBottom - coords.top + 20
-        container.scrollBy({ top: -scrollAmount, behavior: 'instant' })
-      }
-      // If match is below the visible container (too low)
-      else if (coords.bottom > containerRect.bottom - bottomPadding) {
-        const scrollAmount = coords.bottom - containerRect.bottom + bottomPadding + 20
-        container.scrollBy({ top: scrollAmount, behavior: 'instant' })
+      // On mobile, .editor-panel is overflow-y: visible and not a scroll container —
+      // fall back to window scrolling in that case.
+      const isScrollContainer =
+        container.scrollHeight > container.clientHeight &&
+        getComputedStyle(container).overflowY !== 'visible'
+
+      if (isScrollContainer) {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
+        if (coords.top < toolbarBottom) {
+          container.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > containerRect.bottom - bottomPadding) {
+          container.scrollBy({ top: coords.bottom - containerRect.bottom + bottomPadding + 20, behavior: 'instant' })
+        }
+      } else {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : 0
+        if (coords.top < toolbarBottom) {
+          window.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > window.innerHeight - bottomPadding) {
+          window.scrollBy({ top: coords.bottom - window.innerHeight + bottomPadding + 20, behavior: 'instant' })
+        }
       }
     })
   }, [editor])
