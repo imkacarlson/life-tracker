@@ -49,6 +49,7 @@ function EditorPanel({
   showAiDaily = true,
   showAiInsert = true,
 }) {
+  const editorPanelRef = useRef(null)
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
   const tablePickerRef = useRef(null)
@@ -190,21 +191,35 @@ function EditorPanel({
   const scrollMatchIntoView = useCallback(() => {
     if (!editor) return
     requestAnimationFrame(() => {
+      const container = editorPanelRef.current
+      if (!container) return
       const { view } = editor
       const { from } = view.state.selection
       const coords = view.coordsAtPos(from)
-      const toolbarHeight = 100 // Approximate height of toolbar + find bar
-      const bottomPadding = 50 // Padding from bottom of viewport
+      const containerRect = container.getBoundingClientRect()
+      const toolbarEl = container.querySelector('.toolbar')
+      const bottomPadding = 50
 
-      // If match is hidden behind toolbar (too high)
-      if (coords.top < toolbarHeight) {
-        const scrollAmount = toolbarHeight - coords.top + 20
-        window.scrollBy({ top: -scrollAmount, behavior: 'instant' })
-      }
-      // If match is below the visible viewport (too low)
-      else if (coords.bottom > window.innerHeight - bottomPadding) {
-        const scrollAmount = coords.bottom - window.innerHeight + bottomPadding + 20
-        window.scrollBy({ top: scrollAmount, behavior: 'instant' })
+      // On mobile, .editor-panel is overflow-y: visible and not a scroll container —
+      // fall back to window scrolling in that case.
+      const isScrollContainer =
+        container.scrollHeight > container.clientHeight &&
+        getComputedStyle(container).overflowY !== 'visible'
+
+      if (isScrollContainer) {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
+        if (coords.top < toolbarBottom) {
+          container.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > containerRect.bottom - bottomPadding) {
+          container.scrollBy({ top: coords.bottom - containerRect.bottom + bottomPadding + 20, behavior: 'instant' })
+        }
+      } else {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : 0
+        if (coords.top < toolbarBottom) {
+          window.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > window.innerHeight - bottomPadding) {
+          window.scrollBy({ top: coords.bottom - window.innerHeight + bottomPadding + 20, behavior: 'instant' })
+        }
       }
     })
   }, [editor])
@@ -1169,7 +1184,7 @@ function EditorPanel({
   const controlsDisabled = !hasTracker || editorLocked
 
   return (
-    <section className="editor-panel">
+    <section className="editor-panel" ref={editorPanelRef}>
       <EditorHeader
         title={title}
         onTitleChange={onTitleChange}
