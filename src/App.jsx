@@ -39,6 +39,13 @@ const clampSidebarWidth = (width, workspaceWidth) => {
   return Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), maxSidebarWidth)
 }
 
+const getWorkspaceContentWidth = (workspaceEl) => {
+  const computed = window.getComputedStyle(workspaceEl)
+  const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0
+  const paddingRight = Number.parseFloat(computed.paddingRight) || 0
+  return Math.max(0, workspaceEl.clientWidth - paddingLeft - paddingRight)
+}
+
 function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -57,7 +64,7 @@ function App() {
   const clampSidebarWidthForWorkspace = useCallback((nextWidth) => {
     const workspaceEl = workspaceRef.current
     if (!workspaceEl) return Math.max(nextWidth, MIN_SIDEBAR_WIDTH)
-    return clampSidebarWidth(nextWidth, workspaceEl.clientWidth)
+    return clampSidebarWidth(nextWidth, getWorkspaceContentWidth(workspaceEl))
   }, [])
 
   const getPendingNav = useCallback(() => pendingNavRef.current, [])
