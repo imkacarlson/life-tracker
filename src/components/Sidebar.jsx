@@ -8,6 +8,7 @@ function Sidebar({
   onReorder,
   loading,
   disabled,
+  compactBadges = false,
 }) {
   const dragIdRef = useRef(null)
   const [overId, setOverId] = useState(null)
@@ -95,8 +96,12 @@ function Sidebar({
                 <span className="sidebar-title">{tracker.title}</span>
               </button>
               {tracker.is_tracker_page ? (
-                <span className="tracker-page-badge" title="Tracker page for AI Daily">
-                  TRACKER
+                <span
+                  className={`tracker-page-badge ${compactBadges ? 'compact' : ''}`}
+                  title="Tracker page for AI Daily"
+                  aria-label="Tracker page for AI Daily"
+                >
+                  {compactBadges ? 'T' : 'TRACKER'}
                 </span>
               ) : null}
             </div>

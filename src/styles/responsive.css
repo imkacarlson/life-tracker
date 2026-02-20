@@ -7,8 +7,13 @@
 
   .workspace {
     grid-template-columns: 1fr;
+    gap: 0;
     align-items: start;
     overflow: visible;
+  }
+
+  .sidebar-resizer {
+    display: none;
   }
 
   .editor-panel {

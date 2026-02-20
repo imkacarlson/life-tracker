@@ -108,10 +108,12 @@
 }
 
 .workspace {
+  --sidebar-width: 280px;
+  --sidebar-resizer-size: 14px;
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-resizer-size) minmax(220px, var(--sidebar-width));
+  gap: 0;
   padding: 0 2.5rem 2.5rem;
   align-items: stretch;
   min-height: 0;
@@ -126,13 +128,51 @@
   grid-template-columns: 1fr;
 }
 
+.workspace.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.workspace.sidebar-resizing * {
+  cursor: col-resize;
+}
+
+.sidebar-resizer {
+  cursor: col-resize;
+  touch-action: none;
+  position: relative;
+}
+
+.sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  bottom: 1rem;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: #dbe4f2;
+}
+
+.sidebar-resizer:hover::before,
+.sidebar-resizer:focus-visible::before,
+.workspace.sidebar-resizing .sidebar-resizer::before {
+  width: 2px;
+  background: #93c5fd;
+}
+
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+
 .sidebar {
-  border-left: 1px solid #e2e8f0;
+  border-left: none;
   padding: 1.5rem 0 1.5rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
   min-height: 0;
+  overflow-x: hidden;
 }
 
 .sidebar-header {
@@ -155,14 +195,24 @@
   flex-direction: column;
   gap: 0.35rem;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   flex: 1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .sidebar-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .sidebar-item {
@@ -175,6 +225,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   color: #334155;
 }
 
@@ -190,6 +241,7 @@
 }
 
 .sidebar-title {
+  display: block;
   font-weight: 500;
   font-size: 0.9rem;
   min-width: 0;
@@ -199,6 +251,9 @@
 }
 
 .tracker-page-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 0.6rem;
   line-height: 1;
   letter-spacing: 0.06em;
@@ -208,6 +263,14 @@
   border-radius: 999px;
   padding: 0.18rem 0.35rem;
   white-space: nowrap;
+}
+
+.tracker-page-badge.compact {
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  letter-spacing: 0;
+  font-size: 0.62rem;
 }
 
 .settings-hub {
