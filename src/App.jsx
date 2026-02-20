@@ -8,7 +8,12 @@ import { useNavigation } from './hooks/useNavigation'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
-import { saveSelection, readStoredSelection } from './utils/storage'
+import {
+  saveSelection,
+  readStoredSelection,
+  readStoredSidebarWidth,
+  saveStoredSidebarWidth,
+} from './utils/storage'
 import Sidebar from './components/Sidebar'
 import EditorPanel from './components/EditorPanel'
 import SettingsHub from './components/SettingsHub'
@@ -20,6 +25,27 @@ import SectionContextMenu from './components/app/SectionContextMenu'
 import CopyMoveModal from './components/app/CopyMoveModal'
 import './styles/index.css'
 
+const DEFAULT_SIDEBAR_WIDTH = 280
+const MIN_SIDEBAR_WIDTH = 220
+const MIN_EDITOR_WIDTH = 520
+const SIDEBAR_RESIZER_WIDTH = 14
+const SIDEBAR_BADGE_COMPACT_WIDTH = 300
+
+const clampSidebarWidth = (width, workspaceWidth) => {
+  const maxSidebarWidth = Math.max(
+    MIN_SIDEBAR_WIDTH,
+    workspaceWidth - SIDEBAR_RESIZER_WIDTH - MIN_EDITOR_WIDTH,
+  )
+  return Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), maxSidebarWidth)
+}
+
+const getWorkspaceContentWidth = (workspaceEl) => {
+  const computed = window.getComputedStyle(workspaceEl)
+  const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0
+  const paddingRight = Number.parseFloat(computed.paddingRight) || 0
+  return Math.max(0, workspaceEl.clientWidth - paddingLeft - paddingRight)
+}
+
 function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -27,6 +53,20 @@ function App() {
 
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
+  const workspaceRef = useRef(null)
+  const resizeStateRef = useRef(null)
+  const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH)
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
+    readStoredSidebarWidth(DEFAULT_SIDEBAR_WIDTH),
+  )
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+
+  const clampSidebarWidthForWorkspace = useCallback((nextWidth) => {
+    const workspaceEl = workspaceRef.current
+    if (!workspaceEl) return Math.max(nextWidth, MIN_SIDEBAR_WIDTH)
+    return clampSidebarWidth(nextWidth, getWorkspaceContentWidth(workspaceEl))
+  }, [])
+
   const getPendingNav = useCallback(() => pendingNavRef.current, [])
   const setPendingNav = useCallback((value) => {
     pendingNavRef.current = value
@@ -123,6 +163,19 @@ function App() {
 
   const [sectionMenu, setSectionMenu] = useState({ open: false, x: 0, y: 0, section: null })
   const [copyMoveModal, setCopyMoveModal] = useState({ open: false, action: null, section: null, destId: '' })
+
+  useEffect(() => {
+    sidebarWidthRef.current = sidebarWidth
+  }, [sidebarWidth])
+
+  useEffect(() => {
+    const syncSidebarWidth = () => {
+      setSidebarWidth((prev) => clampSidebarWidthForWorkspace(prev))
+    }
+    syncSidebarWidth()
+    window.addEventListener('resize', syncSidebarWidth)
+    return () => window.removeEventListener('resize', syncSidebarWidth)
+  }, [clampSidebarWidthForWorkspace])
 
   useEffect(() => {
     if (!sectionMenu.open) return
@@ -284,8 +337,73 @@ function App() {
     setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
   }
 
+  const handleSidebarResizeStart = useCallback(
+    (event) => {
+      if (settingsMode) return
+      if (typeof event.button === 'number' && event.button !== 0) return
+      const workspaceEl = workspaceRef.current
+      if (!workspaceEl) return
+
+      event.preventDefault()
+      resizeStateRef.current = {
+        startX: event.clientX,
+        startWidth: sidebarWidthRef.current,
+      }
+      setIsResizingSidebar(true)
+    },
+    [settingsMode],
+  )
+
+  const handleSidebarResizeKeyDown = useCallback(
+    (event) => {
+      if (settingsMode) return
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      event.preventDefault()
+      const delta = event.key === 'ArrowLeft' ? 24 : -24
+      setSidebarWidth((prev) => {
+        const next = clampSidebarWidthForWorkspace(prev + delta)
+        saveStoredSidebarWidth(next)
+        return next
+      })
+    },
+    [clampSidebarWidthForWorkspace, settingsMode],
+  )
+
+  useEffect(() => {
+    if (!isResizingSidebar) return
+
+    const handlePointerMove = (event) => {
+      const resizeState = resizeStateRef.current
+      if (!resizeState) return
+      const deltaX = event.clientX - resizeState.startX
+      const rawWidth = resizeState.startWidth - deltaX
+      setSidebarWidth(clampSidebarWidthForWorkspace(rawWidth))
+    }
+
+    const stopResizing = () => {
+      resizeStateRef.current = null
+      setIsResizingSidebar(false)
+      saveStoredSidebarWidth(sidebarWidthRef.current)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+    }
+  }, [isResizingSidebar, clampSidebarWidthForWorkspace])
+
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
+  const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
+  const workspaceClassName = `workspace ${settingsMode ? 'settings-mode' : ''} ${
+    isResizingSidebar ? 'sidebar-resizing' : ''
+  }`
+  const workspaceStyle = settingsMode ? undefined : { '--sidebar-width': `${sidebarWidth}px` }
 
   if (missingEnv) {
     return (
@@ -348,7 +466,7 @@ function App() {
         onCreateSection={() => createSection(session, activeNotebookId)}
       />
 
-      <div className={`workspace ${settingsMode ? 'settings-mode' : ''}`}>
+      <div ref={workspaceRef} className={workspaceClassName} style={workspaceStyle}>
         {isSettingsHub && (
           <SettingsHub
             onEditDailyTemplate={openDailyTemplate}
@@ -406,6 +524,15 @@ function App() {
               trackerPageSaving={trackerPageSaving}
               userId={userId}
             />
+            <div
+              className="sidebar-resizer"
+              role="separator"
+              aria-label="Resize pages sidebar"
+              aria-orientation="vertical"
+              tabIndex={0}
+              onPointerDown={handleSidebarResizeStart}
+              onKeyDown={handleSidebarResizeKeyDown}
+            />
             <Sidebar
               trackers={trackers}
               activeId={activeTrackerId}
@@ -419,6 +546,7 @@ function App() {
               onReorder={reorderTrackers}
               loading={dataLoading}
               disabled={!activeSectionId}
+              compactBadges={compactBadges}
             />
           </>
         )}

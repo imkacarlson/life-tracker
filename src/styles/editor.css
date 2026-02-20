@@ -5,6 +5,13 @@
   min-height: 0;
   overflow-y: auto;
   flex: 1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.editor-panel::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .editor-header {
