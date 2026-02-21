@@ -2,9 +2,8 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { expandSelectionToBlock } from './blockSelectionHelper'
 
-const LONG_PRESS_MS = 400
 const MOVE_THRESHOLD_PX = 10
-const EXPAND_WINDOW_MS = 300
+const TOUCH_WINDOW_MS = 600
 
 const mobileLongPressSelectKey = new PluginKey('mobileLongPressSelect')
 
@@ -40,38 +39,20 @@ export const MobileLongPressSelect = Extension.create({
           let startX = 0
           let startY = 0
           let touchMoved = false
-          let pendingExpand = false
-          let pendingTimeoutId = null
+          let expandedThisTouch = false
           let rafId = null
-
-          const clearPendingExpand = () => {
-            pendingExpand = false
-            if (pendingTimeoutId !== null) {
-              win?.clearTimeout(pendingTimeoutId)
-              pendingTimeoutId = null
-            }
-          }
 
           const resetTouch = () => {
             touchStartTime = 0
             startX = 0
             startY = 0
             touchMoved = false
-          }
-
-          const scheduleExpandWindow = () => {
-            clearPendingExpand()
-            pendingExpand = true
-            pendingTimeoutId = win?.setTimeout(() => {
-              pendingExpand = false
-              pendingTimeoutId = null
-            }, EXPAND_WINDOW_MS)
+            expandedThisTouch = false
           }
 
           const onTouchStart = (event) => {
             if (!event.touches || event.touches.length !== 1) {
               resetTouch()
-              clearPendingExpand()
               return
             }
 
@@ -80,7 +61,7 @@ export const MobileLongPressSelect = Extension.create({
             startX = touch.clientX
             startY = touch.clientY
             touchMoved = false
-            clearPendingExpand()
+            expandedThisTouch = false
           }
 
           const onTouchMove = (event) => {
@@ -95,28 +76,19 @@ export const MobileLongPressSelect = Extension.create({
           }
 
           const onTouchEnd = () => {
-            if (!touchStartTime) return
-
-            const heldMs = Date.now() - touchStartTime
-            if (heldMs >= LONG_PRESS_MS && !touchMoved) {
-              scheduleExpandWindow()
-            } else {
-              clearPendingExpand()
-            }
-
             resetTouch()
           }
 
-          const onTouchCancel = () => {
-            resetTouch()
-            clearPendingExpand()
-          }
+          // On Android, touchcancel fires when the browser's native long-press word
+          // selection kicks in — that's exactly our trigger. Do nothing so that the
+          // subsequent selectionchange event can fire and handle the expansion.
+          const onTouchCancel = () => {}
 
           const onSelectionChange = () => {
-            if (!pendingExpand) return
-
-            const { selection } = editor.state
-            if (selection.empty) return
+            if (!touchStartTime) return
+            if (touchMoved) return
+            if (expandedThisTouch) return
+            if (Date.now() - touchStartTime > TOUCH_WINDOW_MS) return
 
             const domSelection = doc.getSelection?.()
             if (!domSelection || domSelection.isCollapsed) return
@@ -127,7 +99,7 @@ export const MobileLongPressSelect = Extension.create({
               domSelection.focusNode !== null && view.dom.contains(domSelection.focusNode)
             if (!anchorInside && !focusInside) return
 
-            clearPendingExpand()
+            expandedThisTouch = true
 
             if (rafId !== null) {
               if (typeof win?.cancelAnimationFrame === 'function') {
@@ -171,7 +143,6 @@ export const MobileLongPressSelect = Extension.create({
                   win?.clearTimeout(rafId)
                 }
               }
-              clearPendingExpand()
             },
           }
         },
