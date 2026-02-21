@@ -75,13 +75,11 @@ export const MobileLongPressSelect = Extension.create({
             }
           }
 
-          const onTouchEnd = () => {
-            resetTouch()
-          }
-
           // On Android, touchcancel fires when the browser's native long-press word
-          // selection kicks in — that's exactly our trigger. Do nothing so that the
-          // subsequent selectionchange event can fire and handle the expansion.
+          // selection kicks in — that's exactly our trigger. On iOS, selectionchange
+          // fires after touchend. Both need touch state preserved so onSelectionChange
+          // can act; state resets on the next onTouchStart or via TOUCH_WINDOW_MS.
+          const onTouchEnd = () => {}
           const onTouchCancel = () => {}
 
           const onSelectionChange = () => {
