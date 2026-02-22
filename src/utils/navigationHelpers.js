@@ -44,9 +44,7 @@ const clearDeepLinkHighlightInDocument = () => {
   })
 }
 
-export const clearDeepLinkHighlight = () => {
-  clearDeepLinkHighlightInDocument()
-}
+export const clearDeepLinkHighlight = clearDeepLinkHighlightInDocument
 
 export const scrollToBlock = (blockId, attempts = 0) => {
   const target = document.getElementById(blockId)

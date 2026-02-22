@@ -132,7 +132,7 @@ export const useNavigation = ({
       return
     }
     window.location.hash = href
-  }, [deepLinkFocusGuardRef])
+  }, [])
 
   const clearBlockAnchorIfPresent = useCallback(() => {
     deepLinkFocusGuardRef.current = false
@@ -151,7 +151,7 @@ export const useNavigation = ({
     hashBlockRef.current = null
     clearDeepLinkHighlight()
     updateHash(hash, 'replace')
-  }, [deepLinkFocusGuardRef])
+  }, [])
 
   useEffect(() => {
     navigateToHashRef.current = navigateToHash

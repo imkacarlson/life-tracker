@@ -12,6 +12,7 @@ import { TableRow } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { EMPTY_DOC } from '../utils/constants'
 import { normalizeContent, sanitizeContentForSave } from '../utils/contentHelpers'
+import { isTouchOnlyDevice } from '../utils/device'
 import { summarizeSlice } from '../utils/pasteHelpers'
 import { scrollToBlock } from '../utils/navigationHelpers'
 import {
@@ -40,17 +41,6 @@ import {
 } from '../extensions/keyboardShortcuts'
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
-
-const isTouchOnlyDevice = () => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false
-  }
-  const hasCoarsePointer = window.matchMedia('(any-pointer: coarse)').matches
-  const hasFinePointer = window.matchMedia('(any-pointer: fine)').matches
-  const hasHover =
-    window.matchMedia('(any-hover: hover)').matches || window.matchMedia('(hover: hover)').matches
-  return hasCoarsePointer && !hasFinePointer && !hasHover
-}
 
 export const useEditorSetup = ({
   session,
@@ -387,7 +377,7 @@ export const useEditorSetup = ({
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [editor, editorLocked, deepLinkFocusGuardRef])
+  }, [editor, editorLocked])
 
   useEffect(() => {
     if (!editor) return
