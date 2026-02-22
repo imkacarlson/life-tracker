@@ -83,10 +83,17 @@ export const useNavigation = ({
       setPendingNavSafely(resolved)
       if (resolved.pageId && resolved.pageId === activeTrackerId) {
         requestAnimationFrame(() => {
-          if (resolved.blockId) {
-            scrollToBlock(resolved.blockId)
+          if (!resolved.blockId) {
+            setPendingNav(null)
+            return
           }
-          setPendingNav(null)
+          const found = scrollToBlock(resolved.blockId)
+          // Only clear pending when the block is actually present right now.
+          // If it isn't yet (content still settling), keep pending so the
+          // editor-setup pass can apply the deep-link highlight when ready.
+          if (found) {
+            setPendingNav(null)
+          }
         })
         return
       }
