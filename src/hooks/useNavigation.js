@@ -42,7 +42,6 @@ export const useNavigation = ({
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
-  const initialDeepLinkRef = useRef(null)
   const initialResolvedTargetRef = useRef(undefined)
   const [initialNavReady, setInitialNavReady] = useState(false)
 
@@ -194,7 +193,6 @@ export const useNavigation = ({
 
     const syncInitialHash = async () => {
       const initial = typeof window === 'undefined' ? null : parseDeepLink(window.location.hash)
-      initialDeepLinkRef.current = initial
       if (!initial) {
         initialResolvedTargetRef.current = null
         setInitialNavReady(true)
