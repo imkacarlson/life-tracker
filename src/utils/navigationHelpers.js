@@ -37,6 +37,7 @@ export const updateHash = (hash, mode = 'replace') => {
 }
 
 const DEEP_LINK_TARGET_CLASS = 'deep-link-target'
+const DEEP_LINK_TARGET_STYLE_ID = 'deep-link-target-style'
 let activeDeepLinkBlockId = null
 
 const clearDeepLinkHighlightInDocument = () => {
@@ -45,7 +46,36 @@ const clearDeepLinkHighlightInDocument = () => {
   })
 }
 
+const escapeCssAttributeValue = (value) =>
+  value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+
+const applyDeepLinkHighlightStyle = (blockId) => {
+  if (!document?.head) return
+  let styleNode = document.getElementById(DEEP_LINK_TARGET_STYLE_ID)
+  if (!(styleNode instanceof HTMLStyleElement)) {
+    styleNode = document.createElement('style')
+    styleNode.id = DEEP_LINK_TARGET_STYLE_ID
+    document.head.appendChild(styleNode)
+  }
+  const safeBlockId = escapeCssAttributeValue(blockId)
+  styleNode.textContent = `
+.editor-shell .ProseMirror [id="${safeBlockId}"] {
+  background: rgba(250, 204, 21, 0.22);
+  outline: 2px solid rgba(245, 158, 11, 0.85);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+`
+}
+
+const clearDeepLinkHighlightStyle = () => {
+  const styleNode = document.getElementById(DEEP_LINK_TARGET_STYLE_ID)
+  if (!(styleNode instanceof HTMLStyleElement)) return
+  styleNode.textContent = ''
+}
+
 const applyDeepLinkHighlight = (blockId) => {
+  applyDeepLinkHighlightStyle(blockId)
   const target = document.getElementById(blockId)
   if (!target) return null
   clearDeepLinkHighlightInDocument()
@@ -56,6 +86,7 @@ const applyDeepLinkHighlight = (blockId) => {
 export const clearDeepLinkHighlight = () => {
   activeDeepLinkBlockId = null
   clearDeepLinkHighlightInDocument()
+  clearDeepLinkHighlightStyle()
 }
 
 export const scrollToBlock = (blockId, attempts = 0) => {
