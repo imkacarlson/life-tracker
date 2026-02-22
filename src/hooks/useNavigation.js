@@ -183,10 +183,15 @@ export const useNavigation = ({
     if (!hash) return
     const mode = navIntentRef.current === 'push' ? 'push' : 'replace'
     navIntentRef.current = null
-    if (mode === 'push') {
+    if (mode === 'push' && window.location.hash !== hash) {
       ignoreHashChangeRef.current = hash
     }
     updateHash(hash, mode)
+    if (blockId && activeTrackerId) {
+      requestAnimationFrame(() => {
+        scrollToBlock(blockId)
+      })
+    }
   }, [activeNotebookId, activeSectionId, activeTrackerId, getPendingNav, initialNavReady])
 
   useEffect(() => {
