@@ -56,6 +56,7 @@ export const useEditorSetup = ({
   uploadImageRef,
 }) => {
   const suppressSaveRef = useRef(false)
+  const suppressFocusRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
   // activeTracker objects change frequently (e.g. autosave updates), but we only want to
   // reload/lock the editor on real navigation (tracker id or settings changes).
@@ -238,8 +239,12 @@ export const useEditorSetup = ({
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
         suppressSaveRef.current = false
+        suppressFocusRef.current = true
         setEditorLocked(false)
         if (!editor.isDestroyed) editor.setEditable(true)
+        clearFocusTimer = setTimeout(() => {
+          suppressFocusRef.current = false
+        }, 50)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -252,6 +257,7 @@ export const useEditorSetup = ({
       })
       contentOwnerTrackerIdRef.current = activeTrackerId ?? null
       suppressSaveRef.current = false
+      suppressFocusRef.current = true
       setEditorLocked(false)
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
@@ -273,7 +279,11 @@ export const useEditorSetup = ({
         }
         requestAnimationFrame(() => attemptScroll())
       }
+      clearFocusTimer = setTimeout(() => {
+        suppressFocusRef.current = false
+      }, hasPendingBlock ? 600 : 50)
     }
+    let clearFocusTimer
     setContent()
     return () => {
       mounted = false
@@ -281,6 +291,8 @@ export const useEditorSetup = ({
       // reflect the previous page while React state already points at the next page.
       // Keep saves suppressed until the next effect finishes setting content/owner.
       suppressSaveRef.current = true
+      clearTimeout(clearFocusTimer)
+      suppressFocusRef.current = false
       if (!editor.isDestroyed) editor.setEditable(false)
     }
   }, [
@@ -306,6 +318,7 @@ export const useEditorSetup = ({
         raf = null
         if (!editor || editor.isDestroyed) return
         if (editorLocked) return
+        if (suppressFocusRef.current) return
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName
