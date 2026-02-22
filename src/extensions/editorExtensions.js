@@ -79,7 +79,7 @@ export const InternalLink = Link.extend({
 
     const internalLinkPlugin = new Plugin({
       props: {
-        handleClick: (_view, _pos, event) => {
+        handleClick: (view, _pos, event) => {
           const raw = event.target
           const target = raw instanceof Element ? raw : raw?.parentElement
           const link = target?.closest?.('a')
@@ -88,6 +88,7 @@ export const InternalLink = Link.extend({
           event.preventDefault()
           event.stopPropagation()
           if (href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')) {
+            view.dom.blur()
             onNavigateHash?.(href)
             return true
           }

@@ -39,6 +39,11 @@ export const updateHash = (hash, mode = 'replace') => {
 export const scrollToBlock = (blockId, attempts = 0) => {
   const target = document.getElementById(blockId)
   if (target) {
+    const range = document.createRange()
+    range.selectNodeContents(target)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         target.scrollIntoView({ behavior: 'auto', block: 'center' })
