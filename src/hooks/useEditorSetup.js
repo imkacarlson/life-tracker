@@ -239,8 +239,12 @@ export const useEditorSetup = ({
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
         suppressSaveRef.current = false
+        suppressFocusRef.current = true
         setEditorLocked(false)
         if (!editor.isDestroyed) editor.setEditable(true)
+        clearFocusTimer = setTimeout(() => {
+          suppressFocusRef.current = false
+        }, 50)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
