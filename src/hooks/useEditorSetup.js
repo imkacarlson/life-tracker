@@ -62,12 +62,18 @@ export const useEditorSetup = ({
   const suppressSaveRef = useRef(false)
   const suppressFocusRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
+  const activeTrackerIdRef = useRef(activeTrackerId)
+  // Save only after a specific load pass has fully established page ownership.
+  const saveLoadSessionRef = useRef({ id: 0, trackerId: null, ready: false })
   // activeTracker objects change frequently (e.g. autosave updates), but we only want to
   // reload/lock the editor on real navigation (tracker id or settings changes).
   const activeTrackerRef = useRef(activeTracker)
   useLayoutEffect(() => {
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
+  useEffect(() => {
+    activeTrackerIdRef.current = activeTrackerId
+  }, [activeTrackerId])
   const [editorLocked, setEditorLocked] = useState(false)
   const pasteInfoRef = useRef({
     summary: null,
@@ -212,6 +218,25 @@ export const useEditorSetup = ({
   useLayoutEffect(() => {
     if (!editor) return
     let mounted = true
+    const loadSessionId = saveLoadSessionRef.current.id + 1
+    saveLoadSessionRef.current = {
+      id: loadSessionId,
+      trackerId: activeTrackerId ?? null,
+      ready: false,
+    }
+    contentOwnerTrackerIdRef.current = null
+
+    const markLoadReady = (trackerId) => {
+      if (!mounted) return
+      if (saveLoadSessionRef.current.id !== loadSessionId) return
+      saveLoadSessionRef.current = {
+        id: loadSessionId,
+        trackerId: trackerId ?? null,
+        ready: true,
+      }
+      contentOwnerTrackerIdRef.current = trackerId ?? null
+    }
+
     const setContent = async () => {
       suppressSaveRef.current = true
       setEditorLocked(true)
@@ -226,14 +251,14 @@ export const useEditorSetup = ({
             preserveWhitespace: 'full',
           },
         })
-        contentOwnerTrackerIdRef.current = null
+        markLoadReady(null)
         suppressSaveRef.current = false
         setEditorLocked(false)
         if (!editor.isDestroyed) editor.setEditable(true)
         return
       }
       if (settingsMode) {
-        contentOwnerTrackerIdRef.current = null
+        markLoadReady(null)
         suppressSaveRef.current = false
         setEditorLocked(false)
         return
@@ -243,7 +268,7 @@ export const useEditorSetup = ({
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
         const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
-        contentOwnerTrackerIdRef.current = activeTrackerId ?? null
+        markLoadReady(activeTrackerId ?? null)
         suppressSaveRef.current = false
         suppressFocusRef.current = true
         setEditorLocked(false)
@@ -264,7 +289,7 @@ export const useEditorSetup = ({
           preserveWhitespace: 'full',
         },
       })
-      contentOwnerTrackerIdRef.current = activeTrackerId ?? null
+      markLoadReady(activeTrackerId ?? null)
       suppressSaveRef.current = false
       suppressFocusRef.current = true
       setEditorLocked(false)
@@ -305,6 +330,12 @@ export const useEditorSetup = ({
       // reflect the previous page while React state already points at the next page.
       // Keep saves suppressed until the next effect finishes setting content/owner.
       suppressSaveRef.current = true
+      contentOwnerTrackerIdRef.current = null
+      saveLoadSessionRef.current = {
+        id: saveLoadSessionRef.current.id,
+        trackerId: null,
+        ready: false,
+      }
       clearTimeout(clearFocusTimer)
       suppressFocusRef.current = false
       if (!editor.isDestroyed) editor.setEditable(false)
@@ -429,6 +460,10 @@ export const useEditorSetup = ({
       // If we don't know who owns the current editor doc, we must not write it to any page.
       const targetTrackerId = contentOwnerTrackerIdRef.current
       if (!targetTrackerId) return
+      const saveSession = saveLoadSessionRef.current
+      // Guard against page-switch races: loaded owner, session owner, and active page must match.
+      if (!saveSession.ready || saveSession.trackerId !== targetTrackerId) return
+      if (activeTrackerIdRef.current !== targetTrackerId) return
       scheduleSave(editor.getJSON(), undefined, targetTrackerId)
     }
     editor.on('update', handleUpdate)
