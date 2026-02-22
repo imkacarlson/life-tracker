@@ -36,14 +36,23 @@ export const updateHash = (hash, mode = 'replace') => {
   window.history.replaceState(null, '', hash)
 }
 
+const DEEP_LINK_TARGET_CLASS = 'deep-link-target'
+
+const clearDeepLinkHighlightInDocument = () => {
+  document.querySelectorAll(`.${DEEP_LINK_TARGET_CLASS}`).forEach((node) => {
+    node.classList.remove(DEEP_LINK_TARGET_CLASS)
+  })
+}
+
+export const clearDeepLinkHighlight = () => {
+  clearDeepLinkHighlightInDocument()
+}
+
 export const scrollToBlock = (blockId, attempts = 0) => {
   const target = document.getElementById(blockId)
   if (target) {
-    const range = document.createRange()
-    range.selectNodeContents(target)
-    const sel = window.getSelection()
-    sel.removeAllRanges()
-    sel.addRange(range)
+    clearDeepLinkHighlightInDocument()
+    target.classList.add(DEEP_LINK_TARGET_CLASS)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         target.scrollIntoView({ behavior: 'auto', block: 'center' })

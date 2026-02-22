@@ -41,6 +41,17 @@ import {
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
 
+const isTouchOnlyDevice = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+  const hasCoarsePointer = window.matchMedia('(any-pointer: coarse)').matches
+  const hasFinePointer = window.matchMedia('(any-pointer: fine)').matches
+  const hasHover =
+    window.matchMedia('(any-hover: hover)').matches || window.matchMedia('(hover: hover)').matches
+  return hasCoarsePointer && !hasFinePointer && !hasHover
+}
+
 export const useEditorSetup = ({
   session,
   activeTrackerId,
@@ -54,6 +65,7 @@ export const useEditorSetup = ({
   pendingNavRef,
   onNavigateHash,
   uploadImageRef,
+  deepLinkFocusGuardRef,
 }) => {
   const suppressSaveRef = useRef(false)
   const suppressFocusRef = useRef(false)
@@ -237,14 +249,18 @@ export const useEditorSetup = ({
       const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
+        const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuardRef.current
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
         suppressSaveRef.current = false
         suppressFocusRef.current = true
         setEditorLocked(false)
         if (!editor.isDestroyed) editor.setEditable(true)
+        if (suppressProgrammaticFocus && !editor.isDestroyed) {
+          editor.view.dom.blur()
+        }
         clearFocusTimer = setTimeout(() => {
           suppressFocusRef.current = false
-        }, 50)
+        }, suppressProgrammaticFocus ? 600 : 50)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -259,16 +275,21 @@ export const useEditorSetup = ({
       suppressSaveRef.current = false
       suppressFocusRef.current = true
       setEditorLocked(false)
+      const pending = pendingNavRef.current
+      const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
+      const suppressProgrammaticFocus =
+        isTouchOnlyDevice() && deepLinkFocusGuardRef.current && hasPendingBlock
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
       // which causes the browser to auto-scroll to the caret.  By placing
       // the caret at position 1 (start), that native scroll targets the top.
-      if (!editor.isDestroyed) {
+      if (!editor.isDestroyed && !suppressProgrammaticFocus) {
         editor.commands.setTextSelection(1)
       }
       if (!editor.isDestroyed) editor.setEditable(true)
-      const pending = pendingNavRef.current
-      const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
+      if (suppressProgrammaticFocus && !editor.isDestroyed) {
+        editor.view.dom.blur()
+      }
       if (hasPendingBlock) {
         const attemptScroll = (attempts = 0) => {
           if (!mounted) return
@@ -311,6 +332,7 @@ export const useEditorSetup = ({
   useEffect(() => {
     if (!editor) return
 
+    const shouldGuardDeepLinkFocus = isTouchOnlyDevice()
     let raf = null
     const handleSelectionChange = () => {
       if (raf) return
@@ -319,6 +341,7 @@ export const useEditorSetup = ({
         if (!editor || editor.isDestroyed) return
         if (editorLocked) return
         if (suppressFocusRef.current) return
+        if (shouldGuardDeepLinkFocus && deepLinkFocusGuardRef.current) return
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName
@@ -364,7 +387,7 @@ export const useEditorSetup = ({
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [editor, editorLocked])
+  }, [editor, editorLocked, deepLinkFocusGuardRef])
 
   useEffect(() => {
     if (!editor) return
