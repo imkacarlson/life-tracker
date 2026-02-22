@@ -30,6 +30,7 @@ const MIN_SIDEBAR_WIDTH = 220
 const MIN_EDITOR_WIDTH = 520
 const SIDEBAR_RESIZER_WIDTH = 14
 const SIDEBAR_BADGE_COMPACT_WIDTH = 300
+const POINTER_TAP_DISTANCE_PX = 10
 
 const clampSidebarWidth = (width, workspaceWidth) => {
   const maxSidebarWidth = Math.max(
@@ -53,6 +54,8 @@ function App() {
 
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
+  const deepLinkFocusGuardRef = useRef(false)
+  const pointerGestureRef = useRef(null)
   const workspaceRef = useRef(null)
   const resizeStateRef = useRef(null)
   const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH)
@@ -156,6 +159,7 @@ function App() {
     setActiveTrackerId,
     getPendingNav,
     setPendingNav,
+    deepLinkFocusGuardRef,
   })
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
@@ -221,18 +225,47 @@ function App() {
   const handleAppPointerDownCapture = useCallback(
     (event) => {
       const target = event.target
-      if (!(target instanceof Element)) return
-      if (target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
+      if (!(target instanceof Element)) {
+        pointerGestureRef.current = null
+        return
+      }
+      const isInternalLink = Boolean(
+        target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]'),
+      )
+      pointerGestureRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        isInternalLink,
+      }
+    },
+    [],
+  )
+  const handleAppPointerUpCapture = useCallback(
+    (event) => {
+      const gesture = pointerGestureRef.current
+      if (!gesture || gesture.pointerId !== event.pointerId) return
+      pointerGestureRef.current = null
+      if (gesture.isInternalLink) return
+      const moved =
+        Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) >
+        POINTER_TAP_DISTANCE_PX
+      if (moved) return
+      deepLinkFocusGuardRef.current = false
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
   )
+  const handleAppPointerCancelCapture = useCallback(() => {
+    pointerGestureRef.current = null
+  }, [])
   const handleAppKeyDownCapture = useCallback(
     (event) => {
       if (event.isComposing) return
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
       const target = event.target
       if (target instanceof Element && target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
+      deepLinkFocusGuardRef.current = false
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -260,6 +293,7 @@ function App() {
     pendingNavRef,
     onNavigateHash: handleInternalHashNavigate,
     uploadImageRef,
+    deepLinkFocusGuardRef,
   })
 
   const finalUploadImageAndInsert = useImageUpload(session, editor, setMessage)
@@ -297,6 +331,7 @@ function App() {
     setActiveSectionId(null)
     setActiveTrackerId(null)
     setSettingsMode(null)
+    deepLinkFocusGuardRef.current = false
     pendingNavRef.current = null
   }
 
@@ -306,6 +341,7 @@ function App() {
     }
     navIntentRef.current = 'push'
     hashBlockRef.current = null
+    deepLinkFocusGuardRef.current = false
     pendingNavRef.current = null
     setActiveNotebookId(nextNotebookId)
   }
@@ -316,6 +352,7 @@ function App() {
     }
     navIntentRef.current = 'push'
     hashBlockRef.current = null
+    deepLinkFocusGuardRef.current = false
     pendingNavRef.current = null
     setActiveSectionId(sectionId)
   }
@@ -441,7 +478,13 @@ function App() {
   }
 
   return (
-    <div className="app" onPointerDownCapture={handleAppPointerDownCapture} onKeyDownCapture={handleAppKeyDownCapture}>
+    <div
+      className="app"
+      onPointerDownCapture={handleAppPointerDownCapture}
+      onPointerUpCapture={handleAppPointerUpCapture}
+      onPointerCancelCapture={handleAppPointerCancelCapture}
+      onKeyDownCapture={handleAppKeyDownCapture}
+    >
       <TopBar
         session={session}
         notebooks={notebooks}
@@ -539,6 +582,7 @@ function App() {
               onSelect={(id) => {
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
+                deepLinkFocusGuardRef.current = false
                 pendingNavRef.current = null
                 setActiveTrackerId(id)
               }}

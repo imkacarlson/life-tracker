@@ -1,5 +1,11 @@
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { buildHash, parseDeepLink, updateHash, scrollToBlock } from '../utils/navigationHelpers'
+import {
+  buildHash,
+  parseDeepLink,
+  updateHash,
+  scrollToBlock,
+  clearDeepLinkHighlight,
+} from '../utils/navigationHelpers'
 import { resolveNavHierarchy } from '../utils/resolveNavHierarchy'
 
 const getNavSpecificity = (value) => {
@@ -29,13 +35,13 @@ export const useNavigation = ({
   setActiveTrackerId,
   getPendingNav,
   setPendingNav,
+  deepLinkFocusGuardRef,
 }) => {
   const navIntentRef = useRef(null)
   const ignoreNextHashChangeRef = useRef(0)
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
-  const initialDeepLinkRef = useRef(null)
   const initialResolvedTargetRef = useRef(undefined)
   const [initialNavReady, setInitialNavReady] = useState(false)
 
@@ -58,6 +64,9 @@ export const useNavigation = ({
     async (hash) => {
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
       if (!parsed) return
+      if (parsed.blockId) {
+        deepLinkFocusGuardRef.current = true
+      }
 
       const version = ++navVersionRef.current
       const resolved = await resolveNavHierarchy(parsed)
@@ -68,6 +77,7 @@ export const useNavigation = ({
         hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
       } else {
         hashBlockRef.current = null
+        clearDeepLinkHighlight()
       }
 
       setPendingNavSafely(resolved)
@@ -108,6 +118,7 @@ export const useNavigation = ({
       setActiveTrackerId,
       setPendingNav,
       setPendingNavSafely,
+      deepLinkFocusGuardRef,
     ],
   )
 
@@ -115,6 +126,7 @@ export const useNavigation = ({
     if (!href) return
     const isInternalHash = href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')
     if (!isInternalHash) return
+    deepLinkFocusGuardRef.current = true
     if (window.location.hash === href) {
       navigateToHashRef.current?.(href)
       return
@@ -123,8 +135,12 @@ export const useNavigation = ({
   }, [])
 
   const clearBlockAnchorIfPresent = useCallback(() => {
+    deepLinkFocusGuardRef.current = false
     const parsed = parseDeepLink(window.location.hash)
-    if (!parsed?.blockId) return
+    if (!parsed?.blockId) {
+      clearDeepLinkHighlight()
+      return
+    }
     const hash = buildHash({
       notebookId: parsed.notebookId,
       sectionId: parsed.sectionId,
@@ -133,6 +149,7 @@ export const useNavigation = ({
     })
     if (!hash) return
     hashBlockRef.current = null
+    clearDeepLinkHighlight()
     updateHash(hash, 'replace')
   }, [])
 
@@ -176,7 +193,6 @@ export const useNavigation = ({
 
     const syncInitialHash = async () => {
       const initial = typeof window === 'undefined' ? null : parseDeepLink(window.location.hash)
-      initialDeepLinkRef.current = initial
       if (!initial) {
         initialResolvedTargetRef.current = null
         setInitialNavReady(true)

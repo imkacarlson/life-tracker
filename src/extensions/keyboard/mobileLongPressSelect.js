@@ -1,24 +1,12 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { expandSelectionToBlock } from './blockSelectionHelper'
+import { isTouchOnlyDevice } from '../../utils/device'
 
 const MOVE_THRESHOLD_PX = 10
 const TOUCH_WINDOW_MS = 600
 
 const mobileLongPressSelectKey = new PluginKey('mobileLongPressSelect')
-
-const isTouchOnlyDevice = () => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return false
-  }
-
-  const hasCoarsePointer = window.matchMedia('(any-pointer: coarse)').matches
-  const hasFinePointer = window.matchMedia('(any-pointer: fine)').matches
-  const hasHover =
-    window.matchMedia('(any-hover: hover)').matches || window.matchMedia('(hover: hover)').matches
-
-  return hasCoarsePointer && !hasFinePointer && !hasHover
-}
 
 export const MobileLongPressSelect = Extension.create({
   name: 'mobileLongPressSelect',

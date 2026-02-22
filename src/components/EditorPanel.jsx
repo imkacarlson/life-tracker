@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { serializeDocForExport } from '../lib/serializeDocForExport'
+import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
 import EditorHeader from './editor/EditorHeader'
 import FindBar from './editor/FindBar'
@@ -600,11 +601,6 @@ function EditorPanel({
   useEffect(() => {
     if (!editor) return
     const dom = editor.view.dom
-
-    const isTouchOnlyDevice = () =>
-      window.matchMedia('(any-pointer: coarse)').matches
-      && !window.matchMedia('(any-pointer: fine)').matches
-      && !window.matchMedia('(hover: hover)').matches
 
     const isTouchContextMenuEvent = (event) => {
       if (isTouchOnlyDevice()) return true
