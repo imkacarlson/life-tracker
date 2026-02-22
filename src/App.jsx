@@ -54,6 +54,7 @@ function App() {
 
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
+  const pendingEditTapRef = useRef(null)
   const deepLinkFocusGuardRef = useRef(false)
   const [deepLinkFocusGuard, setDeepLinkFocusGuard] = useState(false)
   const pointerGestureRef = useRef(null)
@@ -255,13 +256,22 @@ function App() {
       const moved =
         Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) >
         POINTER_TAP_DISTANCE_PX
-      if (moved) return
+      if (moved) {
+        pendingEditTapRef.current = null
+        return
+      }
+      if (deepLinkFocusGuardRef.current) {
+        pendingEditTapRef.current = { left: event.clientX, top: event.clientY }
+      } else {
+        pendingEditTapRef.current = null
+      }
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
   )
   const handleAppPointerCancelCapture = useCallback(() => {
     pointerGestureRef.current = null
+    pendingEditTapRef.current = null
   }, [])
   const handleAppKeyDownCapture = useCallback(
     (event) => {
@@ -294,6 +304,7 @@ function App() {
     scheduleSave,
     scheduleSettingsSave,
     pendingNavRef,
+    pendingEditTapRef,
     onNavigateHash: handleInternalHashNavigate,
     uploadImageRef,
     deepLinkFocusGuard,

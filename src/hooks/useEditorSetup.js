@@ -53,6 +53,7 @@ export const useEditorSetup = ({
   scheduleSave,
   scheduleSettingsSave,
   pendingNavRef,
+  pendingEditTapRef,
   onNavigateHash,
   uploadImageRef,
   deepLinkFocusGuard,
@@ -77,6 +78,7 @@ export const useEditorSetup = ({
     applied: false,
   })
   const pendingPasteFixRef = useRef(false)
+  const previousDeepLinkFocusGuardRef = useRef(deepLinkFocusGuard)
 
   const getListDepthAt = useCallback((state, pos) => {
     const $pos = state.doc.resolve(pos)
@@ -321,6 +323,8 @@ export const useEditorSetup = ({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (editorLocked || settingsMode) return
+    const wasGuarded = previousDeepLinkFocusGuardRef.current
+    previousDeepLinkFocusGuardRef.current = deepLinkFocusGuard
     const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
     if (suppressProgrammaticFocus) {
       editor.setEditable(false)
@@ -332,8 +336,23 @@ export const useEditorSetup = ({
       })
       return
     }
+    const tapIntent = pendingEditTapRef?.current
+    if (wasGuarded && tapIntent && isTouchOnlyDevice()) {
+      const pos = editor.view.posAtCoords(tapIntent)
+      if (pos?.pos != null) {
+        editor.commands.setTextSelection(pos.pos)
+      }
+      pendingEditTapRef.current = null
+      editor.setEditable(true)
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          editor.view.focus()
+        }
+      })
+      return
+    }
     editor.setEditable(true)
-  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard])
+  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard, pendingEditTapRef])
 
   // If the DOM selection is inside the editor but focus has fallen back to <body>,
   // typing/backspace does nothing. This can happen after programmatic selections,
