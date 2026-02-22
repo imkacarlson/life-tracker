@@ -37,6 +37,7 @@ export const updateHash = (hash, mode = 'replace') => {
 }
 
 const DEEP_LINK_TARGET_CLASS = 'deep-link-target'
+let activeDeepLinkBlockId = null
 
 const clearDeepLinkHighlightInDocument = () => {
   document.querySelectorAll(`.${DEEP_LINK_TARGET_CLASS}`).forEach((node) => {
@@ -44,17 +45,37 @@ const clearDeepLinkHighlightInDocument = () => {
   })
 }
 
-export const clearDeepLinkHighlight = clearDeepLinkHighlightInDocument
+const applyDeepLinkHighlight = (blockId) => {
+  const target = document.getElementById(blockId)
+  if (!target) return null
+  clearDeepLinkHighlightInDocument()
+  target.classList.add(DEEP_LINK_TARGET_CLASS)
+  return target
+}
+
+export const clearDeepLinkHighlight = () => {
+  activeDeepLinkBlockId = null
+  clearDeepLinkHighlightInDocument()
+}
 
 export const scrollToBlock = (blockId, attempts = 0) => {
-  const target = document.getElementById(blockId)
+  const target = applyDeepLinkHighlight(blockId)
   if (target) {
-    clearDeepLinkHighlightInDocument()
-    target.classList.add(DEEP_LINK_TARGET_CLASS)
+    activeDeepLinkBlockId = blockId
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         target.scrollIntoView({ behavior: 'auto', block: 'center' })
       })
+    })
+    ;[80, 200, 400].forEach((delay) => {
+      setTimeout(() => {
+        if (activeDeepLinkBlockId !== blockId) return
+        const refreshed = applyDeepLinkHighlight(blockId)
+        if (!refreshed) return
+        if (delay <= 200) {
+          refreshed.scrollIntoView({ behavior: 'auto', block: 'center' })
+        }
+      }, delay)
     })
     return true
   } else if (attempts < 10) {

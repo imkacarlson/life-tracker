@@ -35,10 +35,10 @@ export const useNavigation = ({
   setActiveTrackerId,
   getPendingNav,
   setPendingNav,
-  deepLinkFocusGuardRef,
+  setDeepLinkFocusGuard,
 }) => {
   const navIntentRef = useRef(null)
-  const ignoreNextHashChangeRef = useRef(0)
+  const ignoreHashChangeRef = useRef(null)
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
@@ -65,7 +65,7 @@ export const useNavigation = ({
       const parsed = typeof hash === 'string' ? parseDeepLink(hash) : hash
       if (!parsed) return
       if (parsed.blockId) {
-        deepLinkFocusGuardRef.current = true
+        setDeepLinkFocusGuard(true)
       }
 
       const version = ++navVersionRef.current
@@ -118,7 +118,7 @@ export const useNavigation = ({
       setActiveTrackerId,
       setPendingNav,
       setPendingNavSafely,
-      deepLinkFocusGuardRef,
+      setDeepLinkFocusGuard,
     ],
   )
 
@@ -126,16 +126,15 @@ export const useNavigation = ({
     if (!href) return
     const isInternalHash = href.startsWith('#pg=') || href.startsWith('#sec=') || href.startsWith('#nb=')
     if (!isInternalHash) return
-    deepLinkFocusGuardRef.current = true
-    if (window.location.hash === href) {
-      navigateToHashRef.current?.(href)
-      return
+    setDeepLinkFocusGuard(true)
+    if (window.location.hash !== href) {
+      window.location.hash = href
     }
-    window.location.hash = href
-  }, [])
+    navigateToHashRef.current?.(href)
+  }, [setDeepLinkFocusGuard])
 
   const clearBlockAnchorIfPresent = useCallback(() => {
-    deepLinkFocusGuardRef.current = false
+    setDeepLinkFocusGuard(false)
     const parsed = parseDeepLink(window.location.hash)
     if (!parsed?.blockId) {
       clearDeepLinkHighlight()
@@ -151,7 +150,7 @@ export const useNavigation = ({
     hashBlockRef.current = null
     clearDeepLinkHighlight()
     updateHash(hash, 'replace')
-  }, [])
+  }, [setDeepLinkFocusGuard])
 
   useEffect(() => {
     navigateToHashRef.current = navigateToHash
@@ -178,7 +177,7 @@ export const useNavigation = ({
     const mode = navIntentRef.current === 'push' ? 'push' : 'replace'
     navIntentRef.current = null
     if (mode === 'push') {
-      ignoreNextHashChangeRef.current += 1
+      ignoreHashChangeRef.current = hash
     }
     updateHash(hash, mode)
   }, [activeNotebookId, activeSectionId, activeTrackerId, getPendingNav, initialNavReady])
@@ -271,10 +270,11 @@ export const useNavigation = ({
 
   useEffect(() => {
     const handleHashChange = () => {
-      if (ignoreNextHashChangeRef.current > 0) {
-        ignoreNextHashChangeRef.current -= 1
+      if (ignoreHashChangeRef.current && window.location.hash === ignoreHashChangeRef.current) {
+        ignoreHashChangeRef.current = null
         return
       }
+      ignoreHashChangeRef.current = null
       navigateToHash(window.location.hash)
     }
     window.addEventListener('hashchange', handleHashChange)

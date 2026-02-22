@@ -55,6 +55,7 @@ export const useEditorSetup = ({
   pendingNavRef,
   onNavigateHash,
   uploadImageRef,
+  deepLinkFocusGuard,
   deepLinkFocusGuardRef,
 }) => {
   const suppressSaveRef = useRef(false)
@@ -239,12 +240,12 @@ export const useEditorSetup = ({
       const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
-        const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuardRef.current
+        const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
         contentOwnerTrackerIdRef.current = activeTrackerId ?? null
         suppressSaveRef.current = false
         suppressFocusRef.current = true
         setEditorLocked(false)
-        if (!editor.isDestroyed) editor.setEditable(true)
+        if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
         if (suppressProgrammaticFocus && !editor.isDestroyed) {
           editor.view.dom.blur()
         }
@@ -268,7 +269,7 @@ export const useEditorSetup = ({
       const pending = pendingNavRef.current
       const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
       const suppressProgrammaticFocus =
-        isTouchOnlyDevice() && deepLinkFocusGuardRef.current && hasPendingBlock
+        isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
       // which causes the browser to auto-scroll to the caret.  By placing
@@ -276,7 +277,7 @@ export const useEditorSetup = ({
       if (!editor.isDestroyed && !suppressProgrammaticFocus) {
         editor.commands.setTextSelection(1)
       }
-      if (!editor.isDestroyed) editor.setEditable(true)
+      if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
       if (suppressProgrammaticFocus && !editor.isDestroyed) {
         editor.view.dom.blur()
       }
@@ -314,7 +315,25 @@ export const useEditorSetup = ({
     settingsContentVersion,
     templateContentRef,
     pendingNavRef,
+    deepLinkFocusGuard,
   ])
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    if (editorLocked || settingsMode) return
+    const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
+    if (suppressProgrammaticFocus) {
+      editor.setEditable(false)
+      editor.view.dom.blur()
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          editor.view.dom.blur()
+        }
+      })
+      return
+    }
+    editor.setEditable(true)
+  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard])
 
   // If the DOM selection is inside the editor but focus has fallen back to <body>,
   // typing/backspace does nothing. This can happen after programmatic selections,
@@ -331,7 +350,7 @@ export const useEditorSetup = ({
         if (!editor || editor.isDestroyed) return
         if (editorLocked) return
         if (suppressFocusRef.current) return
-        if (shouldGuardDeepLinkFocus && deepLinkFocusGuardRef.current) return
+        if (shouldGuardDeepLinkFocus && (deepLinkFocusGuard || deepLinkFocusGuardRef.current)) return
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName
@@ -377,7 +396,7 @@ export const useEditorSetup = ({
       document.removeEventListener('selectionchange', handleSelectionChange)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [editor, editorLocked])
+  }, [editor, editorLocked, deepLinkFocusGuard])
 
   useEffect(() => {
     if (!editor) return

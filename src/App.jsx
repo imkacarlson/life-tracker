@@ -55,6 +55,7 @@ function App() {
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
   const deepLinkFocusGuardRef = useRef(false)
+  const [deepLinkFocusGuard, setDeepLinkFocusGuard] = useState(false)
   const pointerGestureRef = useRef(null)
   const workspaceRef = useRef(null)
   const resizeStateRef = useRef(null)
@@ -73,6 +74,10 @@ function App() {
   const getPendingNav = useCallback(() => pendingNavRef.current, [])
   const setPendingNav = useCallback((value) => {
     pendingNavRef.current = value
+  }, [])
+  const setDeepLinkFocusGuardValue = useCallback((value) => {
+    deepLinkFocusGuardRef.current = value
+    setDeepLinkFocusGuard(value)
   }, [])
 
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
@@ -159,7 +164,7 @@ function App() {
     setActiveTrackerId,
     getPendingNav,
     setPendingNav,
-    deepLinkFocusGuardRef,
+    setDeepLinkFocusGuard: setDeepLinkFocusGuardValue,
   })
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
@@ -251,7 +256,6 @@ function App() {
         Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) >
         POINTER_TAP_DISTANCE_PX
       if (moved) return
-      deepLinkFocusGuardRef.current = false
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -265,7 +269,6 @@ function App() {
       if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return
       const target = event.target
       if (target instanceof Element && target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]')) return
-      deepLinkFocusGuardRef.current = false
       clearBlockAnchorIfPresent()
     },
     [clearBlockAnchorIfPresent],
@@ -293,6 +296,7 @@ function App() {
     pendingNavRef,
     onNavigateHash: handleInternalHashNavigate,
     uploadImageRef,
+    deepLinkFocusGuard,
     deepLinkFocusGuardRef,
   })
 
@@ -331,7 +335,7 @@ function App() {
     setActiveSectionId(null)
     setActiveTrackerId(null)
     setSettingsMode(null)
-    deepLinkFocusGuardRef.current = false
+    setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
   }
 
@@ -341,7 +345,7 @@ function App() {
     }
     navIntentRef.current = 'push'
     hashBlockRef.current = null
-    deepLinkFocusGuardRef.current = false
+    setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     setActiveNotebookId(nextNotebookId)
   }
@@ -352,7 +356,7 @@ function App() {
     }
     navIntentRef.current = 'push'
     hashBlockRef.current = null
-    deepLinkFocusGuardRef.current = false
+    setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     setActiveSectionId(sectionId)
   }
@@ -582,7 +586,7 @@ function App() {
               onSelect={(id) => {
                 navIntentRef.current = 'push'
                 hashBlockRef.current = null
-                deepLinkFocusGuardRef.current = false
+                setDeepLinkFocusGuardValue(false)
                 pendingNavRef.current = null
                 setActiveTrackerId(id)
               }}
