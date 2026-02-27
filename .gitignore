@@ -20,6 +20,12 @@ supabase/.temp/
 # GitHub App credentials
 gha-creds-*.json
 
+# Playwright
+test-results/
+playwright-report/
+.env.test
+playwright/.auth/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

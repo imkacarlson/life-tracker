@@ -117,7 +117,53 @@ The user organizes tasks in monthly "trackers" that are rich text documents:
   - What was extracted (or why extraction was not needed)
   - What regression checks were run
 
+## Testing
+
+Playwright E2E tests live in `e2e/`. Two viewport projects run automatically:
+- **Desktop Chrome** — default desktop viewport
+- **Mobile Chrome** — Pixel 7 device profile, overridden to 1080×2400 with touch enabled
+
+**Test user:** A separate Supabase account (not real user data). Create via Supabase dashboard, then:
+1. Copy `.env.test` and fill in `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+2. Add matching GitHub Secrets for CI (`TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
+
+**Commands:**
+- `npm run test:e2e` — run all E2E tests headlessly
+- `npm run test:e2e:ui` — open Playwright UI for visual test replay
+
+**Test philosophy:** Behavioral assertions; use `getByRole`/`getByText` where possible. Tests should survive UI overhauls.
+
+**Seed data:** Some tests require seed data (e.g., two tracker pages with an internal link between them). Tests use `test.skip` when seed data is absent.
+
 ## Commands
 
-- `npm run dev` - Start dev server
+- `npm run dev` - Start dev server (binds to 0.0.0.0 — accessible from phone on same network)
 - `npm run build` - Production build
+- `npm run test:e2e` - Run Playwright E2E tests
+- `npm run test:e2e:ui` - Run Playwright E2E tests with UI
+
+## MCP Servers
+
+`.mcp.json` is gitignored. Each machine needs its own copy. Required servers:
+
+**Supabase** (project management, database queries):
+```json
+{
+  "supabase": {
+    "type": "http",
+    "url": "https://mcp.supabase.com/mcp?project_ref=ogzpgnxmcifaqliuxxzu"
+  }
+}
+```
+
+**Playwright** (browser automation for fix-and-verify skill):
+```json
+{
+  "playwright": {
+    "command": "npx",
+    "args": ["@playwright/mcp@latest"]
+  }
+}
+```
+
+New machine setup: create `.mcp.json` at the project root with both entries above inside `{ "mcpServers": { ... } }`.
