@@ -29,5 +29,23 @@ setup('authenticate test user', async ({ page }) => {
   // Wait until the authenticated app shell is visible (not the login screen)
   await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
+  // Normalize E2E baseline context so all tests start in the same notebook/section.
+  const notebookSelect = page.locator('.notebook-switcher select')
+  if ((await notebookSelect.count()) > 0) {
+    try {
+      await notebookSelect.selectOption({ label: 'Test Notebook' })
+    } catch {
+      // Keep setup resilient when seed notebook is absent.
+    }
+  }
+
+  const sectionTab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
+  try {
+    await sectionTab.waitFor({ state: 'visible', timeout: 8000 })
+    await sectionTab.click()
+  } catch {
+    // Keep setup resilient when seed section is absent.
+  }
+
   await page.context().storageState({ path: authFile })
 })

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
 import { useEditor } from '@tiptap/react'
-import { Plugin } from '@tiptap/pm/state'
+import { Plugin, TextSelection } from '@tiptap/pm/state'
+import { liftListItem as pmLiftListItem } from '@tiptap/pm/schema-list'
 import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import ListItem from '@tiptap/extension-list-item'
@@ -696,7 +697,7 @@ export const useEditorSetup = ({
           targets.push({ node, pos })
         })
         const limit = Math.min(expectedCount, summary.length, targets.length)
-        const tr = state.tr
+        const tr = state.tr.setMeta('addToHistory', false)
         for (let i = 0; i < limit; i += 1) {
           const expectedAlign = summary[i]?.align ?? 'left'
           const target = targets[i]
@@ -710,6 +711,25 @@ export const useEditorSetup = ({
           tr.setNodeMarkup(target.pos, undefined, nextAttrs)
         }
         if (tr.docChanged) dispatch(tr)
+
+        const liftListItemWithoutHistory = (targetPos, itemTypeName) => {
+          const nodeType = view.state.schema.nodes[itemTypeName]
+          if (!nodeType) return false
+
+          const selectionState = view.state.apply(
+            view.state.tr.setSelection(TextSelection.create(view.state.doc, targetPos)),
+          )
+          let lifted = false
+          const command = pmLiftListItem(nodeType)
+          const applied = command(selectionState, (liftTr) => {
+            if (!liftTr.docChanged) return
+            liftTr.setMeta('addToHistory', false)
+            dispatch(liftTr)
+            lifted = true
+          })
+
+          return Boolean(applied && lifted)
+        }
 
         let currentState = view.state
         for (let i = 0; i < limit; i += 1) {
@@ -726,7 +746,8 @@ export const useEditorSetup = ({
           while (actualDepth > expectedDepth && guard < 10) {
             const itemType = getListItemTypeAt(currentState, currentTarget.pos + 1)
             if (!itemType) break
-            editor.chain().setTextSelection(currentTarget.pos + 1).liftListItem(itemType).run()
+            const didLift = liftListItemWithoutHistory(currentTarget.pos + 1, itemType)
+            if (!didLift) break
             currentState = editor.view.state
             currentTargets = []
             currentState.doc.nodesBetween(mappedStart, Math.min(mappedEnd, currentState.doc.content.size), (node, pos) => {
@@ -753,7 +774,7 @@ export const useEditorSetup = ({
               highlightTargets.push({ node, pos })
             },
           )
-          const highlightTr = highlightState.tr
+          const highlightTr = highlightState.tr.setMeta('addToHistory', false)
           for (let i = 0; i < Math.min(summary.length, highlightTargets.length); i += 1) {
             const target = highlightTargets[i]
             if (!target) continue
