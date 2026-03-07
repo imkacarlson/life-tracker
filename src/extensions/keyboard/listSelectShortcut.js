@@ -62,29 +62,50 @@ export const ListSelectShortcut = Extension.create({
           )
         }
 
-        const list = findAncestor(['listItem', 'taskItem'])
-        if (list) {
+        const listItem = findAncestor(['listItem', 'taskItem'])
+        if (listItem) {
+          const scopeRanges = []
+
           let paragraphPos = null
           let paragraphSize = null
-          list.node.content?.forEach((child, offset) => {
+          listItem.node.content?.forEach((child, offset) => {
             if (paragraphPos !== null) return
             if (child.type?.name === 'paragraph') {
-              paragraphPos = list.pos + 1 + offset
+              paragraphPos = listItem.pos + 1 + offset
               paragraphSize = child.nodeSize
             }
           })
-          const listFrom = paragraphPos !== null ? paragraphPos + 1 : list.pos + 1
-          const listTo =
-            paragraphPos !== null && paragraphSize
-              ? paragraphPos + paragraphSize - 1
-              : list.pos + list.node.nodeSize - 1
-          if (!selectionCovers(listFrom, listTo)) {
-            return selectRange(listFrom, listTo)
+          if (paragraphPos !== null && paragraphSize != null) {
+            scopeRanges.push({ from: paragraphPos + 1, to: paragraphPos + paragraphSize - 1 })
+          }
+
+          for (let depth = $from.depth; depth > 0; depth -= 1) {
+            const node = $from.node(depth)
+            const name = node.type?.name
+            if (name !== 'bulletList' && name !== 'orderedList' && name !== 'taskList') {
+              continue
+            }
+            const pos = $from.before(depth)
+            scopeRanges.push({
+              from: pos + 1,
+              to: pos + node.nodeSize - 1,
+            })
+          }
+
+          const seen = new Set()
+          for (const scope of scopeRanges) {
+            if (scope.from >= scope.to) continue
+            const key = `${scope.from}:${scope.to}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            if (!selectionCovers(scope.from, scope.to)) {
+              return selectRange(scope.from, scope.to)
+            }
           }
         }
 
         const textBlock = findAncestor(['paragraph', 'heading'])
-        if (!list && textBlock) {
+        if (!listItem && textBlock) {
           const blockFrom = textBlock.pos + 1
           const blockTo = textBlock.pos + textBlock.node.nodeSize - 1
           if (!selectionCovers(blockFrom, blockTo)) {
@@ -103,7 +124,7 @@ export const ListSelectShortcut = Extension.create({
           }
         }
 
-        if (list || cell || textBlock) {
+        if (listItem || cell || textBlock) {
           this.editor.commands.selectAll()
           return true
         }
