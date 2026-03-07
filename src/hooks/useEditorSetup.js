@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react'
 import { useEditor } from '@tiptap/react'
+import { Plugin } from '@tiptap/pm/state'
+import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import ListItem from '@tiptap/extension-list-item'
 import TaskItem from '@tiptap/extension-task-item'
@@ -59,6 +61,11 @@ export const useEditorSetup = ({
   deepLinkFocusGuard,
   deepLinkFocusGuardRef,
 }) => {
+  // Tracks an active "highlight preserve session" started when the user deletes all
+  // highlighted content (cursor moves past the span boundary). handleTextInput uses
+  // this to apply the highlight to the very next typed character when the cursor is
+  // no longer adjacent to any highlighted text. Cleared on navigation keys.
+  const preservedHighlightRef = useRef(null)
   const suppressSaveRef = useRef(false)
   const suppressFocusRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
@@ -162,6 +169,69 @@ export const useEditorSetup = ({
         Placeholder.configure({
           placeholder: 'Start writing your tracker...',
         }),
+        // When highlighted content is deleted (backspace/delete), remember the
+        // highlight mark so that the very next typed character still inherits it.
+        // This makes editing a highlighted date token feel natural: delete "2/22",
+        // type "3/7", and "3/7" stays highlighted.
+        // Works alongside inclusive:false (which prevents paste bleed) because
+        // appendTransaction only fires for user-input transactions, not paste.
+        Extension.create({
+          name: 'highlightPreserve',
+          addProseMirrorPlugins() {
+            return [
+              new Plugin({
+                appendTransaction(transactions, oldState, newState) {
+                  const tr = transactions[0]
+                  if (!tr || !tr.docChanged) return null
+                  if (tr.getMeta('paste') || tr.getMeta('uiEvent') === 'paste') return null
+                  if (tr.getMeta('history$')) return null
+                  if (!newState.selection.empty) return null
+                  const highlightType = oldState.schema.marks.highlight
+                  if (!highlightType) return null
+
+                  for (const step of tr.steps) {
+                    // Skip AddMarkStep / RemoveMarkStep — they have a .mark property.
+                    // This prevents our own applyFixes dispatch from triggering this.
+                    if (step.mark !== undefined) continue
+                    const from = step.from
+                    const to = step.to ?? step.from
+                    if (typeof from !== 'number') continue
+
+                    if (from < to) {
+                      // DELETION (possibly with replacement content in the same step)
+                      // Gate: deletion must start within a highlight span.
+                      let foundMark = null
+                      oldState.doc.nodesBetween(
+                        from,
+                        Math.min(from + 1, to, oldState.doc.content.size),
+                        (node) => {
+                          if (!node.isText || foundMark) return
+                          const h = node.marks.find((m) => m.type === highlightType)
+                          if (h) foundMark = h
+                        },
+                      )
+                      if (!foundMark) continue
+
+                      preservedHighlightRef.current = foundMark
+
+                      // If the step also inserted replacement content, highlight it directly.
+                      const insertedSize = step.slice?.content?.size ?? 0
+                      if (insertedSize > 0) {
+                        const mark = highlightType.create({ color: foundMark.attrs?.color })
+                        return newState.tr.addMark(from, from + insertedSize, mark)
+                      }
+                      // Pure deletion: preserve session is now active; next insertion handled below.
+                      return null
+                    }
+
+                    // Pure insertions are handled by handleTextInput below.
+                  }
+                  return null
+                },
+              }),
+            ]
+          },
+        }),
       ],
       content: EMPTY_DOC,
       editorProps: {
@@ -215,20 +285,67 @@ export const useEditorSetup = ({
         // selection, not at its boundary) so ProseMirror's default text-input handler
         // uses them for the replacement.
         handleKeyDown: (view, event) => {
-          if (event.key.length !== 1) return false // non-printable key
-          if (event.ctrlKey || event.metaKey || event.altKey) return false // shortcut
+          // Navigation keys end the preserve session so that typing after cursor movement
+          // does not accidentally inherit a previous highlight color.
+          // Backspace/Delete are excluded: appendTransaction handles them.
+          if (event.key.length !== 1) {
+            if (!['Shift', 'CapsLock', 'Backspace', 'Delete'].includes(event.key)) {
+              preservedHighlightRef.current = null
+            }
+            return false
+          }
+          if (event.ctrlKey || event.metaKey || event.altKey) {
+            preservedHighlightRef.current = null
+            return false
+          }
+          return false
+        },
+        // Intercept text input so the mark is applied in the same transaction as the
+        // character insertion — avoiding a two-step dispatch where something can strip
+        // the mark between the insert and the addMark steps.
+        handleTextInput: (view, from, to, text) => {
           const { state } = view
-          if (state.selection.empty) return false // cursor only — not affected by boundary issue
           const highlightType = state.schema.marks.highlight
           if (!highlightType) return false
-          const { from, to } = state.selection
-          if (from + 1 > to) return false
-          const $mid = state.doc.resolve(from + 1)
-          const highlightMark = $mid.marks().find((m) => m.type === highlightType)
-          if (!highlightMark) return false
-          // Store marks so ProseMirror's upcoming insertText picks them up
-          view.dispatch(state.tr.setStoredMarks($mid.marks()))
-          return false // still let ProseMirror handle the actual key event
+
+          // Chrome/contenteditable sometimes recomposes the entire text node after
+          // backspaces, sending e.g. "Expenses due 3" instead of just "3".
+          // Diff old vs new text to find which characters are actually new.
+          const oldText = from < to ? state.doc.textBetween(from, to, '', '\ufffc') : ''
+          let newStart = 0
+          while (newStart < oldText.length && newStart < text.length && oldText[newStart] === text[newStart]) {
+            newStart++
+          }
+          const newChars = text.slice(newStart)
+          if (newChars.length === 0) return false
+
+          // The position where new characters begin (in pre-insertion coordinates).
+          const insertPos = from + newStart
+
+          // Case A: the character immediately before the insert position is highlighted.
+          let highlightToApply = null
+          if (insertPos > 1) {
+            state.doc.nodesBetween(insertPos - 1, Math.min(insertPos, state.doc.content.size), (node) => {
+              if (!node.isText || highlightToApply) return
+              const h = node.marks.find((m) => m.type === highlightType)
+              if (h) highlightToApply = h
+            })
+          }
+
+          // Case B: active preserve session — cursor backspaced out of the span entirely.
+          if (!highlightToApply) highlightToApply = preservedHighlightRef.current ?? null
+
+          if (!highlightToApply) return false
+
+          // Dispatch the full replacement, but only mark the NEW characters.
+          const mark = highlightType.create({ color: highlightToApply.attrs?.color })
+          const markFrom = from + newStart
+          const markTo = from + text.length
+          const tr = state.tr
+            .insertText(text, from, to)
+            .addMark(markFrom, markTo, mark)
+          view.dispatch(tr)
+          return true
         },
       },
     },
@@ -590,6 +707,12 @@ export const useEditorSetup = ({
             const target = highlightTargets[i]
             if (!target) continue
             const expectedHighlights = summary[i]?.highlights ?? []
+            // If the user edited the pasted text before applyFixes ran (fast typing),
+            // the paragraph text no longer matches the clipboard — skip it so we don't
+            // strip highlights that the preserve-session already applied.
+            const expectedText = summary[i]?.text ?? ''
+            const actualText = target.node.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+            if (actualText !== expectedText) continue
             const nodeStart = target.pos + 1 // +1 to step inside the node
             const nodeEnd = nodeStart + target.node.content.size
             // Remove all existing highlight marks in this paragraph/heading
