@@ -238,11 +238,13 @@ function App() {
       const isInternalLink = Boolean(
         target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]'),
       )
+      const isEditorContent = Boolean(target.closest('.ProseMirror'))
       pointerGestureRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         isInternalLink,
+        isEditorContent,
       }
     },
     [],
@@ -261,7 +263,11 @@ function App() {
         return
       }
       if (deepLinkFocusGuardRef.current) {
-        pendingEditTapRef.current = { left: event.clientX, top: event.clientY }
+        pendingEditTapRef.current = {
+          left: event.clientX,
+          top: event.clientY,
+          inEditor: gesture.isEditorContent,
+        }
       } else {
         pendingEditTapRef.current = null
       }

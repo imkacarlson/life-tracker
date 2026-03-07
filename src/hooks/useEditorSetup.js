@@ -92,6 +92,7 @@ export const useEditorSetup = ({
   })
   const pendingPasteFixRef = useRef(false)
   const previousDeepLinkFocusGuardRef = useRef(deepLinkFocusGuard)
+  const pendingDesktopDeepLinkRecoveryRef = useRef(false)
 
   const getListDepthAt = useCallback((state, pos) => {
     const $pos = state.doc.resolve(pos)
@@ -493,10 +494,12 @@ export const useEditorSetup = ({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (editorLocked || settingsMode) return
+    const isTouchDevice = isTouchOnlyDevice()
     const wasGuarded = previousDeepLinkFocusGuardRef.current
     previousDeepLinkFocusGuardRef.current = deepLinkFocusGuard
-    const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
+    const suppressProgrammaticFocus = isTouchDevice && deepLinkFocusGuard
     if (suppressProgrammaticFocus) {
+      pendingDesktopDeepLinkRecoveryRef.current = false
       editor.setEditable(false)
       editor.view.dom.blur()
       requestAnimationFrame(() => {
@@ -507,12 +510,20 @@ export const useEditorSetup = ({
       return
     }
     const tapIntent = pendingEditTapRef?.current
-    if (wasGuarded && tapIntent && isTouchOnlyDevice()) {
-      const pos = editor.view.posAtCoords(tapIntent)
-      if (pos?.pos != null) {
-        editor.commands.setTextSelection(pos.pos)
-      }
+    let handledInEditorTap = false
+    if (wasGuarded && tapIntent?.inEditor) {
+      const pos = editor.view.posAtCoords({
+        left: tapIntent.left,
+        top: tapIntent.top,
+      })
+      if (pos?.pos != null) editor.commands.setTextSelection(pos.pos)
+      handledInEditorTap = true
+    }
+    if (wasGuarded) {
+      pendingDesktopDeepLinkRecoveryRef.current = !isTouchDevice && !handledInEditorTap
       pendingEditTapRef.current = null
+    }
+    if (handledInEditorTap) {
       editor.setEditable(true)
       requestAnimationFrame(() => {
         if (!editor.isDestroyed) {
@@ -523,6 +534,46 @@ export const useEditorSetup = ({
     }
     editor.setEditable(true)
   }, [editor, editorLocked, settingsMode, deepLinkFocusGuard, pendingEditTapRef])
+
+  // Desktop fallback for issue #61: when a deep-link highlight is cleared by a click
+  // outside the editor, recover focus/caret on the next in-editor click.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    if (isTouchOnlyDevice()) return
+    const root = editor.view?.dom
+    if (!root) return
+
+    const handlePointerDown = (event) => {
+      if (event.pointerType === 'touch') return
+      if (!pendingDesktopDeepLinkRecoveryRef.current) return
+      if (editorLocked || settingsMode) return
+      if (deepLinkFocusGuard || deepLinkFocusGuardRef.current) return
+      if (editor.view.hasFocus()) {
+        pendingDesktopDeepLinkRecoveryRef.current = false
+        return
+      }
+
+      const activeTag = document.activeElement?.tagName
+      if (activeTag && activeTag !== 'BODY' && activeTag !== 'HTML') {
+        pendingDesktopDeepLinkRecoveryRef.current = false
+        return
+      }
+
+      const pos = editor.view.posAtCoords({
+        left: event.clientX,
+        top: event.clientY,
+      })
+      if (pos?.pos != null) editor.commands.setTextSelection(pos.pos)
+
+      pendingDesktopDeepLinkRecoveryRef.current = false
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) editor.view.focus()
+      })
+    }
+
+    root.addEventListener('pointerdown', handlePointerDown, true)
+    return () => root.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard, deepLinkFocusGuardRef])
 
   // If the DOM selection is inside the editor but focus has fallen back to <body>,
   // typing/backspace does nothing. This can happen after programmatic selections,
