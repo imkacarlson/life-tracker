@@ -128,7 +128,7 @@ export const useEditorSetup = ({
         TaskListWithId.configure({ nested: true }),
         TaskItem.configure({ nested: true }),
         Underline,
-        Highlight.configure({ multicolor: true }),
+        Highlight.configure({ multicolor: true }).extend({ inclusive: false }),
         TextStyle,
         Color,
         TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -207,6 +207,28 @@ export const useEditorSetup = ({
           event.preventDefault()
           uploadImageRef.current?.(imageFile)
           return true
+        },
+        // With inclusive:false on Highlight, $from.marks() at the mark's start boundary
+        // excludes the mark, so ProseMirror won't carry it onto text typed to replace a
+        // selection. Fix: when a printable key is pressed with a non-empty selection that
+        // sits inside a highlight span, pre-load storedMarks (sampled from inside the
+        // selection, not at its boundary) so ProseMirror's default text-input handler
+        // uses them for the replacement.
+        handleKeyDown: (view, event) => {
+          if (event.key.length !== 1) return false // non-printable key
+          if (event.ctrlKey || event.metaKey || event.altKey) return false // shortcut
+          const { state } = view
+          if (state.selection.empty) return false // cursor only — not affected by boundary issue
+          const highlightType = state.schema.marks.highlight
+          if (!highlightType) return false
+          const { from, to } = state.selection
+          if (from + 1 > to) return false
+          const $mid = state.doc.resolve(from + 1)
+          const highlightMark = $mid.marks().find((m) => m.type === highlightType)
+          if (!highlightMark) return false
+          // Store marks so ProseMirror's upcoming insertText picks them up
+          view.dispatch(state.tr.setStoredMarks($mid.marks()))
+          return false // still let ProseMirror handle the actual key event
         },
       },
     },
@@ -549,6 +571,41 @@ export const useEditorSetup = ({
             guard += 1
           }
         }
+        // Re-apply highlight marks exactly as they existed in the clipboard.
+        // This strips any mark bleed that ProseMirror introduced during paste normalization.
+        const highlightState = view.state
+        const highlightType = highlightState.schema.marks.highlight
+        if (highlightType) {
+          const highlightTargets = []
+          highlightState.doc.nodesBetween(
+            mappedStart,
+            Math.min(mappedEnd, highlightState.doc.content.size),
+            (node, pos) => {
+              if (node.type?.name !== 'paragraph' && node.type?.name !== 'heading') return
+              highlightTargets.push({ node, pos })
+            },
+          )
+          const highlightTr = highlightState.tr
+          for (let i = 0; i < Math.min(summary.length, highlightTargets.length); i += 1) {
+            const target = highlightTargets[i]
+            if (!target) continue
+            const expectedHighlights = summary[i]?.highlights ?? []
+            const nodeStart = target.pos + 1 // +1 to step inside the node
+            const nodeEnd = nodeStart + target.node.content.size
+            // Remove all existing highlight marks in this paragraph/heading
+            highlightTr.removeMark(nodeStart, nodeEnd, highlightType)
+            // Re-apply only the spans captured from the clipboard
+            for (const span of expectedHighlights) {
+              const spanFrom = nodeStart + span.from
+              const spanTo = nodeStart + span.to
+              if (spanFrom >= nodeEnd || spanTo > nodeEnd) continue
+              const mark = highlightType.create({ color: span.color })
+              highlightTr.addMark(spanFrom, spanTo, mark)
+            }
+          }
+          if (highlightTr.docChanged) view.dispatch(highlightTr)
+        }
+
         pasteInfoRef.current = {
           summary: null,
           preFrom: null,
