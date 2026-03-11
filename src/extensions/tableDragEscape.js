@@ -88,6 +88,10 @@ const TableDragEscape = Extension.create({
 
               let escaped = false
               let crossedCells = false
+              // Lazily computed on first cross-cell move so that simple clicks
+              // in a table cell are never blocked by a failed posAtDOM lookup.
+              let anchorCellPos = null
+              let lastHeadCellPos = null
               const root = view.root
 
               function onMove(e) {
@@ -114,20 +118,39 @@ const TableDragEscape = Extension.create({
                   }
 
                   crossedCells = true
+                  e.preventDefault()
                   e.stopImmediatePropagation()
 
-                  const headCoords = view.posAtCoords({ left: e.clientX, top: e.clientY })
-                  if (!headCoords) return
+                  // Lazily resolve the anchor cell position on the first
+                  // cross-cell move using posAtDOM for reliability.
+                  if (anchorCellPos == null) {
+                    try {
+                      const aPos = view.posAtDOM(anchorCell, 0)
+                      const $a = view.state.doc.resolve(aPos)
+                      anchorCellPos = cellPosFromResolved($a)
+                    } catch (_) { /* posAtDOM can fail for detached nodes */ }
+                    if (anchorCellPos == null) return
+                  }
 
-                  const $anchor = view.state.doc.resolve(anchorPos)
-                  const $head = view.state.doc.resolve(headCoords.pos)
-                  const anchorCellPos = cellPosFromResolved($anchor)
-                  const headCellPos = cellPosFromResolved($head)
-                  if (anchorCellPos == null || headCellPos == null) return
+                  // Use posAtDOM for the head cell too — posAtCoords on cell
+                  // borders can resolve outside any cell.
+                  const headCellDOM = headCell || anchorCell
+                  try {
+                    const headDOMPos = view.posAtDOM(headCellDOM, 0)
+                    const $head = view.state.doc.resolve(headDOMPos)
+                    const headCellPos = cellPosFromResolved($head)
+                    if (headCellPos == null) return
+                    lastHeadCellPos = headCellPos
 
-                  const sel = CellSelection.create(view.state.doc, anchorCellPos, headCellPos)
-                  const tr = view.state.tr.setSelection(sel)
-                  view.dispatch(tr)
+                    const sel = CellSelection.create(view.state.doc, anchorCellPos, headCellPos)
+                    const tr = view.state.tr.setSelection(sel)
+                    view.dispatch(tr)
+                    // The browser's native text selection (started by mousedown)
+                    // keeps running during drag and will override our CellSelection
+                    // via ProseMirror's DOM observer. Clear it so it can't fight back.
+                    const domSel = view.root.getSelection?.() || window.getSelection?.()
+                    if (domSel) domSel.removeAllRanges()
+                  } catch (_) { /* posAtDOM can fail for detached nodes */ }
                   return
                 }
 
@@ -164,11 +187,31 @@ const TableDragEscape = Extension.create({
               }
 
               function onUp(e) {
-                // If we committed to a cross-cell selection, prevent
-                // prosemirror-tables' mouseup handler from resetting it.
-                if (crossedCells) e.stopImmediatePropagation()
                 root.removeEventListener('mousemove', onMove, true)
                 root.removeEventListener('mouseup', onUp, true)
+
+                if (!crossedCells || escaped || anchorCellPos == null || lastHeadCellPos == null) return
+
+                e.preventDefault()
+                e.stopImmediatePropagation()
+
+                // Re-assert the CellSelection immediately and after a frame
+                // so it survives ProseMirror's DOM observer cycle which can
+                // collapse the selection to a single cell.
+                const reassert = () => {
+                  try {
+                    const sel = CellSelection.create(view.state.doc, anchorCellPos, lastHeadCellPos)
+                    // Only dispatch if the current selection differs
+                    const cur = view.state.selection
+                    if (!(cur instanceof CellSelection) ||
+                        cur.$anchorCell.pos !== sel.$anchorCell.pos ||
+                        cur.$headCell.pos !== sel.$headCell.pos) {
+                      view.dispatch(view.state.tr.setSelection(sel))
+                    }
+                  } catch (_) { /* positions may be stale after doc change */ }
+                }
+                reassert()
+                requestAnimationFrame(reassert)
               }
 
               root.addEventListener('mousemove', onMove, true)
