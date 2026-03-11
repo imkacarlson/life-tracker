@@ -23,6 +23,7 @@ import TopBar from './components/app/TopBar'
 import SectionTabs from './components/app/SectionTabs'
 import SectionContextMenu from './components/app/SectionContextMenu'
 import CopyMoveModal from './components/app/CopyMoveModal'
+import ConflictModal from './components/app/ConflictModal'
 import './styles/index.css'
 
 const DEFAULT_SIDEBAR_WIDTH = 280
@@ -146,6 +147,9 @@ function App() {
     reorderTrackers,
     setTrackerPage,
     deleteTracker,
+    draftConflict,
+    resolveConflictWithServer,
+    resolveConflictWithDraft,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
   const {
@@ -638,6 +642,11 @@ function App() {
         onDestChange={(destId) => setCopyMoveModal((prev) => ({ ...prev, destId }))}
         onClose={closeCopyMoveModal}
         onConfirm={handleCopyMoveConfirm}
+      />
+      <ConflictModal
+        conflict={draftConflict}
+        onUseServer={resolveConflictWithServer}
+        onUseDraft={resolveConflictWithDraft}
       />
     </div>
   )

@@ -13,6 +13,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [titleDraft, setTitleDraft] = useState('')
   const [saveStatus, setSaveStatus] = useState('Saved')
   const [hasPendingSaves, setHasPendingSaves] = useState(false)
+  const [draftConflict, setDraftConflict] = useState(null)
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -32,13 +33,15 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId])
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
+    // While a conflict is pending, show server content (modal blocks interaction).
+    if (draftConflict?.trackerId === activeTrackerId) return activeTrackerServer
     if (!activeDraft) return activeTrackerServer
     return {
       ...activeTrackerServer,
       title: typeof activeDraft.title === 'string' ? activeDraft.title : activeTrackerServer.title,
       content: activeDraft.content ?? activeTrackerServer.content,
     }
-  }, [activeDraft, activeTrackerServer])
+  }, [activeDraft, activeTrackerServer, draftConflict, activeTrackerId])
 
   useEffect(() => {
     titleDraftRef.current = titleDraft
@@ -47,6 +50,42 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   useEffect(() => {
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
+
+  // Refs so the conflict-detection effect only fires when activeTrackerId changes.
+  const activeTrackerServerRef = useRef(activeTrackerServer)
+  const activeDraftRef = useRef(activeDraft)
+  useEffect(() => { activeTrackerServerRef.current = activeTrackerServer }, [activeTrackerServer])
+  useEffect(() => { activeDraftRef.current = activeDraft }, [activeDraft])
+
+  // Detect stale draft vs newer server data when switching pages.
+  useEffect(() => {
+    if (!activeTrackerId) {
+      setDraftConflict(null)
+      return
+    }
+    const server = activeTrackerServerRef.current
+    const draft = activeDraftRef.current
+    if (!server || !draft || !draft.ts) {
+      setDraftConflict(null)
+      return
+    }
+    const serverTime = new Date(server.updated_at).getTime()
+    if (serverTime > draft.ts) {
+      setDraftConflict({
+        trackerId: activeTrackerId,
+        draftTs: draft.ts,
+        serverUpdatedAt: server.updated_at,
+        draftContent: draft.content,
+        draftTitle: draft.title,
+        serverContent: server.content,
+        serverTitle: server.title,
+      })
+    } else {
+      setDraftConflict(null)
+    }
+    // Cleanup: if user navigates away while conflict is unresolved, clear it (server wins by default).
+    return () => setDraftConflict(null)
+  }, [activeTrackerId])
 
   useEffect(() => {
     trackersRef.current = trackers
@@ -468,6 +507,20 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
   }
 
+  const resolveConflictWithServer = useCallback(() => {
+    if (!draftConflict) return
+    clearPageDraft(draftConflict.trackerId)
+    setDraftConflict(null)
+  }, [draftConflict])
+
+  const resolveConflictWithDraft = useCallback(() => {
+    if (!draftConflict) return
+    const { trackerId, draftContent, draftTitle } = draftConflict
+    setDraftConflict(null)
+    // Push the draft content to the server via the normal save pipeline.
+    scheduleSave(draftContent, draftTitle, trackerId)
+  }, [draftConflict, scheduleSave])
+
   const sectionTrackerPage = trackers.find((item) => item.is_tracker_page) ?? null
 
   return {
@@ -492,5 +545,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     deleteTracker,
     activeTrackerRef,
     sectionTrackerPage,
+    draftConflict,
+    resolveConflictWithServer,
+    resolveConflictWithDraft,
   }
 }
