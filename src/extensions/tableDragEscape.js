@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { CellSelection } from '@tiptap/pm/tables'
 
 const tableDragEscapeKey = new PluginKey('tableDragEscape')
 
@@ -10,6 +11,27 @@ function isInTableCell($pos) {
     if (name === 'tableCell' || name === 'tableHeader') return true
   }
   return false
+}
+
+// Walk up from a DOM element to find the containing TD/TH, stopping at the
+// editor root.
+function findCellDOM(dom, editorDOM) {
+  while (dom && dom !== editorDOM) {
+    if (dom.nodeName === 'TD' || dom.nodeName === 'TH') return dom
+    dom = dom.parentNode
+  }
+  return null
+}
+
+// Given a resolved ProseMirror position, return the position of the closest
+// ancestor tableCell/tableHeader node (i.e. the cell start position needed
+// by CellSelection.create).
+function cellPosFromResolved($pos) {
+  for (let d = $pos.depth; d > 0; d--) {
+    const name = $pos.node(d).type.name
+    if (name === 'tableCell' || name === 'tableHeader') return $pos.before(d)
+  }
+  return null
 }
 
 const TableDragEscape = Extension.create({
@@ -51,18 +73,10 @@ const TableDragEscape = Extension.create({
               if (event.button !== 0) return false
               if (event.ctrlKey || event.metaKey || event.shiftKey) return false
 
-              let dom = event.target
-              let cell = null
-              while (dom && dom !== view.dom) {
-                if (dom.nodeName === 'TD' || dom.nodeName === 'TH') {
-                  cell = dom
-                  break
-                }
-                dom = dom.parentNode
-              }
-              if (!cell) return false
+              const anchorCell = findCellDOM(event.target, view.dom)
+              if (!anchorCell) return false
 
-              let table = cell.parentNode
+              let table = anchorCell.parentNode
               while (table && table !== view.dom && table.nodeName !== 'TABLE') {
                 table = table.parentNode
               }
@@ -73,6 +87,7 @@ const TableDragEscape = Extension.create({
               const anchorPos = coords.pos
 
               let escaped = false
+              let crossedCells = false
               const root = view.root
 
               function onMove(e) {
@@ -83,8 +98,40 @@ const TableDragEscape = Extension.create({
                   e.clientY < tableRect.top ||
                   e.clientY > tableRect.bottom
 
-                if (!outside && !escaped) return
+                // --- Cross-cell drag within the table ---
+                if (!outside && !escaped) {
+                  const headCell = findCellDOM(
+                    root.elementFromPoint(e.clientX, e.clientY),
+                    view.dom,
+                  )
+                  // Still in the same cell — let normal text selection work.
+                  if (!headCell || headCell === anchorCell) {
+                    // If we previously entered cross-cell mode but dragged
+                    // back into the anchor cell, stay in cross-cell mode so
+                    // that releasing still yields a single-cell CellSelection
+                    // rather than a partial text selection.
+                    if (!crossedCells) return
+                  }
 
+                  crossedCells = true
+                  e.stopImmediatePropagation()
+
+                  const headCoords = view.posAtCoords({ left: e.clientX, top: e.clientY })
+                  if (!headCoords) return
+
+                  const $anchor = view.state.doc.resolve(anchorPos)
+                  const $head = view.state.doc.resolve(headCoords.pos)
+                  const anchorCellPos = cellPosFromResolved($anchor)
+                  const headCellPos = cellPosFromResolved($head)
+                  if (anchorCellPos == null || headCellPos == null) return
+
+                  const sel = CellSelection.create(view.state.doc, anchorCellPos, headCellPos)
+                  const tr = view.state.tr.setSelection(sel)
+                  view.dispatch(tr)
+                  return
+                }
+
+                // --- Drag escaping outside the table ---
                 escaped = true
                 e.stopImmediatePropagation()
 
@@ -116,7 +163,10 @@ const TableDragEscape = Extension.create({
                 view.focus()
               }
 
-              function onUp() {
+              function onUp(e) {
+                // If we committed to a cross-cell selection, prevent
+                // prosemirror-tables' mouseup handler from resetting it.
+                if (crossedCells) e.stopImmediatePropagation()
                 root.removeEventListener('mousemove', onMove, true)
                 root.removeEventListener('mouseup', onUp, true)
               }
