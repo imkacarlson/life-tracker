@@ -176,3 +176,17 @@
   background: #e2e8f0;
   margin: 0.25rem 0;
 }
+
+.conflict-modal {
+  width: min(440px, 100%);
+}
+
+.conflict-timestamps {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.conflict-timestamps p {
+  margin: 0.2rem 0;
+}
