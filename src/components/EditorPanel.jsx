@@ -95,6 +95,47 @@ function EditorPanel({
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const gridSize = 5
+  const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
+
+  const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
+
+  // Find the enclosing listItem/taskItem depth and its index within the parent list
+  const getListItemInfo = useCallback(() => {
+    if (!editor) return null
+    const { $from } = editor.state.selection
+    const itemTypeName = editor.isActive('taskList') || editor.isActive('taskItem') ? 'taskItem' : 'listItem'
+    let itemDepth = null
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth)
+      if (node.type?.name === 'listItem' || node.type?.name === 'taskItem') {
+        itemDepth = depth
+        break
+      }
+    }
+    if (!itemDepth) return null
+    const listDepth = itemDepth - 1
+    const index = $from.index(listDepth)
+    const listParentDepth = listDepth - 1
+    const listParent = listParentDepth > 0 ? $from.node(listParentDepth) : null
+    const isNested = listParent?.type?.name === 'listItem' || listParent?.type?.name === 'taskItem'
+    return { itemTypeName, itemDepth, listDepth, index, isNested }
+  }, [editor])
+
+  const handleIndent = useCallback(() => {
+    if (!editor) return
+    const info = getListItemInfo()
+    // Can't indent the first item (no previous sibling to nest under)
+    if (!info || info.index === 0) return
+    editor.chain().focus().sinkListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo])
+
+  const handleOutdent = useCallback(() => {
+    if (!editor) return
+    const info = getListItemInfo()
+    // Only outdent if nested inside another list item (prevents breaking table cells)
+    if (!info || !info.isNested) return
+    editor.chain().focus().liftListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo])
 
   useEffect(() => {
     if (aiDailyPickerOpen) {
@@ -1324,6 +1365,26 @@ function EditorPanel({
         >
           ☑ List
         </button>
+        {isTouchOnly && (
+          <>
+            <button
+              type="button"
+              onClick={handleOutdent}
+              disabled={!hasTracker || !isInList}
+              title="Outdent"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              onClick={handleIndent}
+              disabled={!hasTracker || !isInList}
+              title="Indent"
+            >
+              →
+            </button>
+          </>
+        )}
 
         <div className="toolbar-divider" />
 
