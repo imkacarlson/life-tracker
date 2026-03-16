@@ -5,6 +5,7 @@ import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
+import { toggleLineStrike } from '../extensions/keyboard/toggleLineStrike'
 import { buildHash } from '../utils/navigationHelpers'
 import EditorHeader from './editor/EditorHeader'
 import FindBar from './editor/FindBar'
@@ -1265,7 +1266,7 @@ function EditorPanel({
         <button
           type="button"
           className={editor?.isActive('strike') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleStrike().run()}
+          onClick={() => editor && toggleLineStrike(editor)}
           disabled={!hasTracker}
         >
           S

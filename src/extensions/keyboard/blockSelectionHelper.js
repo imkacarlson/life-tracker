@@ -19,9 +19,9 @@ const selectRange = (state, view, from, to) => {
   return true
 }
 
-export const expandSelectionToBlock = (editor) => {
-  const { state, view } = editor
-  const { $from, from, to } = state.selection
+// Returns { from, to } for the text range of the current block without mutating selection.
+export const getBlockTextRange = (state) => {
+  const { $from } = state.selection
 
   const list = findAncestor($from, ['listItem', 'taskItem'])
   if (list) {
@@ -35,24 +35,29 @@ export const expandSelectionToBlock = (editor) => {
       }
     })
 
-    const listFrom = paragraphPos !== null ? paragraphPos + 1 : list.pos + 1
-    const listTo =
+    const blockFrom = paragraphPos !== null ? paragraphPos + 1 : list.pos + 1
+    const blockTo =
       paragraphPos !== null && paragraphSize
         ? paragraphPos + paragraphSize - 1
         : list.pos + list.node.nodeSize - 1
 
-    if (!(from <= listFrom && to >= listTo)) {
-      return selectRange(state, view, listFrom, listTo)
-    }
-    return false
+    return { from: blockFrom, to: blockTo }
   }
 
   const textBlock = findAncestor($from, ['paragraph', 'heading'])
-  if (!textBlock) return false
+  if (!textBlock) return null
 
-  const blockFrom = textBlock.pos + 1
-  const blockTo = textBlock.pos + textBlock.node.nodeSize - 1
-  if (selectionCovers(state.selection, blockFrom, blockTo)) return false
+  return { from: textBlock.pos + 1, to: textBlock.pos + textBlock.node.nodeSize - 1 }
+}
 
-  return selectRange(state, view, blockFrom, blockTo)
+export const expandSelectionToBlock = (editor) => {
+  const { state, view } = editor
+  const { from, to } = state.selection
+
+  const range = getBlockTextRange(state)
+  if (!range) return false
+
+  if (selectionCovers(state.selection, range.from, range.to)) return false
+
+  return selectRange(state, view, range.from, range.to)
 }
