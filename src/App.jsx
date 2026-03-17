@@ -150,6 +150,7 @@ function App() {
     draftConflict,
     resolveConflictWithServer,
     resolveConflictWithDraft,
+    flushAllPendingSaves,
   } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
 
   const {
@@ -340,13 +341,30 @@ function App() {
 
   useEffect(() => {
     const handleBeforeUnload = (event) => {
+      flushAllPendingSaves()
       if (!isSaving) return
       event.preventDefault()
       event.returnValue = ''
     }
+    // visibilitychange fires when user switches tabs or apps (primary mobile fix).
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushAllPendingSaves()
+      }
+    }
+    // pagehide is a backup — fires when the page is being unloaded/destroyed.
+    const handlePageHide = () => {
+      flushAllPendingSaves()
+    }
     window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [isSaving])
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
+  }, [isSaving, flushAllPendingSaves])
 
   const handleSignOut = async () => {
     if (!confirmLeaveWhileSaving()) return

@@ -110,22 +110,56 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     latestDraftKeyByTrackerRef.current = {}
   }, [userId])
 
+  // Immediately write any debounced localStorage drafts for all trackers.
+  const flushAllPendingDrafts = useCallback(() => {
+    const draftTimers = draftWriteTimersByTrackerRef.current
+    const queued = queuedPayloadByTrackerRef.current
+    for (const trackerId of Object.keys(draftTimers)) {
+      const timerId = draftTimers[trackerId]
+      if (!timerId) continue
+      clearTimeout(timerId)
+      draftTimers[trackerId] = null
+      // Write the draft from the queued payload (the source of truth for pending content).
+      const pending = queued[trackerId]
+      if (pending) {
+        writePageDraft(trackerId, {
+          title: pending.payload.title,
+          content: pending.payload.content,
+          ts: Date.now(),
+        })
+      }
+    }
+  }, [])
+
+  // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
+  // Called on visibilitychange/pagehide/beforeunload to prevent data loss.
+  const flushAllPendingSaves = useCallback(() => {
+    // 1. Flush localStorage drafts first (synchronous, survives page kill).
+    flushAllPendingDrafts()
+
+    // 2. Trigger Supabase saves for all trackers with pending debounce timers.
+    const timers = saveTimersByTrackerRef.current
+    for (const trackerId of Object.keys(timers)) {
+      const timerId = timers[trackerId]
+      if (!timerId) continue
+      clearTimeout(timerId)
+      timers[trackerId] = null
+      flushSaveForTracker(trackerId)
+    }
+    recomputeHasPendingSaves()
+  }, [flushAllPendingDrafts, flushSaveForTracker, recomputeHasPendingSaves])
+
   useEffect(() => {
     return () => {
-      const timers = saveTimersByTrackerRef.current
-      Object.values(timers).forEach((timerId) => {
-        if (timerId) clearTimeout(timerId)
-      })
+      // Flush pending saves before clearing timers on unmount.
+      flushAllPendingSaves()
+
       const retryTimers = retryTimersByTrackerRef.current
       Object.values(retryTimers).forEach((timerId) => {
         if (timerId) clearTimeout(timerId)
       })
-      const draftTimers = draftWriteTimersByTrackerRef.current
-      Object.values(draftTimers).forEach((timerId) => {
-        if (timerId) clearTimeout(timerId)
-      })
     }
-  }, [])
+  }, [flushAllPendingSaves])
 
   const recomputeHasPendingSaves = useCallback(() => {
     const timers = saveTimersByTrackerRef.current
@@ -548,5 +582,6 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     draftConflict,
     resolveConflictWithServer,
     resolveConflictWithDraft,
+    flushAllPendingSaves,
   }
 }
