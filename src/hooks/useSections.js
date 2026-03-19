@@ -135,12 +135,29 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     return true
   }
 
+  const getUniqueSectionTitle = async (title, destNotebookId) => {
+    const { data: existing } = await supabase
+      .from('sections')
+      .select('title')
+      .eq('notebook_id', destNotebookId)
+
+    const titles = new Set((existing ?? []).map((s) => s.title))
+    if (!titles.has(title)) return title
+
+    let counter = 1
+    while (titles.has(`${title} (${counter})`)) {
+      counter++
+    }
+    return `${title} (${counter})`
+  }
+
   const copySection = async (section, destNotebookId, session) => {
     if (!section || !destNotebookId || !session) return
+    const uniqueTitle = await getUniqueSectionTitle(section.title, destNotebookId)
     const { data: newSection, error: sectionError } = await supabase
       .from('sections')
       .insert({
-        title: section.title,
+        title: uniqueTitle,
         color: section.color,
         user_id: session.user.id,
         notebook_id: destNotebookId,
@@ -151,6 +168,11 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     if (sectionError) {
       setMessage(sectionError.message)
       return
+    }
+
+    // Show the new section immediately if copying within the active notebook
+    if (destNotebookId === activeNotebookId) {
+      setSections((prev) => [...prev, newSection])
     }
 
     const { data: sourcePages, error: fetchError } = await supabase
