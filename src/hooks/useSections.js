@@ -271,11 +271,6 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
       return
     }
 
-    // Show the new section immediately if copying within the active notebook
-    if (destNotebookId === activeNotebookId) {
-      setSections((prev) => [...prev, newSection])
-    }
-
     const { data: sourcePages, error: fetchError } = await supabase
       .from('pages')
       .select('id, title, content, sort_order, is_tracker_page')
@@ -347,6 +342,11 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
           setMessage(firstError.message)
         }
       }
+    }
+
+    // Show the new section only after all pages and content are fully copied
+    if (destNotebookId === activeNotebookId) {
+      setSections((prev) => [...prev, newSection])
     }
   }
 
