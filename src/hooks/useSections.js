@@ -4,9 +4,11 @@ import { COLOR_PALETTE } from '../utils/constants'
 
 const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
 
-// Regenerate block IDs in Tiptap JSON, returning the remapped content and an old→new ID map
-const remapContentIds = (content, pageIdMap) => {
+// Regenerate block IDs in Tiptap JSON, returning the remapped content and an old→new ID map.
+// idMaps: { pageIdMap, sectionId: { old, new }, notebookId: { old, new } }
+const remapContentIds = (content, idMaps) => {
   const blockIdMap = {}
+  const { pageIdMap, sectionId, notebookId } = idMaps
 
   const walkNodes = (node) => {
     if (!node) return node
@@ -27,14 +29,27 @@ const remapContentIds = (content, pageIdMap) => {
         if (!href.startsWith('#pg=') && !href.startsWith('#sec=') && !href.startsWith('#nb=')) return mark
 
         const params = new URLSearchParams(href.slice(1))
-        const oldPageId = params.get('pg')
-        const oldBlockId = params.get('block')
         let changed = false
 
+        const oldNb = params.get('nb')
+        if (oldNb && notebookId && oldNb === notebookId.old) {
+          params.set('nb', notebookId.new)
+          changed = true
+        }
+
+        const oldSec = params.get('sec')
+        if (oldSec && sectionId && oldSec === sectionId.old) {
+          params.set('sec', sectionId.new)
+          changed = true
+        }
+
+        const oldPageId = params.get('pg')
         if (oldPageId && pageIdMap[oldPageId]) {
           params.set('pg', pageIdMap[oldPageId])
           changed = true
         }
+
+        const oldBlockId = params.get('block')
         if (oldBlockId && blockIdMap[oldBlockId]) {
           params.set('block', blockIdMap[oldBlockId])
           changed = true
@@ -305,7 +320,12 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
           remappedContents.push(null)
           continue
         }
-        const { content: remapped, blockIdMap } = remapContentIds(sourcePages[i].content, pageIdMap)
+        const idMaps = {
+          pageIdMap,
+          sectionId: { old: section.id, new: newSection.id },
+          notebookId: { old: activeNotebookId, new: destNotebookId },
+        }
+        const { content: remapped, blockIdMap } = remapContentIds(sourcePages[i].content, idMaps)
         Object.assign(allBlockIds, blockIdMap)
         remappedContents.push(remapped)
       }
