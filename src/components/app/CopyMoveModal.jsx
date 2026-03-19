@@ -20,7 +20,7 @@ function CopyMoveModal({ modal, notebooks, activeNotebookId, onDestChange, onClo
         >
           <option value="">— choose notebook —</option>
           {notebooks
-            .filter((nb) => nb.id !== activeNotebookId)
+            .filter((nb) => modal.action === 'copy' || nb.id !== activeNotebookId)
             .map((nb) => (
               <option key={nb.id} value={nb.id}>
                 {nb.title}
