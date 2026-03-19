@@ -2,6 +2,92 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
 
+const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
+
+// Regenerate block IDs in Tiptap JSON, returning the remapped content and an old→new ID map
+const remapContentIds = (content, pageIdMap) => {
+  const blockIdMap = {}
+
+  const walkNodes = (node) => {
+    if (!node) return node
+    const out = { ...node }
+
+    // Regenerate block IDs for navigable node types
+    if (NODE_TYPES_WITH_IDS.has(node.type) && node.attrs?.id) {
+      const newId = crypto.randomUUID()
+      blockIdMap[node.attrs.id] = newId
+      out.attrs = { ...node.attrs, id: newId, created_at: new Date().toISOString() }
+    }
+
+    // Rewrite internal link hrefs in text marks
+    if (node.marks) {
+      out.marks = node.marks.map((mark) => {
+        if (mark.type !== 'link' || !mark.attrs?.href) return mark
+        const href = mark.attrs.href
+        if (!href.startsWith('#pg=') && !href.startsWith('#sec=') && !href.startsWith('#nb=')) return mark
+
+        const params = new URLSearchParams(href.slice(1))
+        const oldPageId = params.get('pg')
+        const oldBlockId = params.get('block')
+        let changed = false
+
+        if (oldPageId && pageIdMap[oldPageId]) {
+          params.set('pg', pageIdMap[oldPageId])
+          changed = true
+        }
+        if (oldBlockId && blockIdMap[oldBlockId]) {
+          params.set('block', blockIdMap[oldBlockId])
+          changed = true
+        }
+
+        if (!changed) return mark
+        return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
+      })
+    }
+
+    if (node.content) {
+      out.content = node.content.map(walkNodes)
+    }
+
+    return out
+  }
+
+  const remapped = walkNodes(content)
+  return { content: remapped, blockIdMap }
+}
+
+// Second pass: rewrite any block references that were encountered before their new ID was generated
+const fixForwardBlockRefs = (content, blockIdMap) => {
+  const walk = (node) => {
+    if (!node) return node
+    const out = { ...node }
+
+    if (node.marks) {
+      out.marks = node.marks.map((mark) => {
+        if (mark.type !== 'link' || !mark.attrs?.href) return mark
+        const href = mark.attrs.href
+        if (!href.startsWith('#')) return mark
+
+        const params = new URLSearchParams(href.slice(1))
+        const blockId = params.get('block')
+        if (blockId && blockIdMap[blockId]) {
+          params.set('block', blockIdMap[blockId])
+          return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
+        }
+        return mark
+      })
+    }
+
+    if (node.content) {
+      out.content = node.content.map(walk)
+    }
+
+    return out
+  }
+
+  return walk(content)
+}
+
 export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelectionRef) => {
   const [sections, setSections] = useState([])
   const [activeSectionId, setActiveSectionId] = useState(null)
@@ -177,7 +263,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
     const { data: sourcePages, error: fetchError } = await supabase
       .from('pages')
-      .select('title, content, sort_order, is_tracker_page')
+      .select('id, title, content, sort_order, is_tracker_page')
       .eq('section_id', section.id)
 
     if (fetchError) {
@@ -186,20 +272,60 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     }
 
     if (sourcePages && sourcePages.length > 0) {
-      const pageInserts = sourcePages.map((page) =>
-        supabase.from('pages').insert({
-          title: page.title,
-          content: page.content,
-          sort_order: page.sort_order,
-          is_tracker_page: page.is_tracker_page,
-          section_id: newSection.id,
-          user_id: session.user.id,
-        }),
-      )
-      const results = await Promise.all(pageInserts)
-      const firstError = results.find((r) => r.error)?.error
-      if (firstError) {
-        setMessage(firstError.message)
+      // Phase 1: Insert pages to get new IDs and build page ID mapping
+      const pageIdMap = {}
+      const insertedPages = []
+      for (const page of sourcePages) {
+        const { data: newPage, error: insertError } = await supabase
+          .from('pages')
+          .insert({
+            title: page.title,
+            content: page.content,
+            sort_order: page.sort_order,
+            is_tracker_page: page.is_tracker_page,
+            section_id: newSection.id,
+            user_id: session.user.id,
+          })
+          .select('id')
+          .single()
+
+        if (insertError) {
+          setMessage(insertError.message)
+          return
+        }
+        pageIdMap[page.id] = newPage.id
+        insertedPages.push(newPage.id)
+      }
+
+      // Phase 2: Remap block IDs and internal links in each copied page
+      const allBlockIds = {}
+      const remappedContents = []
+      for (let i = 0; i < sourcePages.length; i++) {
+        if (!sourcePages[i].content) {
+          remappedContents.push(null)
+          continue
+        }
+        const { content: remapped, blockIdMap } = remapContentIds(sourcePages[i].content, pageIdMap)
+        Object.assign(allBlockIds, blockIdMap)
+        remappedContents.push(remapped)
+      }
+
+      // Phase 3: Fix forward block references (links that appeared before their target was remapped)
+      const updates = remappedContents.map((content, i) => {
+        if (!content) return null
+        const fixed = fixForwardBlockRefs(content, allBlockIds)
+        return supabase
+          .from('pages')
+          .update({ content: fixed })
+          .eq('id', insertedPages[i])
+      }).filter(Boolean)
+
+      if (updates.length > 0) {
+        const results = await Promise.all(updates)
+        const firstError = results.find((r) => r.error)?.error
+        if (firstError) {
+          setMessage(firstError.message)
+        }
       }
     }
   }
