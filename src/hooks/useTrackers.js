@@ -131,36 +131,6 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     }
   }, [])
 
-  // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
-  // Called on visibilitychange/pagehide/beforeunload to prevent data loss.
-  const flushAllPendingSaves = useCallback(() => {
-    // 1. Flush localStorage drafts first (synchronous, survives page kill).
-    flushAllPendingDrafts()
-
-    // 2. Trigger Supabase saves for all trackers with pending debounce timers.
-    const timers = saveTimersByTrackerRef.current
-    for (const trackerId of Object.keys(timers)) {
-      const timerId = timers[trackerId]
-      if (!timerId) continue
-      clearTimeout(timerId)
-      timers[trackerId] = null
-      flushSaveForTracker(trackerId)
-    }
-    recomputeHasPendingSaves()
-  }, [flushAllPendingDrafts, flushSaveForTracker, recomputeHasPendingSaves])
-
-  useEffect(() => {
-    return () => {
-      // Flush pending saves before clearing timers on unmount.
-      flushAllPendingSaves()
-
-      const retryTimers = retryTimersByTrackerRef.current
-      Object.values(retryTimers).forEach((timerId) => {
-        if (timerId) clearTimeout(timerId)
-      })
-    }
-  }, [flushAllPendingSaves])
-
   const recomputeHasPendingSaves = useCallback(() => {
     const timers = saveTimersByTrackerRef.current
     const retries = retryTimersByTrackerRef.current
@@ -285,6 +255,36 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     },
     [maybeClearLocalDraft, recomputeHasPendingSaves],
   )
+
+  // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
+  // Called on visibilitychange/pagehide/beforeunload to prevent data loss.
+  const flushAllPendingSaves = useCallback(() => {
+    // 1. Flush localStorage drafts first (synchronous, survives page kill).
+    flushAllPendingDrafts()
+
+    // 2. Trigger Supabase saves for all trackers with pending debounce timers.
+    const timers = saveTimersByTrackerRef.current
+    for (const trackerId of Object.keys(timers)) {
+      const timerId = timers[trackerId]
+      if (!timerId) continue
+      clearTimeout(timerId)
+      timers[trackerId] = null
+      flushSaveForTracker(trackerId)
+    }
+    recomputeHasPendingSaves()
+  }, [flushAllPendingDrafts, flushSaveForTracker, recomputeHasPendingSaves])
+
+  useEffect(() => {
+    return () => {
+      // Flush pending saves before clearing timers on unmount.
+      flushAllPendingSaves()
+
+      const retryTimers = retryTimersByTrackerRef.current
+      Object.values(retryTimers).forEach((timerId) => {
+        if (timerId) clearTimeout(timerId)
+      })
+    }
+  }, [flushAllPendingSaves])
 
   const loadTrackers = useCallback(
     async (sectionId) => {
