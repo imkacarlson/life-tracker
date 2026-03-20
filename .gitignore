@@ -36,3 +36,4 @@ playwright/.auth/
 *.njsproj
 *.sln
 *.sw?
+.gstack/

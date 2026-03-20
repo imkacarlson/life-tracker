@@ -106,12 +106,10 @@ test.describe('Issue #77 draft conflict resolution', () => {
       SERVER_CONTENT,
     )
 
-    // Navigate to the app
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    // Navigate to the test page via URL hash
+    // Navigate directly to the test page (full page load so loadTrackers
+    // picks up the page we just created via the API).
     await page.goto(`/#pg=${testPage.id}`)
+    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
     await page.waitForSelector('.ProseMirror', { timeout: 10000 })
 
     // Wait for editor to load the server content
