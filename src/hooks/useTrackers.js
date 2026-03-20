@@ -14,6 +14,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [saveStatus, setSaveStatus] = useState('Saved')
   const [hasPendingSaves, setHasPendingSaves] = useState(false)
   const [draftConflict, setDraftConflict] = useState(null)
+  const [draftInvalidation, setDraftInvalidation] = useState(0)
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -30,7 +31,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
   // Drafts are only needed when entering a page; we don't need to re-read localStorage every render.
-  const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId])
+  // draftInvalidation is bumped when a draft is cleared so this recomputes even if activeTrackerId stays the same.
+  const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId, draftInvalidation])
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
     // While a conflict is pending, show server content (modal blocks interaction).
@@ -177,6 +179,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     }
     clearPageDraft(trackerId)
     delete latestDraftKeyByTrackerRef.current[trackerId]
+    // Only invalidate if the cleared draft belongs to the active page to avoid unnecessary re-reads.
+    if (trackerId === activeTrackerRef.current?.id) {
+      setDraftInvalidation((n) => n + 1)
+    }
   }, [getHasPendingForTracker])
 
   const flushSaveForTracker = useCallback(
@@ -545,6 +551,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     if (!draftConflict) return
     clearPageDraft(draftConflict.trackerId)
     setDraftConflict(null)
+    setDraftInvalidation((n) => n + 1)
   }, [draftConflict])
 
   const resolveConflictWithDraft = useCallback(() => {
