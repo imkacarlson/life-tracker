@@ -663,7 +663,13 @@ function App() {
       />
       <ConflictModal
         conflict={draftConflict}
-        onUseServer={resolveConflictWithServer}
+        onUseServer={() => {
+          const serverContent = draftConflict?.serverContent
+          resolveConflictWithServer()
+          if (editor && serverContent) {
+            editor.commands.setContent(serverContent, { emitUpdate: false })
+          }
+        }}
         onUseDraft={resolveConflictWithDraft}
       />
     </div>
