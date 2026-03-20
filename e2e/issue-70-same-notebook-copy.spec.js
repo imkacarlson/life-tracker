@@ -1,34 +1,77 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
-/**
- * Issue #70 — Copy section to same notebook with auto-suffixed titles
- *
- * Seed data assumption: the test user account has:
- *   - A section called "Test Section" with at least one page
- *   - A page called "Test Scratchpad" containing an internal link (href with pg= and block=)
- */
+// Block ID for the internal link target
+const TARGET_BLOCK_ID = 'e2e-target-block-copy'
 
 test.describe('Issue #70 same-notebook section copy', () => {
-  const waitForApp = async (page) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-  }
+  let testSection = null
+  let scratchpadPage = null
+  let targetPage = null
 
-  const findTestSection = async (page) => {
-    const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
-    let seedVisible = true
-    try {
-      await tab.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    return { tab, seedVisible }
-  }
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+
+    // Find the first existing notebook to attach our test section to
+    const { data: notebooks } = await client
+      .from('notebooks')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1)
+    const notebookId = notebooks?.[0]?.id
+    if (!notebookId) throw new Error('No notebook found for test seed data')
+
+    // Create our own section with pages
+    testSection = await createSection(client, userId, notebookId, 'Test Section', 9999)
+
+    // Create target page first (so we have its ID for the internal link)
+    targetPage = await createPage(client, userId, testSection.id, 'Test Page', {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 2, id: 'h-copy-top' },
+          content: [{ type: 'text', text: 'Wedding Planning' }],
+        },
+        {
+          type: 'paragraph',
+          attrs: { id: TARGET_BLOCK_ID },
+          content: [{ type: 'text', text: 'Target block for internal link.' }],
+        },
+      ],
+    })
+
+    // Create scratchpad page with an internal link to the target page
+    const linkHref = `#pg=${targetPage.id}&block=${TARGET_BLOCK_ID}`
+    scratchpadPage = await createPage(client, userId, testSection.id, 'Test Scratchpad', {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          attrs: { id: 'p-copy-link' },
+          content: [
+            { type: 'text', text: 'See ' },
+            {
+              type: 'text',
+              marks: [
+                {
+                  type: 'link',
+                  attrs: { href: linkHref, target: '_self', class: null },
+                },
+              ],
+              text: 'the target',
+            },
+          ],
+        },
+      ],
+    })
+  })
 
   test('copy section to same notebook creates suffixed duplicate', async ({ page }) => {
     await waitForApp(page)
-    const { tab, seedVisible } = await findTestSection(page)
-    test.skip(!seedVisible, 'Seed data missing — Test Section required')
+
+    const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
+    await expect(tab).toBeVisible({ timeout: 5000 })
 
     // Right-click the section tab to open context menu
     await tab.click({ button: 'right' })
@@ -36,13 +79,11 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await expect(copyBtn).toBeVisible({ timeout: 3000 })
     await copyBtn.click()
 
-    // Modal should show — select the current notebook (it should now be in the list)
+    // Modal should show — select the current notebook
     const modal = page.locator('.copy-move-modal')
     await expect(modal).toBeVisible({ timeout: 3000 })
     const select = modal.locator('select')
 
-    // Find the current notebook option — it's the one whose sections include "Test Section"
-    // Just pick the first non-empty option (the notebook list includes the active one now)
     const options = select.locator('option:not([value=""])')
     const optionCount = await options.count()
     expect(optionCount).toBeGreaterThan(0)
@@ -65,22 +106,16 @@ test.describe('Issue #70 same-notebook section copy', () => {
 
   test('copy section remaps internal links to copied pages', async ({ page }) => {
     await waitForApp(page)
-    const { tab, seedVisible } = await findTestSection(page)
-    test.skip(!seedVisible, 'Seed data missing — Test Section required')
 
-    // First, find an internal link in Test Scratchpad to know what to look for
+    const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
+    await expect(tab).toBeVisible({ timeout: 5000 })
+
+    // Navigate to Test Scratchpad and read the original internal link
     await tab.click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    const scratchpadPage = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' })
-    let hasScratchpad = true
-    try {
-      await scratchpadPage.waitFor({ state: 'visible', timeout: 3000 })
-    } catch {
-      hasScratchpad = false
-    }
-    test.skip(!hasScratchpad, 'Seed data missing — Test Scratchpad page with internal link required')
-
-    await scratchpadPage.click()
+    const scratchpadLink = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' })
+    await expect(scratchpadLink).toBeVisible({ timeout: 3000 })
+    await scratchpadLink.click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     // Read the original internal link href
@@ -105,7 +140,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await modal.getByRole('button', { name: 'Copy' }).click()
     await expect(modal).not.toBeVisible({ timeout: 3000 })
 
-    // Navigate to the copied section (tab only appears after copy is fully complete)
+    // Navigate to the copied section
     const copiedTab = page.locator('.section-tab', { hasText: 'Test Section (1)' })
     await expect(copiedTab).toBeVisible({ timeout: 10000 })
     await copiedTab.click()
@@ -132,8 +167,6 @@ test.describe('Issue #70 same-notebook section copy', () => {
     // Clean up: delete the copied section via its × button
     page.once('dialog', (dialog) => dialog.accept())
     await copiedTab.locator('.tab-delete').click()
-
-    // Verify it's gone
     await expect(copiedTab).not.toBeVisible({ timeout: 5000 })
   })
 })

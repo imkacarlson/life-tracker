@@ -1,21 +1,76 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
 
-/**
- * Internal Link Navigation Tests
- *
- * Seed data assumption: the test user account has:
- *   - A page called "Test Scratchpad" containing an internal link pointing to "Test Section"
- *   - A page called "Test Section" with content including the target block
- */
+// Block ID that will be used as the deep-link target in Page B
+const TARGET_BLOCK_ID = 'e2e-target-block-nav'
 
 test.describe('Internal link navigation', () => {
+  let pageA = null // "Test Scratchpad" with internal link
+  let pageB = null // "Test Section" with target block
+
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const sectionId = await findFirstSection(client, userId)
+
+    // Create Page B first so we have its ID for the internal link
+    pageB = await createPage(client, userId, sectionId, 'Test Section', {
+      type: 'doc',
+      content: [
+        {
+          type: 'heading',
+          attrs: { level: 2, id: 'h-nav-top' },
+          content: [{ type: 'text', text: 'Running Stuff' }],
+        },
+        {
+          type: 'paragraph',
+          attrs: { id: 'p-nav-filler' },
+          content: [{ type: 'text', text: 'Some filler content above the target.' }],
+        },
+        {
+          type: 'paragraph',
+          attrs: { id: TARGET_BLOCK_ID },
+          content: [{ type: 'text', text: 'This is the deep link target paragraph.' }],
+        },
+        {
+          type: 'paragraph',
+          attrs: { id: 'p-nav-below' },
+          content: [{ type: 'text', text: 'Content below the target block.' }],
+        },
+      ],
+    })
+
+    // Create Page A with an internal link pointing to Page B's target block
+    const linkHref = `#pg=${pageB.id}&block=${TARGET_BLOCK_ID}`
+    pageA = await createPage(client, userId, sectionId, 'Test Scratchpad', {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          attrs: { id: 'p-nav-link' },
+          content: [
+            { type: 'text', text: 'Click here to go to ' },
+            {
+              type: 'text',
+              marks: [
+                {
+                  type: 'link',
+                  attrs: { href: linkHref, target: '_self', class: null },
+                },
+              ],
+              text: 'the target block',
+            },
+          ],
+        },
+      ],
+    })
+  })
+
   test.beforeEach(async ({ page }) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 10000 })
+    await waitForApp(page)
   })
 
   test('deep link highlights target block, clicking elsewhere unhighlights', async ({ page }) => {
-    // 1. Navigate to Test Scratchpad via sidebar and read the internal link href
+    // 1. Navigate to Page A (Test Scratchpad) and read the internal link href
     await page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
     const internalLink = page.locator('.ProseMirror a[href*="pg="]').first()
@@ -30,12 +85,10 @@ test.describe('Internal link navigation', () => {
     await page.locator('.sidebar-title', { hasText: 'Test Section' }).click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
 
-    // 3. Trigger the deep link by setting the hash — the page content is already
-    //    in the DOM so scrollToBlock will find the block immediately
+    // 3. Trigger the deep link by setting the hash
     await page.evaluate((h) => { window.location.hash = h }, href)
 
-    // 4. The app highlights the target block via a <style> tag that targets the
-    //    block by its id attribute. Wait for the style element to contain the block ID.
+    // 4. The app highlights the target block via a <style> tag
     const styleLocator = page.locator('#deep-link-target-style')
     await expect(async () => {
       const content = await styleLocator.textContent()

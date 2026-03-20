@@ -1,31 +1,77 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+
+// Self-contained seed data: a page with a list item and a table with "Next Steps" paragraph
+const SEED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'bulletList',
+      attrs: { id: 'bl-strike-1' },
+      content: [
+        {
+          type: 'listItem',
+          content: [
+            {
+              type: 'paragraph',
+              attrs: { id: 'p-strike-li' },
+              content: [{ type: 'text', text: 'Review quarterly goals' }],
+            },
+          ],
+        },
+        {
+          type: 'listItem',
+          content: [
+            {
+              type: 'paragraph',
+              attrs: { id: 'p-strike-li2' },
+              content: [{ type: 'text', text: 'Send out wedding invites' }],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      type: 'table',
+      attrs: { id: 'tbl-strike-1' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  attrs: { id: 'p-strike-next' },
+                  content: [{ type: 'text', text: 'Next Steps: finalize budget' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
 
 test.describe('Issue #68 strikethrough toggle on entire line', () => {
-  const openTestSection = async (page) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
+  let testPage = null
 
-    const testSection = page.locator('.sidebar-title', { hasText: 'Test Section' }).first()
-    let seedVisible = true
-    try {
-      await testSection.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    return { testSection, seedVisible }
-  }
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const sectionId = await findFirstSection(client, userId)
+    testPage = await createPage(client, userId, sectionId, 'Test Section', SEED_CONTENT)
+  })
 
   test('cursor in list item: S button toggles strikethrough on entire line', async ({ page }) => {
-    const { testSection, seedVisible } = await openTestSection(page)
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     // Find a list item to test
     const listItem = page.locator('.ProseMirror li').first()
     await expect(listItem).toBeVisible({ timeout: 5000 })
-    const originalText = await listItem.innerText()
 
     // Click at end of the list item text (cursor, no selection)
     await listItem.click()
@@ -63,13 +109,10 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
   })
 
   test('cursor in paragraph: S button toggles strikethrough on entire block', async ({ page }) => {
-    const { testSection, seedVisible } = await openTestSection(page)
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
-    // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraphs)
+    // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraph)
     const block = page.locator('.ProseMirror td p').filter({ hasText: 'Next Steps' }).first()
     await expect(block).toBeVisible({ timeout: 5000 })
 
@@ -100,21 +143,16 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
   })
 
   test('partial selection: S button toggles strikethrough on selected text only', async ({ page }) => {
-    const { testSection, seedVisible } = await openTestSection(page)
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     const listItem = page.locator('.ProseMirror li').first()
     await expect(listItem).toBeVisible({ timeout: 5000 })
 
-    // Select only part of the text using triple-click then shift+left to deselect end
+    // Select only part of the text using keyboard: Home, then Shift+Right x3
     const paragraph = listItem.locator('p').first()
     await expect(paragraph).toBeVisible({ timeout: 5000 })
-    const fullText = await paragraph.innerText()
 
-    // Use keyboard to select part of the text: Home, then Shift+Right x3
     await paragraph.click()
     await page.keyboard.press('Home')
     await page.keyboard.press('Shift+ArrowRight')

@@ -5,12 +5,7 @@
 // 2. Tiptap editor content was not refreshed after conflict resolution
 
 import { test, expect } from './fixtures'
-import { createClient } from '@supabase/supabase-js'
-import { config } from 'dotenv'
-import path from 'path'
-
-config({ path: path.resolve(process.cwd(), '.env.local') })
-config({ path: path.resolve(process.cwd(), '.env.test'), override: true })
+import { getSupabase, createPage, findFirstSection } from './test-helpers'
 
 const SERVER_CONTENT = {
   type: 'doc',
@@ -37,37 +32,6 @@ const DRAFT_CONTENT = {
   ],
 }
 
-const getSupabase = async () => {
-  const url = process.env.VITE_SUPABASE_URL
-  const key = process.env.VITE_SUPABASE_ANON_KEY
-  const email = process.env.TEST_USER_EMAIL
-  const password = process.env.TEST_USER_PASSWORD
-  if (!url || !key || !email || !password) return null
-
-  const client = createClient(url, key)
-  const { error } = await client.auth.signInWithPassword({ email, password })
-  if (error) return null
-
-  const { data } = await client.auth.getUser()
-  return { client, userId: data?.user?.id }
-}
-
-const createTestPage = async (supabase, userId, sectionId, title, content) => {
-  const { data, error } = await supabase
-    .from('pages')
-    .insert({
-      user_id: userId,
-      section_id: sectionId,
-      title,
-      content,
-      sort_order: 9999,
-    })
-    .select()
-    .single()
-  if (error) throw error
-  return data
-}
-
 test.describe('Issue #77 draft conflict resolution', () => {
   let supabaseInfo = null
   let testPage = null
@@ -75,30 +39,14 @@ test.describe('Issue #77 draft conflict resolution', () => {
 
   test.beforeAll(async () => {
     supabaseInfo = await getSupabase()
-    if (!supabaseInfo) return
-
-    // Find the first section to attach our test page to
-    const { data: sections } = await supabaseInfo.client
-      .from('sections')
-      .select('id')
-      .eq('user_id', supabaseInfo.userId)
-      .limit(1)
-    sectionId = sections?.[0]?.id ?? null
-  })
-
-  test.afterAll(async () => {
-    // Clean up test page if created (snapshot/restore fixture handles this too,
-    // but explicit cleanup is good practice for self-contained tests)
-    if (testPage && supabaseInfo) {
-      await supabaseInfo.client.from('pages').delete().eq('id', testPage.id)
-    }
+    sectionId = await findFirstSection(supabaseInfo.client, supabaseInfo.userId).catch(() => null)
   })
 
   const setupConflict = async (page) => {
-    if (!supabaseInfo || !sectionId) return null
+    if (!sectionId) return null
 
     // Create a temporary page with known server content
-    testPage = await createTestPage(
+    testPage = await createPage(
       supabaseInfo.client,
       supabaseInfo.userId,
       sectionId,

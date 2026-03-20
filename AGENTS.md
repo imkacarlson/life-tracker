@@ -133,7 +133,7 @@ Playwright E2E tests live in `e2e/`. Two viewport projects run automatically:
 
 **Test philosophy:** Behavioral assertions; use `getByRole`/`getByText` where possible. Tests should survive UI overhauls.
 
-**Seed data:** Some tests require seed data (e.g., two tracker pages with an internal link between them). Tests use `test.skip` when seed data is absent.
+**Seed data:** Tests are self-contained — each test creates its own data (pages, sections, etc.) in `beforeAll` via the Supabase API using helpers from `e2e/test-helpers.js`. The `isolateSupabaseData` fixture in `e2e/fixtures.js` snapshots and restores DB state between tests as a safety net.
 
 ## Commands
 
