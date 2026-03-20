@@ -1,23 +1,92 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+
+// Self-contained seed data: a page with a bullet list inside a table
+// (tests that indent/outdent in a table cell doesn't create spurious rows)
+const SEED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'table',
+      attrs: { id: 'tbl-indent-1' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableHeader',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Wedding Planning' }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'bulletList',
+                  attrs: { id: 'bl-indent-1' },
+                  content: [
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [{ type: 'text', text: 'Get DJ scheduled' }],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [{ type: 'text', text: 'Send out wedding invites' }],
+                        },
+                      ],
+                    },
+                    {
+                      type: 'listItem',
+                      content: [
+                        {
+                          type: 'paragraph',
+                          content: [{ type: 'text', text: 'Book photographer' }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
 
 test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
+  let testPage = null
+
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const sectionId = await findFirstSection(client, userId)
+    testPage = await createPage(client, userId, sectionId, 'Test Section', SEED_CONTENT)
+  })
+
   test('mobile: indent/outdent buttons appear and work on list items', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    // Seed data check: need Test Section page with a list
-    const testSection = page.locator('.sidebar-title', { hasText: 'Test Section' }).first()
-    let seedVisible = true
-    try {
-      await testSection.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     const indentBtn = page.getByRole('button', { name: '→' })
@@ -85,19 +154,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   test('mobile: indent/outdent on first list item in table does not create rows', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    const testSection = page.locator('.sidebar-title', { hasText: 'Test Section' }).first()
-    let seedVisible = true
-    try {
-      await testSection.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     const indentBtn = page.getByRole('button', { name: '→' })
@@ -131,19 +188,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   test('desktop: indent/outdent buttons are not visible', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop-only check')
 
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    const testSection = page.locator('.sidebar-title', { hasText: 'Test Section' }).first()
-    let seedVisible = true
-    try {
-      await testSection.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    test.skip(!seedVisible, 'Seed data missing Test Section page')
-
-    await testSection.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     // Indent/outdent buttons should not exist on desktop

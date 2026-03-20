@@ -1,4 +1,24 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+
+// Self-contained seed data: a page with a highlighted date in "Expenses due 2/22"
+const SEED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-highlight-1' },
+      content: [
+        { type: 'text', text: 'Expenses due ' },
+        {
+          type: 'text',
+          marks: [{ type: 'highlight', attrs: { color: '#fef08a' } }],
+          text: '2/22',
+        },
+      ],
+    },
+  ],
+}
 
 const readExpenseState = async (page) =>
   page.evaluate(() => {
@@ -14,17 +34,29 @@ const readExpenseState = async (page) =>
   })
 
 test.describe('Issue #62 highlight paste regression', () => {
-  test('copy/paste + date edit keeps highlight on date token only', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-    await page.locator('.sidebar-title', { hasText: 'Test Section' }).click()
+  let testPage = null
+
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const sectionId = await findFirstSection(client, userId)
+    testPage = await createPage(client, userId, sectionId, 'Test Section', SEED_CONTENT)
+  })
+
+  test('copy/paste + date edit keeps highlight on date token only', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Desktop keyboard shortcut flow (Shift+Home, Ctrl+C/V)')
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+    // Wait for the seed content to render in the editor
+    await expect(page.locator('.ProseMirror')).toContainText('Expenses due 2/22', { timeout: 10000 })
+
     const baselineState = await readExpenseState(page)
     const hasSeedLine = baselineState.some((line) => line.text.includes('Expenses due 2/22'))
     const hasSeedHighlight = baselineState.some(
       (line) => line.text.includes('Expenses due 2/22') && line.marks.includes('2/22'),
     )
-    test.skip(!hasSeedLine || !hasSeedHighlight, 'Seed data missing highlighted "Expenses due 2/22" line')
+    expect(hasSeedLine).toBe(true)
+    expect(hasSeedHighlight).toBe(true)
 
     const sourceLine = page.locator('.ProseMirror p, .ProseMirror li', { hasText: 'Expenses due 2/22' }).first()
     await sourceLine.click()

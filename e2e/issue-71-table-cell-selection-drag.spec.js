@@ -1,4 +1,94 @@
 import { test, expect } from './fixtures'
+import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+
+// Self-contained seed data: a page with a 3x2 table (header row + 2 data rows)
+// Using multiple data rows ensures cross-cell drag works reliably
+const SEED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'table',
+      attrs: { id: 'tbl-drag-1' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableHeader',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Category' }],
+                },
+              ],
+            },
+            {
+              type: 'tableHeader',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Status' }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Running' }],
+                },
+              ],
+            },
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'On track' }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Finance' }],
+                },
+              ],
+            },
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Needs review' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
 
 /**
  * Count how many table cells currently have the .selectedCell class,
@@ -9,27 +99,26 @@ const countSelectedCells = async (page) => {
 }
 
 test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
-  test('drag across two table cells produces CellSelection that persists', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
+  let testPage = null
 
-    // Open Test Scratchpad which has table seed data
-    const scratchpad = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).first()
-    let seedVisible = true
-    try {
-      await scratchpad.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    test.skip(!seedVisible, 'Seed data missing Test Scratchpad page')
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const sectionId = await findFirstSection(client, userId)
+    testPage = await createPage(client, userId, sectionId, 'Test Scratchpad', SEED_CONTENT)
+  })
 
-    await scratchpad.click()
+  test('drag across two table cells produces CellSelection that persists', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Mouse drag CellSelection not supported with touch emulation')
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
-    // Find a table with at least two cells
-    const cells = page.locator('.ProseMirror table td, .ProseMirror table th')
+    // Wait for table content to render
+    await expect(page.locator('.ProseMirror')).toContainText('Running', { timeout: 10000 })
+
+    // Use td cells (not th) for reliable cross-cell drag selection
+    const cells = page.locator('.ProseMirror table td')
     const cellCount = await cells.count()
-    test.skip(cellCount < 2, 'Seed data missing table with at least 2 cells')
+    expect(cellCount).toBeGreaterThanOrEqual(2)
 
     const firstCell = cells.nth(0)
     const secondCell = cells.nth(1)
@@ -65,24 +154,15 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
   })
 
   test('single-cell drag still produces text selection', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    const scratchpad = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).first()
-    let seedVisible = true
-    try {
-      await scratchpad.waitFor({ state: 'visible', timeout: 5000 })
-    } catch {
-      seedVisible = false
-    }
-    test.skip(!seedVisible, 'Seed data missing Test Scratchpad page')
-
-    await scratchpad.click()
+    await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
-    const cells = page.locator('.ProseMirror table td, .ProseMirror table th')
+    // Wait for table content to render
+    await expect(page.locator('.ProseMirror')).toContainText('Running', { timeout: 10000 })
+
+    const cells = page.locator('.ProseMirror table td')
     const cellCount = await cells.count()
-    test.skip(cellCount < 1, 'Seed data missing table with at least 1 cell')
+    expect(cellCount).toBeGreaterThanOrEqual(1)
 
     const cell = cells.nth(0)
     const box = await cell.boundingBox()
