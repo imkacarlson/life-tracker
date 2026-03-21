@@ -34,7 +34,26 @@ const cleanupStorageFile = async (client, storagePath) => {
   await client.storage.from(BUCKET).remove([storagePath]).catch(() => {})
 }
 
+// Helper: poll until a storage file is gone (or timeout).
+// The app's image cleanup is fire-and-forget, so we need to wait for
+// the async deletion to propagate through Supabase.
+const waitForStorageFileDeletion = async (client, storagePath, timeoutMs = 30000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (!(await storageFileExists(client, storagePath))) return true
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
+// Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
+// without waiting for Supabase Storage signed-URL hydration.
+const TINY_PNG_DATA_URI =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg=='
+
 // Build Tiptap JSON with an image node referencing a storage path.
+// Uses a data URI src so the image is visible instantly in the editor,
+// while storagePath tracks the real file for cleanup logic.
 const docWithImage = (storagePath, blockId = 'img-block') => ({
   type: 'doc',
   content: [
@@ -45,7 +64,7 @@ const docWithImage = (storagePath, blockId = 'img-block') => ({
     },
     {
       type: 'image',
-      attrs: { src: null, alt: 'test image', storagePath },
+      attrs: { src: TINY_PNG_DATA_URI, alt: 'test image', storagePath },
     },
   ],
 })
@@ -62,7 +81,10 @@ const docWithoutImage = (blockId = 'text-block') => ({
   ],
 })
 
+// These tests poll Supabase Storage for fire-and-forget cleanup results,
+// so they need a generous per-test timeout.
 test.describe('Issue #84 orphaned image cleanup', () => {
+  test.describe.configure({ timeout: 60000 })
   // ---------- T1: Save with image removed → storage file deleted ----------
   test('T1: removing an image from a page cleans up storage after save', async ({ page }) => {
     const { client, userId } = await getSupabase()
@@ -77,12 +99,8 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const pg = await createPage(client, userId, sec.id, 'T1 Page', docWithImage(storagePath))
 
     try {
-      await waitForApp(page)
-
-      // Navigate to the test page
-      await page.click(`text=${nb.title}`)
-      await page.click('text=T1 Section')
-      await page.click('text=T1 Page')
+      // Navigate directly to the test page via hash
+      await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Find and delete the image from the editor
@@ -91,11 +109,9 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await img.click()
       await page.keyboard.press('Backspace')
 
-      // Wait for auto-save (2s debounce + buffer)
-      await page.waitForTimeout(4000)
-
-      // Verify the image was deleted from storage
-      expect(await storageFileExists(client, storagePath)).toBe(false)
+      // Wait for auto-save (2s debounce) + fire-and-forget storage cleanup
+      const deleted = await waitForStorageFileDeletion(client, storagePath)
+      expect(deleted).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
     }
@@ -108,13 +124,11 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     const nb = await createNotebook(client, userId, `T2 Notebook ${Date.now()}`)
     const sec = await createSection(client, userId, nb.id, 'T2 Section')
-    await createPage(client, userId, sec.id, 'T2 Page', docWithImage(storagePath))
+    const pg = await createPage(client, userId, sec.id, 'T2 Page', docWithImage(storagePath))
 
     try {
-      await waitForApp(page)
-      await page.click(`text=${nb.title}`)
-      await page.click('text=T2 Section')
-      await page.click('text=T2 Page')
+      // Navigate directly to the test page via hash
+      await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Type some text (not touching the image)
@@ -139,13 +153,11 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     const nb = await createNotebook(client, userId, `T3 Notebook ${Date.now()}`)
     const sec = await createSection(client, userId, nb.id, 'T3 Section')
-    await createPage(client, userId, sec.id, 'T3 Page', docWithImage(storagePath))
+    const pg = await createPage(client, userId, sec.id, 'T3 Page', docWithImage(storagePath))
 
     try {
-      await waitForApp(page)
-      await page.click(`text=${nb.title}`)
-      await page.click('text=T3 Section')
-      await page.click('text=T3 Page')
+      // Navigate directly to the test page via hash
+      await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Delete the image
@@ -175,27 +187,23 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     const nb = await createNotebook(client, userId, `T4 Notebook ${Date.now()}`)
     const sec = await createSection(client, userId, nb.id, 'T4 Section')
-    await createPage(client, userId, sec.id, 'T4 Page', docWithImage(storagePath))
+    const pg = await createPage(client, userId, sec.id, 'T4 Page', docWithImage(storagePath))
 
     try {
-      await waitForApp(page)
-      await page.click(`text=${nb.title}`)
-      await page.click('text=T4 Section')
-      await page.click('text=T4 Page')
+      // Navigate directly to the test page via hash
+      await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.on('dialog', (dialog) => dialog.accept())
 
-      // Click the delete button for the page
-      const deleteButton = page.getByRole('button', { name: /delete/i })
+      // Click the delete button for the page (in editor header)
+      const deleteButton = page.locator('.editor-header .ghost', { hasText: 'Delete' })
       await deleteButton.click()
 
-      // Wait for deletion to complete
-      await page.waitForTimeout(2000)
-
-      // Image should be gone from storage
-      expect(await storageFileExists(client, storagePath)).toBe(false)
+      // Wait for page deletion + fire-and-forget storage cleanup
+      const deleted = await waitForStorageFileDeletion(client, storagePath)
+      expect(deleted).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
     }
@@ -214,24 +222,24 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       await waitForApp(page)
-      await page.click(`text=${nb.title}`)
 
-      // Right-click the section to open context menu
-      await page.click('text=T5 Section', { button: 'right' })
+      // Select the notebook via dropdown
+      await page.locator('.notebook-switcher select').selectOption(nb.id)
+      await page.waitForTimeout(500)
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.on('dialog', (dialog) => dialog.accept())
 
-      // Click delete in context menu
-      const deleteOption = page.getByRole('menuitem', { name: /delete/i })
-      await deleteOption.click()
+      // Find the section tab and click its delete (×) button
+      const sectionTab = page.locator('.section-tab', { hasText: 'T5 Section' })
+      await expect(sectionTab).toBeVisible({ timeout: 5000 })
+      await sectionTab.locator('.tab-delete').click()
 
-      // Wait for deletion
-      await page.waitForTimeout(2000)
-
-      // Both images should be gone
-      expect(await storageFileExists(client, storagePath1)).toBe(false)
-      expect(await storageFileExists(client, storagePath2)).toBe(false)
+      // Wait for section deletion + fire-and-forget storage cleanup
+      const deleted1 = await waitForStorageFileDeletion(client, storagePath1)
+      const deleted2 = await waitForStorageFileDeletion(client, storagePath2)
+      expect(deleted1).toBe(true)
+      expect(deleted2).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath1)
       await cleanupStorageFile(client, storagePath2)
@@ -250,21 +258,20 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     try {
       await waitForApp(page)
 
-      // Right-click the notebook to open context menu
-      await page.click(`text=${nb.title}`, { button: 'right' })
+      // Select the notebook via dropdown
+      await page.locator('.notebook-switcher select').selectOption(nb.id)
+      await page.waitForTimeout(500)
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.on('dialog', (dialog) => dialog.accept())
 
-      // Click delete in context menu
-      const deleteOption = page.getByRole('menuitem', { name: /delete/i })
-      await deleteOption.click()
+      // Click the Delete button in the TopBar notebook switcher
+      const deleteButton = page.locator('.notebook-switcher .ghost', { hasText: 'Delete' })
+      await deleteButton.click()
 
-      // Wait for deletion
-      await page.waitForTimeout(2000)
-
-      // Image should be gone
-      expect(await storageFileExists(client, storagePath)).toBe(false)
+      // Wait for notebook deletion + fire-and-forget storage cleanup
+      const deleted = await waitForStorageFileDeletion(client, storagePath)
+      expect(deleted).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
     }
@@ -276,19 +283,17 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     const nb = await createNotebook(client, userId, `T7 Notebook ${Date.now()}`)
     const sec = await createSection(client, userId, nb.id, 'T7 Section')
-    await createPage(client, userId, sec.id, 'T7 Page', docWithoutImage())
+    const pg = await createPage(client, userId, sec.id, 'T7 Page', docWithoutImage())
 
-    await waitForApp(page)
-    await page.click(`text=${nb.title}`)
-    await page.click('text=T7 Section')
-    await page.click('text=T7 Page')
+    // Navigate directly to the test page via hash
+    await waitForApp(page, `/#pg=${pg.id}`)
     await page.waitForSelector('.tiptap', { timeout: 10000 })
 
     // Set up dialog handler
     page.on('dialog', (dialog) => dialog.accept())
 
-    // Delete page — should not crash
-    const deleteButton = page.getByRole('button', { name: /delete/i })
+    // Delete page — should not crash (click delete in editor header)
+    const deleteButton = page.locator('.editor-header .ghost', { hasText: 'Delete' })
     await deleteButton.click()
 
     // Wait and verify no error messages appeared
