@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
 
 export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   const [notebooks, setNotebooks] = useState([])
@@ -97,11 +98,45 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     )
     if (!confirmDelete) return
 
+    // Collect image paths from all pages in this notebook before cascade delete.
+    // Join through sections to find all pages belonging to this notebook.
+    const { data: sectionRows, error: sectionsError } = await supabase
+      .from('sections')
+      .select('id')
+      .eq('notebook_id', notebook.id)
+
+    if (sectionsError) {
+      setMessage(sectionsError.message)
+      return
+    }
+
+    let imagePaths = []
+    const sectionIds = (sectionRows ?? []).map((s) => s.id)
+    if (sectionIds.length > 0) {
+      const { data: pages, error: pagesError } = await supabase
+        .from('pages')
+        .select('id, content')
+        .in('section_id', sectionIds)
+        .order('id')
+
+      if (pagesError) {
+        setMessage(pagesError.message)
+        return
+      }
+
+      imagePaths = collectAllImagePaths(pages ?? [])
+    }
+
     const { error } = await supabase.from('notebooks').delete().eq('id', notebook.id)
 
     if (error) {
       setMessage(error.message)
       return
+    }
+
+    // Clean up images after successful DB delete (fire-and-forget).
+    if (imagePaths.length > 0) {
+      deleteImagesFromStorage(imagePaths)
     }
 
     const nextNotebooks = notebooks.filter((item) => item.id !== notebook.id)
