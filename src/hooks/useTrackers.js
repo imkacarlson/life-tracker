@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { EMPTY_DOC } from '../utils/constants'
 import { sanitizeContentForSave } from '../utils/contentHelpers'
+import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
@@ -207,6 +208,9 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       recomputeHasPendingSaves()
 
       const { payload, payloadKey } = queued
+      // Snapshot the old content before the save so we can diff for removed images.
+      const oldTracker = trackersRef.current.find((item) => item.id === trackerId)
+      const oldContent = oldTracker?.content ?? null
       const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
 
       inFlightByTrackerRef.current[trackerId] = false
@@ -247,6 +251,13 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
       if (trackerId === activeTrackerRef.current?.id) {
         setSaveStatus('Saved')
+      }
+
+      // Clean up images that were removed since the last saved version.
+      // Fire-and-forget — a failed cleanup just leaves an orphan for the manual script.
+      const removedPaths = findRemovedImagePaths(oldContent, payload.content)
+      if (removedPaths.length > 0) {
+        deleteImagesFromStorage(removedPaths)
       }
 
       // If this was the latest draft we know about for this page and nothing else is pending,
@@ -533,11 +544,19 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
     if (!confirmDelete) return
 
+    // Collect image paths before deletion (we need the content in memory).
+    const imagePaths = collectAllImagePaths([tracker])
+
     const { error } = await supabase.from('pages').delete().eq('id', tracker.id)
 
     if (error) {
       setMessage(error.message)
       return
+    }
+
+    // Clean up images from storage after successful DB delete (fire-and-forget).
+    if (imagePaths.length > 0) {
+      deleteImagesFromStorage(imagePaths)
     }
 
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)

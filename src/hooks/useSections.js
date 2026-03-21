@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
+import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
 
 const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
 
@@ -208,11 +209,30 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     )
     if (!confirmDelete) return
 
+    // Collect image paths from all pages in this section before cascade delete.
+    const { data: pages, error: pagesError } = await supabase
+      .from('pages')
+      .select('id, content')
+      .eq('section_id', section.id)
+      .order('id')
+
+    if (pagesError) {
+      setMessage(pagesError.message)
+      return
+    }
+
+    const imagePaths = collectAllImagePaths(pages ?? [])
+
     const { error } = await supabase.from('sections').delete().eq('id', section.id)
 
     if (error) {
       setMessage(error.message)
       return
+    }
+
+    // Clean up images after successful DB delete (fire-and-forget).
+    if (imagePaths.length > 0) {
+      deleteImagesFromStorage(imagePaths)
     }
 
     const nextSections = sections.filter((item) => item.id !== section.id)
