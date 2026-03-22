@@ -108,6 +108,8 @@ function App() {
     activeNotebookId,
     setActiveNotebookId,
     activeNotebook,
+    activeNotebookType,
+    isRecipesNotebook,
     message: notebookMessage,
     setMessage: setNotebookMessage,
     createNotebook,
@@ -144,6 +146,7 @@ function App() {
     scheduleSave,
     handleTitleChange,
     createTracker,
+    createTrackerWithContent,
     reorderTrackers,
     setTrackerPage,
     deleteTracker,
@@ -634,6 +637,12 @@ function App() {
               loading={dataLoading}
               disabled={!activeSectionId}
               compactBadges={compactBadges}
+              isRecipesNotebook={isRecipesNotebook}
+              session={session}
+              sectionId={activeSectionId}
+              onCreateWithContent={(title, content) =>
+                createTrackerWithContent(session, activeSectionId, title, content)
+              }
             />
           </>
         )}

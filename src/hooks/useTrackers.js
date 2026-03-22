@@ -465,6 +465,37 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setActiveTrackerId(data.id)
   }
 
+  // Create a page with specific title and content (used by Paste Recipe).
+  const createTrackerWithContent = async (session, sectionId, pageTitle, content) => {
+    if (!session || !sectionId) return null
+    setMessage('')
+    const existingOrders = trackers
+      .map((item) => item.sort_order)
+      .filter((value) => typeof value === 'number')
+    const nextSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
+
+    const { data, error } = await supabase
+      .from('pages')
+      .insert({
+        title: pageTitle,
+        user_id: session.user.id,
+        content,
+        section_id: sectionId,
+        sort_order: nextSortOrder,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      setMessage(error.message)
+      return null
+    }
+
+    setTrackers((prev) => [...prev, { ...data, sort_order: nextSortOrder }])
+    setActiveTrackerId(data.id)
+    return data
+  }
+
   const reorderTrackers = useCallback(
     async (nextTrackers) => {
       if (!userId) return
@@ -600,6 +631,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     scheduleSave,
     handleTitleChange,
     createTracker,
+    createTrackerWithContent,
     reorderTrackers,
     setTrackerPage,
     deleteTracker,

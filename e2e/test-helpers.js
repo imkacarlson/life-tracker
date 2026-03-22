@@ -41,10 +41,10 @@ export const getSupabase = async () => {
 }
 
 /** Create a notebook and return the inserted row. */
-export const createNotebook = async (client, userId, title, sortOrder = 0) => {
+export const createNotebook = async (client, userId, title, sortOrder = 0, type = 'tracker') => {
   const { data, error } = await client
     .from('notebooks')
-    .insert({ user_id: userId, title, sort_order: sortOrder })
+    .insert({ user_id: userId, title, sort_order: sortOrder, type })
     .select()
     .single()
   if (error) throw error
