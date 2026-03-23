@@ -145,12 +145,11 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
     }
     await page.mouse.up()
 
-    // Wait for selection to stabilize
-    await page.waitForTimeout(500)
-
-    // Verify CellSelection persists with multiple cells highlighted
-    const selected = await countSelectedCells(page)
-    expect(selected).toBeGreaterThanOrEqual(2)
+    // Wait for CellSelection to stabilize (poll instead of fixed timeout)
+    await expect(async () => {
+      const selected = await countSelectedCells(page)
+      expect(selected).toBeGreaterThanOrEqual(2)
+    }).toPass({ timeout: 3000 })
   })
 
   test('single-cell drag still produces text selection', async ({ page }) => {

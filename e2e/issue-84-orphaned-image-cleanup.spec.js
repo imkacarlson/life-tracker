@@ -170,8 +170,10 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       const isMac = process.platform === 'darwin'
       await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z')
 
-      // Wait for auto-save
-      await page.waitForTimeout(4000)
+      // Wait for auto-save to complete (poll for Saved status)
+      await expect(page.getByText('Saved')).toBeVisible({ timeout: 8000 })
+      // Extra buffer for storage cleanup to finish (if any was triggered)
+      await page.waitForTimeout(1000)
 
       // Image should still exist (undo restored it before the save)
       expect(await storageFileExists(client, storagePath)).toBe(true)

@@ -117,19 +117,21 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     await expect(block).toBeVisible({ timeout: 5000 })
 
     await block.click()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
     const strikeBtn = page.getByRole('button', { name: 'S', exact: true })
 
     // Toggle on
     await strikeBtn.click()
-    await page.waitForTimeout(300)
 
-    const hasStrike = await block.evaluate((el) => {
-      const s = el.querySelector('s')
-      return s !== null && s.textContent.trim().length > 0
-    })
-    expect(hasStrike).toBe(true)
+    // Wait for strikethrough to appear (poll instead of fixed timeout)
+    await expect(async () => {
+      const hasStrike = await block.evaluate((el) => {
+        const s = el.querySelector('s')
+        return s !== null && s.textContent.trim().length > 0
+      })
+      expect(hasStrike).toBe(true)
+    }).toPass({ timeout: 3000 })
 
     // Toggle off
     await strikeBtn.click()
