@@ -107,6 +107,10 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'Missing required fields (provider, model, text).' }, 400)
     }
 
+    if (typeof text !== 'string' || typeof provider !== 'string' || typeof model !== 'string') {
+      return jsonResponse({ error: 'Fields must be strings.' }, 400)
+    }
+
     const MAX_TEXT_LENGTH = 50_000
     if (String(text).length > MAX_TEXT_LENGTH) {
       return jsonResponse({ error: `Text too long (max ${MAX_TEXT_LENGTH} characters).` }, 400)
@@ -185,7 +189,8 @@ Rules:
     const responseData = await response.json()
 
     if (!response.ok) {
-      return jsonResponse({ error: 'LLM API error', details: responseData }, 502)
+      console.error('LLM API error:', JSON.stringify(responseData))
+      return jsonResponse({ error: 'LLM API error. Check edge function logs for details.' }, 502)
     }
 
     const markdown = providerConfig.extractResponse(responseData)

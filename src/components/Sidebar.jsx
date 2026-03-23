@@ -267,8 +267,14 @@ function inlineMarkdown(text) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      // Unescape &amp; back to & since escapeHtml ran before inlineMarkdown
+      const rawUrl = url.replace(/&amp;/g, '&')
       // Only allow http/https links to prevent javascript: XSS from LLM output
-      if (/^https?:\/\//i.test(url)) return `<a href="${url}">${label}</a>`
+      if (/^https?:\/\//i.test(rawUrl)) {
+        // Re-escape for safe attribute insertion
+        const safeUrl = rawUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        return `<a href="${safeUrl}">${label}</a>`
+      }
       return `${label} (${url})`
     })
 }
