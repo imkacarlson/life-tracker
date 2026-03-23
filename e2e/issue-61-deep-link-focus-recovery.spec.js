@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 // Block ID that will be used as the deep-link target
 const TARGET_BLOCK_ID = 'e2e-target-block-focus'
@@ -31,7 +31,9 @@ test.describe('Issue #61 deep-link focus recovery', () => {
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
-    const sectionId = await findFirstSection(client, userId)
+    const nb = await createNotebook(client, userId, `Issue61 Notebook ${Date.now()}`)
+    const sec = await createSection(client, userId, nb.id, 'Issue61 Section')
+    const sectionId = sec.id
 
     // Create target page (Page B) first
     pageB = await createPage(client, userId, sectionId, 'Test Section', {
@@ -109,7 +111,8 @@ test.describe('Issue #61 deep-link focus recovery', () => {
   }
 
   test.beforeEach(async ({ page }) => {
-    await waitForApp(page)
+    // Navigate to Page A so the correct notebook/section is active
+    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'See' })
   })
 
   test('desktop: first click-back after highlight clear keeps keyboard scope in editor', async ({ page, isMobile }) => {

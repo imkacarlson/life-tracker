@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 // Self-contained seed data: a page with a list item and a table with "Next Steps" paragraph
 const SEED_CONTENT = {
@@ -61,17 +61,16 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
-    const sectionId = await findFirstSection(client, userId)
-    testPage = await createPage(client, userId, sectionId, 'Test Section', SEED_CONTENT)
+    const nb = await createNotebook(client, userId, `Issue68 Notebook ${Date.now()}`)
+    const sec = await createSection(client, userId, nb.id, 'Issue68 Section')
+    testPage = await createPage(client, userId, sec.id, 'Test Section', SEED_CONTENT)
   })
 
   test('cursor in list item: S button toggles strikethrough on entire line', async ({ page }) => {
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Review quarterly goals' })
 
     // Find a list item to test
     const listItem = page.locator('.ProseMirror li').first()
-    await expect(listItem).toBeVisible({ timeout: 5000 })
 
     // Click at end of the list item text (cursor, no selection)
     await listItem.click()
@@ -109,12 +108,10 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
   })
 
   test('cursor in paragraph: S button toggles strikethrough on entire block', async ({ page }) => {
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Next Steps' })
 
     // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraph)
     const block = page.locator('.ProseMirror td p').filter({ hasText: 'Next Steps' }).first()
-    await expect(block).toBeVisible({ timeout: 5000 })
 
     await block.click()
     await page.waitForTimeout(500)
@@ -145,11 +142,9 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
   })
 
   test('partial selection: S button toggles strikethrough on selected text only', async ({ page }) => {
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Review quarterly goals' })
 
     const listItem = page.locator('.ProseMirror li').first()
-    await expect(listItem).toBeVisible({ timeout: 5000 })
 
     // Select only part of the text using keyboard: Home, then Shift+Right x3
     const paragraph = listItem.locator('p').first()

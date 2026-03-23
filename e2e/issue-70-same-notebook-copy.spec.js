@@ -12,17 +12,9 @@ test.describe('Issue #70 same-notebook section copy', () => {
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
 
-    // Find the first existing notebook to attach our test section to
-    const { data: notebooks } = await client
-      .from('notebooks')
-      .select('id')
-      .eq('user_id', userId)
-      .limit(1)
-    const notebookId = notebooks?.[0]?.id
-    if (!notebookId) throw new Error('No notebook found for test seed data')
-
-    // Create our own section with pages
-    testSection = await createSection(client, userId, notebookId, 'Test Section', 9999)
+    // Create our own notebook and section for isolation
+    const nb = await createNotebook(client, userId, `Issue70 Notebook ${Date.now()}`)
+    testSection = await createSection(client, userId, nb.id, 'Test Section', 9999)
 
     // Create target page first (so we have its ID for the internal link)
     targetPage = await createPage(client, userId, testSection.id, 'Test Page', {
@@ -68,7 +60,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
   })
 
   test('copy section to same notebook creates suffixed duplicate', async ({ page }) => {
-    await waitForApp(page)
+    await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
     const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
     await expect(tab).toBeVisible({ timeout: 5000 })
@@ -105,7 +97,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
   })
 
   test('copy section remaps internal links to copied pages', async ({ page }) => {
-    await waitForApp(page)
+    await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
     const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
     await expect(tab).toBeVisible({ timeout: 5000 })

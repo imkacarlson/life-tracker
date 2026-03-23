@@ -5,12 +5,8 @@ on:
 
 jobs:
   test:
-    name: E2E (${{ matrix.project }})
+    name: E2E Tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [Desktop Chrome, Mobile Chrome]
 
     steps:
       - name: Checkout repository
@@ -28,18 +24,34 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
-      - name: Run Playwright tests
-        run: npx playwright test --project="${{ matrix.project }}"
+      - name: Run Desktop Chrome tests
+        run: npx playwright test --project="Desktop Chrome"
         env:
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Upload Playwright report
+      - name: Run Mobile Chrome tests
+        run: npx playwright test --project="Mobile Chrome"
+        env:
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Upload Desktop Chrome report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ matrix.project }}
+          name: playwright-report-Desktop-Chrome
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload Mobile Chrome report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-Mobile-Chrome
           path: playwright-report/
           retention-days: 30

@@ -5,7 +5,7 @@
 // 2. Tiptap editor content was not refreshed after conflict resolution
 
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 const SERVER_CONTENT = {
   type: 'doc',
@@ -36,42 +36,36 @@ test.describe('Issue #77 draft conflict resolution', () => {
   let supabaseInfo = null
   let testPage = null
   let sectionId = null
+  let navAwayPage = null
 
   test.beforeAll(async () => {
     supabaseInfo = await getSupabase()
-    sectionId = await findFirstSection(supabaseInfo.client, supabaseInfo.userId).catch(() => null)
+    const nb = await createNotebook(supabaseInfo.client, supabaseInfo.userId, `Issue77 Notebook ${Date.now()}`)
+    const sec = await createSection(supabaseInfo.client, supabaseInfo.userId, nb.id, 'Issue77 Section')
+    sectionId = sec.id
+    // Create a dedicated page to navigate away to (so we don't depend on other sidebar items)
+    navAwayPage = await createPage(
+      supabaseInfo.client,
+      supabaseInfo.userId,
+      sec.id,
+      'Nav Away Page',
+      { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Placeholder' }] }] },
+    )
   })
 
   const setupConflict = async (page) => {
     if (!sectionId) return null
+    // Create a temporary page with known server content (fresh each test)
+    const { client, userId } = supabaseInfo
+    testPage = await createPage(client, userId, sectionId, 'Conflict Test Page', SERVER_CONTENT)
 
-    // Create a temporary page with known server content
-    testPage = await createPage(
-      supabaseInfo.client,
-      supabaseInfo.userId,
-      sectionId,
-      'Conflict Test Page',
-      SERVER_CONTENT,
-    )
+    // Navigate directly to the test page
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Server Version Heading' })
 
-    // Navigate directly to the test page (full page load so loadTrackers
-    // picks up the page we just created via the API).
-    await page.goto(`/#pg=${testPage.id}`)
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-    await page.waitForSelector('.ProseMirror', { timeout: 10000 })
-
-    // Wait for editor to load the server content
-    await expect(page.locator('.ProseMirror')).toContainText('Server Version Heading', {
-      timeout: 10000,
-    })
-
-    // Navigate to a different page (click first page in sidebar that isn't ours)
-    const otherPage = page
-      .locator('.sidebar-item:not(.active)')
-      .first()
-    if ((await otherPage.count()) === 0) return null
-    await otherPage.click()
-    await page.waitForTimeout(500)
+    // Navigate to the dedicated nav-away page via hashchange
+    await page.evaluate((id) => { window.location.hash = '#pg=' + id }, navAwayPage.id)
+    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await expect(page.locator('.ProseMirror')).toContainText('Placeholder', { timeout: 10000 })
 
     // Inject a stale draft for our test page (timestamp 1 hour in the past)
     const staleTs = Date.now() - 3600000
@@ -92,14 +86,10 @@ test.describe('Issue #77 draft conflict resolution', () => {
       .eq('id', testPage.id)
 
     // Navigate back to our test page to trigger conflict detection
-    await page.evaluate((pageId) => {
-      document.querySelectorAll('.sidebar-item').forEach((el) => {
-        if (el.textContent.trim() === 'Conflict Test Page') el.click()
-      })
-    }, testPage.id)
+    await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
 
     // Wait for conflict modal to appear
-    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 10000 })
 
     return testPage
   }

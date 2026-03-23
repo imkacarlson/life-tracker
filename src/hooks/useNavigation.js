@@ -44,6 +44,11 @@ export const useNavigation = ({
   const navVersionRef = useRef(0)
   const initialResolvedTargetRef = useRef(undefined)
   const [initialNavReady, setInitialNavReady] = useState(false)
+  // Incremented when syncInitialHash resolves to force the correction effect
+  // to re-run — initialResolvedTargetRef is a ref (no re-render on write),
+  // so without this the effect can miss the resolved target if loadNotebooks
+  // settled first.
+  const [initialResolveGeneration, setInitialResolveGeneration] = useState(0)
 
   const setPendingNavSafely = useCallback(
     (nextValue) => {
@@ -220,6 +225,7 @@ export const useNavigation = ({
 
       initialResolvedTargetRef.current = resolved
       setPendingNavSafely(resolved)
+      setInitialResolveGeneration((g) => g + 1)
       if (resolved.pageId && resolved.blockId) {
         hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
       } else {
@@ -287,6 +293,7 @@ export const useNavigation = ({
     activeSectionId,
     activeTrackerId,
     initialNavReady,
+    initialResolveGeneration,
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
