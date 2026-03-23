@@ -261,6 +261,17 @@ export const useNavigation = ({
     if (hasTargetNotebook) {
       if (activeNotebookId !== target.notebookId) {
         setActiveNotebookId(target.notebookId)
+        return
+      }
+      // Notebook matches — correct section/page if the hooks loaded before
+      // pendingNavRef was set and picked the wrong defaults.
+      if (target.sectionId && activeSectionId !== target.sectionId) {
+        setActiveSectionId(target.sectionId)
+        return
+      }
+      if (target.pageId && activeTrackerId !== target.pageId) {
+        setActiveTrackerId(target.pageId)
+        return
       }
       return
     }
@@ -277,6 +288,8 @@ export const useNavigation = ({
     activeTrackerId,
     initialNavReady,
     setActiveNotebookId,
+    setActiveSectionId,
+    setActiveTrackerId,
     setPendingNav,
   ])
 
