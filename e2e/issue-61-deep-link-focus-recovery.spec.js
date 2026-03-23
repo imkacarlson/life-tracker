@@ -112,7 +112,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
 
   test.beforeEach(async ({ page }) => {
     // Navigate to Page A so the correct notebook/section is active
-    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'See' })
+    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'Link to' })
   })
 
   test('desktop: first click-back after highlight clear keeps keyboard scope in editor', async ({ page, isMobile }) => {

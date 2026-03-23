@@ -69,7 +69,7 @@ test.describe('Internal link navigation', () => {
 
   test.beforeEach(async ({ page }) => {
     // Navigate to Page A so the correct notebook/section is active
-    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'See' })
+    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'Click here to go to' })
   })
 
   test('deep link highlights target block, clicking elsewhere unhighlights', async ({ page }) => {

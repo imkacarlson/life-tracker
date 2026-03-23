@@ -12,48 +12,60 @@ import { collectStoragePaths } from './contentHelpers'
 export const deleteImagesFromStorage = async (candidatePaths) => {
   if (!candidatePaths || candidatePaths.length === 0) return
   try {
-    // Query all pages and settings to find every image path still in use.
-    // If either query fails, abort entirely — never delete when the reference
-    // set is incomplete (safe default to avoid data loss).
-    const allReferencedPaths = new Set()
+    // Retry a few times because a just-deleted page/section/notebook can still
+    // appear in the first reference scan due to read-after-write lag.
+    const MAX_ATTEMPTS = 6
+    const RETRY_DELAY_MS = 500
 
-    // Paginate pages query to handle accounts with >1000 pages.
-    let pageOffset = 0
-    const PAGE_SIZE = 1000
-    while (true) {
-      const { data, error } = await supabase
-        .from('pages')
-        .select('content')
-        .order('id')
-        .range(pageOffset, pageOffset + PAGE_SIZE - 1)
-      if (error) {
-        console.warn('Image cleanup aborted — failed to query pages:', error.message)
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      // Query all pages and settings to find every image path still in use.
+      // If either query fails, abort entirely — never delete when the reference
+      // set is incomplete (safe default to avoid data loss).
+      const allReferencedPaths = new Set()
+
+      // Paginate pages query to handle accounts with >1000 pages.
+      let pageOffset = 0
+      const PAGE_SIZE = 1000
+      while (true) {
+        const { data, error } = await supabase
+          .from('pages')
+          .select('content')
+          .order('id')
+          .range(pageOffset, pageOffset + PAGE_SIZE - 1)
+        if (error) {
+          console.warn('Image cleanup aborted — failed to query pages:', error.message)
+          return
+        }
+        for (const page of data ?? []) {
+          try { collectStoragePaths(page.content, allReferencedPaths) } catch {}
+        }
+        if (!data || data.length < PAGE_SIZE) break
+        pageOffset += PAGE_SIZE
+      }
+
+      // Also scan daily template settings for image references.
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('daily_template_content')
+      if (settingsError) {
+        console.warn('Image cleanup aborted — failed to query settings:', settingsError.message)
         return
       }
-      for (const page of data ?? []) {
-        try { collectStoragePaths(page.content, allReferencedPaths) } catch {}
+      for (const row of settingsData ?? []) {
+        try { collectStoragePaths(row.daily_template_content, allReferencedPaths) } catch {}
       }
-      if (!data || data.length < PAGE_SIZE) break
-      pageOffset += PAGE_SIZE
-    }
 
-    // Also scan daily template settings for image references.
-    const { data: settingsData, error: settingsError } = await supabase
-      .from('settings')
-      .select('daily_template_content')
-    if (settingsError) {
-      console.warn('Image cleanup aborted — failed to query settings:', settingsError.message)
-      return
-    }
-    for (const row of settingsData ?? []) {
-      try { collectStoragePaths(row.daily_template_content, allReferencedPaths) } catch {}
-    }
+      // Only delete paths that are truly unreferenced.
+      const safeToDelete = candidatePaths.filter((p) => !allReferencedPaths.has(p))
+      if (safeToDelete.length > 0) {
+        await supabase.storage.from('tracker-images').remove(safeToDelete)
+        return
+      }
 
-    // Only delete paths that are truly unreferenced.
-    const safeToDelete = candidatePaths.filter((p) => !allReferencedPaths.has(p))
-    if (safeToDelete.length === 0) return
-
-    await supabase.storage.from('tracker-images').remove(safeToDelete)
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
+      }
+    }
   } catch (err) {
     console.warn('Image cleanup failed (non-blocking):', err)
   }

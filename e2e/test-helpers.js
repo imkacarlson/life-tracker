@@ -87,14 +87,23 @@ export const createPage = async (client, userId, sectionId, title, content, sort
  *  a no-op) by clearing the hash first.
  */
 export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
-  // 1. Ensure the app is loaded and authenticated.
-  const url = page.url()
-  const isOnApp = url.includes('localhost:5173') && !url.includes('about:blank')
-  if (!isOnApp) {
-    await page.goto('/')
+  let expectedPageTitle = null
+  if (hash && hash !== '/') {
+    const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
+    const params = new URLSearchParams(hashStr)
+    const pageId = params.get('pg')
+    if (pageId) {
+      const { client } = await getSupabase()
+      const { data: pageRow } = await client.from('pages').select('title').eq('id', pageId).maybeSingle()
+      expectedPageTitle = pageRow?.title ?? null
+    }
   }
+
+  // 1. Always reload the app shell for each test. The DB snapshot is restored
+  // between tests, so reusing an already-mounted SPA can leave stale notebooks,
+  // sections, or pages in memory from the previous test run.
+  await page.goto('/')
   await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   // 2. Navigate to the target hash via the hashchange listener.
   if (hash && hash !== '/') {
@@ -106,8 +115,27 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
   }
 
   // 3. Wait for the editor to show the expected content.
-  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-  if (expectedText) {
-    await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+  try {
+    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    if (expectedPageTitle) {
+      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
+    }
+    if (expectedText) {
+      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+    }
+  } catch (error) {
+    // Fallback: if hashchange navigation misses the target page, reload
+    // directly to the hash URL and wait again. This keeps tests deterministic
+    // without depending on a single navigation path.
+    if (!hash || hash === '/') throw error
+    await page.goto(hash)
+    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
+    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    if (expectedPageTitle) {
+      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
+    }
+    if (expectedText) {
+      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+    }
   }
 }

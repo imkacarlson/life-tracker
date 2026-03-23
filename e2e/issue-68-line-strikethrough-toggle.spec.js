@@ -113,7 +113,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraph)
     const block = page.locator('.ProseMirror td p').filter({ hasText: 'Next Steps' }).first()
 
-    await block.click()
+    await block.click({ position: { x: 8, y: 8 } })
     await page.waitForTimeout(500)
 
     const strikeBtn = page.getByRole('button', { name: 'S', exact: true })

@@ -33,6 +33,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Run Mobile Chrome tests
+        if: always()
         run: npx playwright test --project="Mobile Chrome"
         env:
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
