@@ -142,6 +142,7 @@ Rules:
 - If due_bucket is later, omit the item.
 - ASAP is overdue/today items plus undated urgent items.
 - FYI is due_bucket=soon.
+- If a candidate has parent_context, it is a sub-item nested under that parent. Use the parent context to make the task description self-contained (e.g., parent "Wedding planning" + task "Book photographer" → "Wedding: Book photographer").
 - Keep task text concise and actionable.
 - Use cids (not block IDs) in output.
 
