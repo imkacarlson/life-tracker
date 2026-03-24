@@ -141,7 +141,7 @@ Rules:
 - Use only candidate text + metadata to prioritize and bucket tasks.
 - If due_bucket is later, omit the item.
 - ASAP is overdue/today items plus undated urgent items.
-- FYI is due_bucket=soon.
+- FYI is due_bucket=soon. For FYI items, always include the due date inline when the candidate text contains one (preserve the original format, e.g., "3/15"). Do not fabricate dates that aren't in the source text.
 - If a candidate has parent_context, it is a sub-item nested under that parent. Use the parent context to make the task description self-contained (e.g., parent "Wedding planning" + task "Book photographer" → "Wedding: Book photographer").
 - Keep task text concise and actionable.
 - Use cids (not block IDs) in output.
