@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 // Self-contained seed data: a page with a 3x2 table (header row + 2 data rows)
 // Using multiple data rows ensures cross-cell drag works reliably
@@ -103,17 +103,14 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
-    const sectionId = await findFirstSection(client, userId)
-    testPage = await createPage(client, userId, sectionId, 'Test Scratchpad', SEED_CONTENT)
+    const nb = await createNotebook(client, userId, `Issue71 Notebook ${Date.now()}`)
+    const sec = await createSection(client, userId, nb.id, 'Issue71 Section')
+    testPage = await createPage(client, userId, sec.id, 'Test Scratchpad', SEED_CONTENT)
   })
 
   test('drag across two table cells produces CellSelection that persists', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Mouse drag CellSelection not supported with touch emulation')
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-
-    // Wait for table content to render
-    await expect(page.locator('.ProseMirror')).toContainText('Running', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Running' })
 
     // Use td cells (not th) for reliable cross-cell drag selection
     const cells = page.locator('.ProseMirror table td')
@@ -145,20 +142,15 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
     }
     await page.mouse.up()
 
-    // Wait for selection to stabilize
-    await page.waitForTimeout(500)
-
-    // Verify CellSelection persists with multiple cells highlighted
-    const selected = await countSelectedCells(page)
-    expect(selected).toBeGreaterThanOrEqual(2)
+    // Wait for CellSelection to stabilize (poll instead of fixed timeout)
+    await expect(async () => {
+      const selected = await countSelectedCells(page)
+      expect(selected).toBeGreaterThanOrEqual(2)
+    }).toPass({ timeout: 3000 })
   })
 
   test('single-cell drag still produces text selection', async ({ page }) => {
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-
-    // Wait for table content to render
-    await expect(page.locator('.ProseMirror')).toContainText('Running', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Running' })
 
     const cells = page.locator('.ProseMirror table td')
     const cellCount = await cells.count()

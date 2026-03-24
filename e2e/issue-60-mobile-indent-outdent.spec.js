@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 // Self-contained seed data: a page with a bullet list inside a table
 // (tests that indent/outdent in a table cell doesn't create spurious rows)
@@ -79,15 +79,15 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
-    const sectionId = await findFirstSection(client, userId)
-    testPage = await createPage(client, userId, sectionId, 'Test Section', SEED_CONTENT)
+    const nb = await createNotebook(client, userId, `Issue60 Notebook ${Date.now()}`)
+    const sec = await createSection(client, userId, nb.id, 'Issue60 Section')
+    testPage = await createPage(client, userId, sec.id, 'Test Section', SEED_CONTENT)
   })
 
   test('mobile: indent/outdent buttons appear and work on list items', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Send out wedding invites' })
 
     const indentBtn = page.getByRole('button', { name: '→' })
     const outdentBtn = page.getByRole('button', { name: '←' })
@@ -98,7 +98,6 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
     // Find a non-first list item to test indent/outdent
     const weddingInvites = page.getByText('Send out wedding invites').first()
-    await expect(weddingInvites).toBeVisible({ timeout: 5000 })
 
     // Click the item and indent it
     await weddingInvites.click()
@@ -154,8 +153,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   test('mobile: indent/outdent on first list item in table does not create rows', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Get DJ scheduled' })
 
     const indentBtn = page.getByRole('button', { name: '→' })
     const outdentBtn = page.getByRole('button', { name: '←' })
@@ -188,8 +186,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   test('desktop: indent/outdent buttons are not visible', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop-only check')
 
-    await waitForApp(page, `/#pg=${testPage.id}`)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Wedding Planning' })
 
     // Indent/outdent buttons should not exist on desktop
     const indentBtn = page.getByRole('button', { name: '→' })

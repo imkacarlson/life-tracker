@@ -1238,7 +1238,14 @@ function EditorPanel({
         showDelete={showDelete}
       />
 
-      <div className={`toolbar ${controlsDisabled ? 'disabled' : ''}`}>
+      <div
+        className={`toolbar ${controlsDisabled ? 'disabled' : ''}`}
+        onMouseDownCapture={(event) => {
+          if (event.target instanceof HTMLElement && event.target.closest('button')) {
+            event.preventDefault()
+          }
+        }}
+      >
         <button
           type="button"
           className={editor?.isActive('bold') ? 'active' : ''}

@@ -1,4 +1,8 @@
 import { useRef, useState } from 'react'
+import { generateJSON } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import { supabase } from '../lib/supabase'
+import PasteRecipeModal from './editor/PasteRecipeModal'
 
 function Sidebar({
   trackers,
@@ -9,9 +13,16 @@ function Sidebar({
   loading,
   disabled,
   compactBadges = false,
+  isRecipesNotebook = false,
+  session,
+  sectionId,
+  onCreateWithContent,
 }) {
   const dragIdRef = useRef(null)
   const [overId, setOverId] = useState(null)
+  const [pasteRecipeOpen, setPasteRecipeOpen] = useState(false)
+  const [pasteRecipeText, setPasteRecipeText] = useState('')
+  const [pasteRecipeLoading, setPasteRecipeLoading] = useState(false)
 
   const reorderList = (items, draggedId, targetId) => {
     const fromIndex = items.findIndex((item) => item.id === draggedId)
@@ -57,13 +68,69 @@ function Sidebar({
     setOverId(null)
   }
 
+  const handlePasteRecipeSubmit = async () => {
+    if (!session || !sectionId || pasteRecipeLoading) return
+    const text = pasteRecipeText.trim()
+    if (!text) return
+
+    // Capture callback at click time to prevent section-switch race during the AI call
+    const createWithContent = onCreateWithContent
+
+    setPasteRecipeLoading(true)
+    try {
+      const provider = localStorage.getItem('ai-provider') || 'anthropic'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      if (!currentSession) throw new Error('You must be logged in')
+
+      // Call the edge function to format the recipe
+      const { data, error } = await supabase.functions.invoke('ai-paste-recipe', {
+        body: { provider, model, text },
+        headers: { Authorization: `Bearer ${currentSession.access_token}` },
+      })
+
+      if (error) throw error
+      if (data?.error) throw new Error(data.error)
+
+      const { markdown, title } = data
+
+      // Convert markdown to HTML, then parse into Tiptap JSON without touching the live editor
+      const html = markdownToHtml(markdown)
+      const content = generateJSON(html, [StarterKit])
+
+      // Create the page via the captured callback (uses section from click time)
+      const result = await createWithContent(title || 'Untitled Recipe', content)
+      if (!result) throw new Error('Failed to save recipe page')
+
+      setPasteRecipeOpen(false)
+      setPasteRecipeText('')
+    } catch (err) {
+      console.error('Paste recipe failed:', err)
+      alert('Failed to create recipe: ' + (err.message || String(err)))
+    } finally {
+      setPasteRecipeLoading(false)
+    }
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <h2>Pages</h2>
-        <button className="secondary" onClick={onCreate} disabled={disabled}>
-          New
-        </button>
+        <div className="sidebar-header-buttons">
+          {isRecipesNotebook && (
+            <button
+              className="secondary"
+              onClick={() => setPasteRecipeOpen(true)}
+              disabled={disabled || pasteRecipeLoading}
+            >
+              {pasteRecipeLoading ? 'Pasting...' : 'Paste Recipe'}
+            </button>
+          )}
+          <button className="secondary" onClick={onCreate} disabled={disabled}>
+            New
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -108,8 +175,108 @@ function Sidebar({
           ))}
         </div>
       )}
+
+      <PasteRecipeModal
+        open={pasteRecipeOpen}
+        loading={pasteRecipeLoading}
+        text={pasteRecipeText}
+        onTextChange={setPasteRecipeText}
+        onClose={() => {
+          if (!pasteRecipeLoading) {
+            setPasteRecipeOpen(false)
+            setPasteRecipeText('')
+          }
+        }}
+        onSubmit={handlePasteRecipeSubmit}
+      />
     </aside>
   )
+}
+
+/**
+ * Convert simple markdown to HTML for Tiptap parsing.
+ * Handles headings, bullet lists, numbered lists, and paragraphs.
+ */
+function markdownToHtml(md) {
+  const lines = md.split('\n')
+  const html = []
+  let inUl = false
+  let inOl = false
+
+  const closeList = () => {
+    if (inUl) { html.push('</ul>'); inUl = false }
+    if (inOl) { html.push('</ol>'); inOl = false }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Headings
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      closeList()
+      const level = headingMatch[1].length
+      html.push(`<h${level}>${inlineMarkdown(escapeHtml(headingMatch[2]))}</h${level}>`)
+      continue
+    }
+
+    // Bullet list item
+    const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/)
+    if (bulletMatch) {
+      if (inOl) { html.push('</ol>'); inOl = false }
+      if (!inUl) { html.push('<ul>'); inUl = true }
+      html.push(`<li>${inlineMarkdown(escapeHtml(bulletMatch[1]))}</li>`)
+      continue
+    }
+
+    // Numbered list item
+    const olMatch = trimmed.match(/^\d+[.)]\s+(.+)$/)
+    if (olMatch) {
+      if (inUl) { html.push('</ul>'); inUl = false }
+      if (!inOl) { html.push('<ol>'); inOl = true }
+      html.push(`<li>${inlineMarkdown(escapeHtml(olMatch[1]))}</li>`)
+      continue
+    }
+
+    // Empty line
+    if (!trimmed) {
+      closeList()
+      continue
+    }
+
+    // Paragraph
+    closeList()
+    html.push(`<p>${inlineMarkdown(escapeHtml(trimmed))}</p>`)
+  }
+
+  closeList()
+  return html.join('\n')
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** Convert inline markdown (bold, italic, links) to HTML. Runs after escapeHtml. */
+function inlineMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, url) => {
+      // Unescape &amp; back to & since escapeHtml ran before inlineMarkdown
+      const rawUrl = url.replace(/&amp;/g, '&')
+      // Only allow http/https links to prevent javascript: XSS from LLM output
+      if (/^https?:\/\//i.test(rawUrl)) {
+        // Re-escape for safe attribute insertion
+        const safeUrl = rawUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        return `<a href="${safeUrl}">${label}</a>`
+      }
+      return `${label} (${url})`
+    })
 }
 
 export default Sidebar

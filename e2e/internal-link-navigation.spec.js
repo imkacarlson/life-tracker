@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createPage, findFirstSection, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
 
 // Block ID that will be used as the deep-link target in Page B
 const TARGET_BLOCK_ID = 'e2e-target-block-nav'
@@ -10,7 +10,9 @@ test.describe('Internal link navigation', () => {
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
-    const sectionId = await findFirstSection(client, userId)
+    const nb = await createNotebook(client, userId, `InternalLink Notebook ${Date.now()}`)
+    const sec = await createSection(client, userId, nb.id, 'InternalLink Section')
+    const sectionId = sec.id
 
     // Create Page B first so we have its ID for the internal link
     pageB = await createPage(client, userId, sectionId, 'Test Section', {
@@ -66,7 +68,8 @@ test.describe('Internal link navigation', () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    await waitForApp(page)
+    // Navigate to Page A so the correct notebook/section is active
+    await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'Click here to go to' })
   })
 
   test('deep link highlights target block, clicking elsewhere unhighlights', async ({ page }) => {

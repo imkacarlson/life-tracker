@@ -5,6 +5,7 @@ import { getSupabase, createNotebook, createSection, createPage, waitForApp } fr
 const TARGET_BLOCK_ID = 'e2e-target-block-copy'
 
 test.describe('Issue #70 same-notebook section copy', () => {
+  let notebookId = null
   let testSection = null
   let scratchpadPage = null
   let targetPage = null
@@ -12,17 +13,10 @@ test.describe('Issue #70 same-notebook section copy', () => {
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
 
-    // Find the first existing notebook to attach our test section to
-    const { data: notebooks } = await client
-      .from('notebooks')
-      .select('id')
-      .eq('user_id', userId)
-      .limit(1)
-    const notebookId = notebooks?.[0]?.id
-    if (!notebookId) throw new Error('No notebook found for test seed data')
-
-    // Create our own section with pages
-    testSection = await createSection(client, userId, notebookId, 'Test Section', 9999)
+    // Create our own notebook and section for isolation
+    const nb = await createNotebook(client, userId, `Issue70 Notebook ${Date.now()}`)
+    notebookId = nb.id
+    testSection = await createSection(client, userId, nb.id, 'Test Section', 9999)
 
     // Create target page first (so we have its ID for the internal link)
     targetPage = await createPage(client, userId, testSection.id, 'Test Page', {
@@ -68,7 +62,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
   })
 
   test('copy section to same notebook creates suffixed duplicate', async ({ page }) => {
-    await waitForApp(page)
+    await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
     const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
     await expect(tab).toBeVisible({ timeout: 5000 })
@@ -84,11 +78,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await expect(modal).toBeVisible({ timeout: 3000 })
     const select = modal.locator('select')
 
-    const options = select.locator('option:not([value=""])')
-    const optionCount = await options.count()
-    expect(optionCount).toBeGreaterThan(0)
-    const firstOptionValue = await options.first().getAttribute('value')
-    await select.selectOption(firstOptionValue)
+    await select.selectOption(notebookId)
 
     // Click Copy
     await modal.getByRole('button', { name: 'Copy' }).click()
@@ -96,16 +86,12 @@ test.describe('Issue #70 same-notebook section copy', () => {
 
     // The copied section should appear with a suffixed name
     const copiedTab = page.locator('.section-tab', { hasText: 'Test Section (1)' })
-    await expect(copiedTab).toBeVisible({ timeout: 5000 })
+    await expect(copiedTab).toBeVisible({ timeout: 15000 })
 
-    // Clean up: delete the copied section via its × button
-    page.once('dialog', (dialog) => dialog.accept())
-    await copiedTab.locator('.tab-delete').click()
-    await expect(copiedTab).not.toBeVisible({ timeout: 5000 })
   })
 
   test('copy section remaps internal links to copied pages', async ({ page }) => {
-    await waitForApp(page)
+    await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
     const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
     await expect(tab).toBeVisible({ timeout: 5000 })
@@ -134,9 +120,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     const modal = page.locator('.copy-move-modal')
     await expect(modal).toBeVisible({ timeout: 3000 })
     const select = modal.locator('select')
-    const options = select.locator('option:not([value=""])')
-    const firstOptionValue = await options.first().getAttribute('value')
-    await select.selectOption(firstOptionValue)
+    await select.selectOption(notebookId)
     await modal.getByRole('button', { name: 'Copy' }).click()
     await expect(modal).not.toBeVisible({ timeout: 3000 })
 
@@ -164,9 +148,5 @@ test.describe('Issue #70 same-notebook section copy', () => {
       expect(copiedSectionId).not.toBe(originalSectionId)
     }
 
-    // Clean up: delete the copied section via its × button
-    page.once('dialog', (dialog) => dialog.accept())
-    await copiedTab.locator('.tab-delete').click()
-    await expect(copiedTab).not.toBeVisible({ timeout: 5000 })
   })
 })

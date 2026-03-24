@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
 
@@ -12,7 +12,7 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     setMessage('')
     const { data, error } = await supabase
       .from('notebooks')
-      .select('id, title, sort_order, created_at, updated_at')
+      .select('id, title, type, sort_order, created_at, updated_at')
       .order('sort_order', { ascending: true, nullsFirst: true })
       .order('created_at', { ascending: true })
 
@@ -50,26 +50,28 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     return () => window.clearTimeout(timer)
   }, [userId, loadNotebooks])
 
-  const createNotebook = async (session) => {
-    if (!session) return
-    const title = window.prompt('Notebook name', 'My Notebook')
-    if (!title) return
+  const createNotebook = async (session, { type = 'tracker', title: overrideTitle } = {}) => {
+    if (!session) return null
+    const title = overrideTitle ?? window.prompt('Notebook name', 'My Notebook')
+    if (!title) return null
     const { data, error } = await supabase
       .from('notebooks')
       .insert({
         title: title.trim(),
         user_id: session.user.id,
+        type,
       })
       .select()
       .single()
 
     if (error) {
       setMessage(error.message)
-      return
+      return null
     }
 
     setNotebooks((prev) => [...prev, data])
     setActiveNotebookId(data.id)
+    return data
   }
 
   const renameNotebook = async (notebook) => {
@@ -145,6 +147,32 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   }
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
+  const activeNotebookType = activeNotebook?.type ?? 'tracker'
+  const isRecipesNotebook = activeNotebookType === 'recipes'
+
+  // Auto-create the Recipes notebook (+ "General" section) on first load if missing.
+  const recipesInitRef = useRef(false)
+  useEffect(() => {
+    if (!userId || notebooks.length === 0 || recipesInitRef.current) return
+    const hasRecipes = notebooks.some((nb) => nb.type === 'recipes')
+    if (hasRecipes) {
+      recipesInitRef.current = true
+      return
+    }
+    recipesInitRef.current = true
+    // We need a session to create — fetch it once
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const nb = await createNotebook(session, { type: 'recipes', title: 'Recipes' })
+      if (!nb) return
+      // Create a default "General" section
+      const { error: sectionError } = await supabase
+        .from('sections')
+        .insert({ title: 'General', user_id: session.user.id, notebook_id: nb.id, sort_order: 0 })
+      if (sectionError) console.error('Failed to create default Recipes section:', sectionError.message)
+    })()
+  }, [userId, notebooks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     notebooks,
@@ -153,6 +181,8 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     activeNotebook,
     message,
     setMessage,
+    activeNotebookType,
+    isRecipesNotebook,
     createNotebook,
     renameNotebook,
     deleteNotebook,
