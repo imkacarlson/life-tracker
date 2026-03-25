@@ -1,7 +1,7 @@
 .ai-insert-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.3);
+  background: rgba(28, 25, 23, 0.3);
   z-index: 70;
   display: flex;
   align-items: center;
@@ -11,10 +11,10 @@
 
 .ai-insert-modal {
   width: min(560px, 100%);
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 24px 48px rgba(28, 25, 23, 0.28);
   padding: 1rem;
 }
 
@@ -32,11 +32,11 @@
   resize: vertical;
   min-height: 160px;
   border-radius: 8px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border-strong);
   padding: 0.6rem 0.7rem;
   font: inherit;
   font-size: 0.9rem;
-  color: #0f172a;
+  color: var(--text);
 }
 
 .ai-insert-actions {
@@ -49,12 +49,12 @@
 .table-context-menu {
   position: fixed;
   z-index: 40;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   min-width: 190px;
   padding: 0.35rem;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 16px 32px rgba(28, 25, 23, 0.18);
 }
 
 .table-context-item {
@@ -64,18 +64,18 @@
   border: none;
   padding: 0.45rem 0.6rem;
   font-size: 0.85rem;
-  color: #0f172a;
+  color: var(--text);
   border-radius: 6px;
   cursor: pointer;
 }
 
 .table-context-item.disabled {
-  color: #94a3b8;
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .table-context-item:hover {
-  background: #f1f5f9;
+  background: var(--surface-raised);
 }
 
 .table-context-item.disabled:hover {
@@ -90,11 +90,11 @@
   position: absolute;
   top: 0;
   min-width: 190px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.35rem;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 16px 32px rgba(28, 25, 23, 0.18);
   z-index: 50;
 }
 
@@ -109,12 +109,12 @@
 .section-context-menu {
   position: fixed;
   z-index: 40;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   min-width: 160px;
   padding: 0.35rem;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 16px 32px rgba(28, 25, 23, 0.18);
 }
 
 .section-context-item {
@@ -124,13 +124,13 @@
   border: none;
   padding: 0.45rem 0.6rem;
   font-size: 0.85rem;
-  color: #0f172a;
+  color: var(--text);
   border-radius: 6px;
   cursor: pointer;
 }
 
 .section-context-item:hover {
-  background: #f1f5f9;
+  background: var(--surface-raised);
 }
 
 .copy-move-modal {
@@ -141,10 +141,10 @@
   width: 100%;
   box-sizing: border-box;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   padding: 0.45rem 0.6rem;
   font-size: 0.9rem;
-  background: #ffffff;
+  background: var(--surface);
   margin-top: 0.25rem;
 }
 
@@ -163,17 +163,17 @@
   right: 0;
   top: calc(100% + 4px);
   min-width: 220px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.35rem;
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 16px 32px rgba(28, 25, 23, 0.18);
   z-index: 40;
 }
 
 .more-menu-divider {
   height: 1px;
-  background: #e2e8f0;
+  background: var(--border);
   margin: 0.25rem 0;
 }
 
@@ -183,7 +183,7 @@
 
 .conflict-timestamps {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0.5rem 0 0.75rem;
 }
 

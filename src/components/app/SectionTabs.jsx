@@ -16,7 +16,7 @@ function SectionTabs({
           role="button"
           tabIndex={0}
           className={`section-tab ${section.id === activeSectionId ? 'active' : ''}`}
-          style={{ backgroundColor: section.color || '#eef2ff' }}
+          style={{ backgroundColor: section.color || '#F5F5F4' }}
           onClick={() => onSelectSection(section.id)}
           onDoubleClick={() => onRenameSection(section)}
           onContextMenu={(event) => onOpenContextMenu(event, section)}

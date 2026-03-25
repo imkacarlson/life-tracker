@@ -67,11 +67,11 @@ h2 {
 }
 
 .card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
   padding: 1.5rem;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 30px rgba(28, 25, 23, 0.08);
 }
 
 .form {
@@ -91,20 +91,20 @@ h2 {
 input {
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-strong);
   font-size: 1rem;
 }
 
 input:focus {
-  outline: 2px solid #2563eb;
+  outline: 2px solid var(--accent);
   border-color: transparent;
 }
 
 button {
   border: none;
   border-radius: 8px;
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--surface);
   padding: 0.6rem 1rem;
   font-size: 0.95rem;
   cursor: pointer;
@@ -116,14 +116,14 @@ button:disabled {
 }
 
 .secondary {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--border);
+  color: var(--text);
 }
 
 .ghost {
   background: transparent;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
   padding: 0.35rem 0.6rem;
   font-size: 0.75rem;
 }
@@ -135,16 +135,16 @@ button:disabled {
 
 .message {
   margin-top: 1rem;
-  color: #b91c1c;
+  color: var(--error);
 }
 
 .message-inline {
-  color: #b91c1c;
+  color: var(--error);
   font-size: 0.85rem;
 }
 
 .subtle {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin: 0;
 }

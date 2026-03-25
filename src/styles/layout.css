@@ -3,7 +3,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  color: #0f172a;
+  color: var(--text);
 }
 
 .app-auth {
@@ -35,12 +35,18 @@
 }
 
 .settings-button.active {
-  border-color: #2563eb;
-  color: #2563eb;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .brand h1 {
   margin: 0 0 0.25rem;
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .notebook-switcher {
@@ -51,10 +57,10 @@
 }
 
 .notebook-switcher select {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.35rem 0.5rem;
-  background: #ffffff;
+  background: var(--surface);
   font-size: 0.9rem;
 }
 
@@ -67,11 +73,11 @@
 }
 
 .section-tab {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 12px 12px 0 0;
   padding: 0.4rem 0.8rem;
-  background: #eef2ff;
+  background: var(--surface-raised);
   font-size: 0.85rem;
   display: inline-flex;
   align-items: center;
@@ -81,23 +87,23 @@
 }
 
 .section-tab.active {
-  border-color: #2563eb;
+  border-color: var(--accent);
   font-weight: 600;
 }
 
 .tab-delete {
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   padding: 0;
   cursor: pointer;
 }
 
 .section-add {
-  border: 1px dashed #cbd5f5;
+  border: 1px dashed var(--border-strong);
   background: transparent;
-  color: #2563eb;
+  color: var(--accent);
   border-radius: 10px;
   padding: 0.35rem 0.6rem;
   cursor: pointer;
@@ -151,14 +157,14 @@
   left: 50%;
   width: 1px;
   transform: translateX(-50%);
-  background: #dbe4f2;
+  background: var(--border);
 }
 
 .sidebar-resizer:hover::before,
 .sidebar-resizer:focus-visible::before,
 .workspace.sidebar-resizing .sidebar-resizer::before {
   width: 2px;
-  background: #93c5fd;
+  background: var(--accent-light);
 }
 
 .sidebar-resizer:focus-visible {
@@ -192,7 +198,7 @@
   font-size: 0.95rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .sidebar-list {
@@ -231,18 +237,18 @@
   justify-content: space-between;
   width: 100%;
   min-width: 0;
-  color: #334155;
+  color: var(--text-secondary);
 }
 
 .sidebar-item.active {
-  border-color: #2563eb;
-  color: #0f172a;
-  background: #eff6ff;
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--accent-bg);
 }
 
 .sidebar-item.drag-over {
-  border-color: #2563eb;
-  background: #eef2ff;
+  border-color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .sidebar-title {
@@ -262,9 +268,9 @@
   font-size: 0.6rem;
   line-height: 1;
   letter-spacing: 0.06em;
-  color: #1d4ed8;
-  background: #dbeafe;
-  border: 1px solid #93c5fd;
+  color: var(--accent-dark);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-light);
   border-radius: 999px;
   padding: 0.18rem 0.35rem;
   white-space: nowrap;
@@ -279,11 +285,11 @@
 }
 
 .settings-hub {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 14px;
   padding: 1.5rem;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 30px rgba(28, 25, 23, 0.08);
 }
 
 .settings-header {
@@ -300,10 +306,10 @@
 }
 
 .settings-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.25rem;
-  background: #f8fafc;
+  background: var(--surface-raised);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -317,5 +323,5 @@
 }
 
 .settings-loading {
-  color: #64748b;
+  color: var(--text-secondary);
 }
