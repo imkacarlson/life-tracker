@@ -95,6 +95,7 @@ function EditorPanel({
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
+  const [toolbarExpanded, setToolbarExpanded] = useState(false)
   const gridSize = 5
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
 
@@ -1239,13 +1240,14 @@ function EditorPanel({
       />
 
       <div
-        className={`toolbar ${controlsDisabled ? 'disabled' : ''}`}
+        className={`toolbar ${controlsDisabled ? 'disabled' : ''}${isTouchOnly && !toolbarExpanded ? ' toolbar-collapsed' : ''}`}
         onMouseDownCapture={(event) => {
           if (event.target instanceof HTMLElement && event.target.closest('button')) {
             event.preventDefault()
           }
         }}
       >
+        <div className="toolbar-core">
         <button
           type="button"
           className={editor?.isActive('bold') ? 'active' : ''}
@@ -1262,6 +1264,40 @@ function EditorPanel({
         >
           I
         </button>
+        <button
+          type="button"
+          className={editor?.isActive('heading', { level: 1 }) ? 'active' : ''}
+          onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+          disabled={!hasTracker}
+        >
+          H1
+        </button>
+        <button
+          type="button"
+          className={editor?.isActive('bulletList') ? 'active' : ''}
+          onClick={() => editor?.chain().focus().toggleBulletList().run()}
+          disabled={!hasTracker}
+        >
+          • List
+        </button>
+        <button type="button" onClick={handleSetLink} disabled={!hasTracker}>
+          Link
+        </button>
+        <button type="button" onClick={() => editor?.chain().focus().undo().run()} disabled={!hasTracker}>
+          Undo
+        </button>
+        {isTouchOnly && (
+          <button
+            type="button"
+            className="toolbar-expand-toggle"
+            onClick={() => setToolbarExpanded((prev) => !prev)}
+            aria-label={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
+          >
+            {toolbarExpanded ? '▴' : '▾'}
+          </button>
+        )}
+        </div>
+        <div className="toolbar-extra">
         <button
           type="button"
           className={editor?.isActive('underline') ? 'active' : ''}
@@ -1332,15 +1368,6 @@ function EditorPanel({
         />
 
         <div className="toolbar-divider" />
-
-        <button
-          type="button"
-          className={editor?.isActive('heading', { level: 1 }) ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-          disabled={!hasTracker}
-        >
-          H1
-        </button>
         <button
           type="button"
           className={editor?.isActive('heading', { level: 2 }) ? 'active' : ''}
@@ -1348,14 +1375,6 @@ function EditorPanel({
           disabled={!hasTracker}
         >
           H2
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('bulletList') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
-          disabled={!hasTracker}
-        >
-          • List
         </button>
         <button
           type="button"
@@ -1423,17 +1442,11 @@ function EditorPanel({
 
         <div className="toolbar-divider" />
 
-        <button type="button" onClick={handleSetLink} disabled={!hasTracker}>
-          Link
-        </button>
         <button type="button" onClick={() => editor?.chain().focus().unsetLink().run()} disabled={!hasTracker}>
           Unlink
         </button>
         <button type="button" onClick={openFind} disabled={!hasTracker}>
           Find
-        </button>
-        <button type="button" onClick={() => editor?.chain().focus().undo().run()} disabled={!hasTracker}>
-          Undo
         </button>
         <button type="button" onClick={() => editor?.chain().focus().redo().run()} disabled={!hasTracker}>
           Redo
@@ -1695,6 +1708,8 @@ function EditorPanel({
               </div>
             </>
           )}
+        </div>
+
         </div>
 
         {findOpen && hasTracker && (

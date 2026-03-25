@@ -16,6 +16,30 @@
   pointer-events: none;
 }
 
+.toolbar-core {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.toolbar-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.toolbar-collapsed .toolbar-extra {
+  display: none;
+}
+
+.toolbar-expand-toggle {
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+  font-size: 0.85rem !important;
+}
+
 .toolbar button {
   border-radius: 6px;
   border: 1px solid var(--border);
