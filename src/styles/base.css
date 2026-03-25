@@ -59,11 +59,13 @@ body {
 h1 {
   margin: 0 0 0.25rem;
   font-size: 2rem;
+  font-family: var(--font-display);
 }
 
 h2 {
   margin: 0 0 1rem;
   font-size: 1.1rem;
+  font-family: var(--font-display);
 }
 
 .card {
@@ -102,12 +104,13 @@ input:focus {
 
 button {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: var(--surface);
   padding: 0.6rem 1rem;
   font-size: 0.95rem;
   cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-out);
 }
 
 button:disabled {

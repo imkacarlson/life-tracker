@@ -75,7 +75,7 @@
 .section-tab {
   border: 1px solid var(--border);
   border-bottom: none;
-  border-radius: 12px 12px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 0.4rem 0.8rem;
   background: var(--surface-raised);
   font-size: 0.85rem;
@@ -195,9 +195,10 @@
 
 .sidebar-header h2 {
   margin: 0;
-  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--text-secondary);
 }
 
@@ -265,6 +266,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: var(--font-mono);
   font-size: 0.6rem;
   line-height: 1;
   letter-spacing: 0.06em;

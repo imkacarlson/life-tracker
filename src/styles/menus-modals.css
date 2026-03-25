@@ -13,7 +13,7 @@
   width: min(560px, 100%);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 24px 48px rgba(28, 25, 23, 0.28);
   padding: 1rem;
 }
