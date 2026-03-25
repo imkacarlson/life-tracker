@@ -15,7 +15,14 @@ function TopBar({
     <header className="topbar">
       <div className="topbar-left">
         <div className="brand">
-          <h1>Life Tracker</h1>
+          <div className="brand-logo">
+            <svg width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="48" height="48" rx="10" fill="#0D9488"/>
+              <path d="M12 28L20 20L26 26L36 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M30 16H36V22" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <h1>Life Tracker</h1>
+          </div>
           <p className="subtle">Signed in as {session.user.email}</p>
         </div>
         <div className="notebook-switcher">
