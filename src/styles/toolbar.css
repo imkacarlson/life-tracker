@@ -18,7 +18,7 @@
 
 .toolbar-core {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.35rem;
 }
@@ -28,10 +28,17 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
+  overflow: hidden;
+  transition: max-height var(--duration-medium) var(--ease-out),
+              opacity var(--duration-medium) var(--ease-out);
+  max-height: 500px;
+  opacity: 1;
 }
 
 .toolbar-collapsed .toolbar-extra {
-  display: none;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
 }
 
 .toolbar-expand-toggle {
