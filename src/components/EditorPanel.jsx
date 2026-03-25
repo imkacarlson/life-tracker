@@ -95,7 +95,7 @@ function EditorPanel({
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
-  const [toolbarExpanded, setToolbarExpanded] = useState(false)
+  const [toolbarExpanded, setToolbarExpanded] = useState(true)
   const gridSize = 5
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
 
