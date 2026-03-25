@@ -54,41 +54,33 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
 
-  // Refs so the conflict-detection effect only fires when activeTrackerId changes.
-  const activeTrackerServerRef = useRef(activeTrackerServer)
-  const activeDraftRef = useRef(activeDraft)
-  useEffect(() => { activeTrackerServerRef.current = activeTrackerServer }, [activeTrackerServer])
-  useEffect(() => { activeDraftRef.current = activeDraft }, [activeDraft])
-
-  // Detect stale draft vs newer server data when switching pages.
+  // Detect stale draft vs newer server data when the active page state settles.
+  // This must react to both the page switch and the eventual arrival of the
+  // server row/draft data; otherwise a fast navigation can miss the conflict.
   useEffect(() => {
     if (!activeTrackerId) {
       setDraftConflict(null)
       return
     }
-    const server = activeTrackerServerRef.current
-    const draft = activeDraftRef.current
-    if (!server || !draft || !draft.ts) {
+    if (!activeTrackerServer || !activeDraft || !activeDraft.ts) {
       setDraftConflict(null)
       return
     }
-    const serverTime = new Date(server.updated_at).getTime()
-    if (serverTime > draft.ts) {
+    const serverTime = new Date(activeTrackerServer.updated_at).getTime()
+    if (serverTime > activeDraft.ts) {
       setDraftConflict({
         trackerId: activeTrackerId,
-        draftTs: draft.ts,
-        serverUpdatedAt: server.updated_at,
-        draftContent: draft.content,
-        draftTitle: draft.title,
-        serverContent: server.content,
-        serverTitle: server.title,
+        draftTs: activeDraft.ts,
+        serverUpdatedAt: activeTrackerServer.updated_at,
+        draftContent: activeDraft.content,
+        draftTitle: activeDraft.title,
+        serverContent: activeTrackerServer.content,
+        serverTitle: activeTrackerServer.title,
       })
     } else {
       setDraftConflict(null)
     }
-    // Cleanup: if user navigates away while conflict is unresolved, clear it (server wins by default).
-    return () => setDraftConflict(null)
-  }, [activeTrackerId])
+  }, [activeTrackerId, activeTrackerServer, activeDraft])
 
   useEffect(() => {
     trackersRef.current = trackers

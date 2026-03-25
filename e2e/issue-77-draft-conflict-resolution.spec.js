@@ -64,6 +64,7 @@ test.describe('Issue #77 draft conflict resolution', () => {
 
     // Navigate to the dedicated nav-away page via hashchange
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, navAwayPage.id)
+    await expect(page.locator('.title-input')).toHaveValue('Nav Away Page', { timeout: 10000 })
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
     await expect(page.locator('.ProseMirror')).toContainText('Placeholder', { timeout: 10000 })
 
@@ -80,13 +81,25 @@ test.describe('Issue #77 draft conflict resolution', () => {
     )
 
     // Update server timestamp to be newer than the draft
+    const newerServerTimestamp = new Date().toISOString()
     await supabaseInfo.client
       .from('pages')
-      .update({ updated_at: new Date().toISOString() })
+      .update({ updated_at: newerServerTimestamp })
       .eq('id', testPage.id)
+
+    await expect(async () => {
+      const { data, error } = await supabaseInfo.client
+        .from('pages')
+        .select('updated_at')
+        .eq('id', testPage.id)
+        .single()
+      if (error) throw error
+      expect(data?.updated_at).toBe(newerServerTimestamp)
+    }).toPass({ timeout: 5000 })
 
     // Navigate back to our test page to trigger conflict detection
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
+    await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 10000 })
 
     // Wait for conflict modal to appear
     await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 10000 })

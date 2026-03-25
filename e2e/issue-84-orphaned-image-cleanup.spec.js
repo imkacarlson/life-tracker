@@ -46,6 +46,21 @@ const waitForStorageFileDeletion = async (client, storagePath, timeoutMs = 30000
   return false
 }
 
+const waitForPageContent = async (client, pageId, predicate, timeoutMs = 10000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await client
+      .from('pages')
+      .select('content')
+      .eq('id', pageId)
+      .single()
+    if (error) throw error
+    if (predicate(data?.content)) return data?.content
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  throw new Error(`Timed out waiting for page ${pageId} content to match predicate`)
+}
+
 // Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
 // without waiting for Supabase Storage signed-URL hydration.
 const TINY_PNG_DATA_URI =
@@ -136,8 +151,8 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await editor.click()
       await page.keyboard.type(' extra text')
 
-      // Wait for auto-save
-      await page.waitForTimeout(4000)
+      // Wait for auto-save to persist the typed text before checking storage
+      await waitForPageContent(client, pg.id, (content) => JSON.stringify(content).includes('extra text'))
 
       // Image should still exist
       expect(await storageFileExists(client, storagePath)).toBe(true)
@@ -170,10 +185,16 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       const isMac = process.platform === 'darwin'
       await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z')
 
-      // Wait for auto-save to complete (poll for Saved status)
-      await expect(page.getByText('Saved')).toBeVisible({ timeout: 8000 })
-      // Extra buffer for storage cleanup to finish (if any was triggered)
-      await page.waitForTimeout(1000)
+      // Verify the image was restored in the editor before we inspect saved data.
+      await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 5000 })
+
+      // Wait for the saved page content to still reference this image.
+      await waitForPageContent(
+        client,
+        pg.id,
+        (content) => JSON.stringify(content).includes(storagePath),
+        10000,
+      )
 
       // Image should still exist (undo restored it before the save)
       expect(await storageFileExists(client, storagePath)).toBe(true)

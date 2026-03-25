@@ -1241,6 +1241,7 @@ function EditorPanel({
 
       <div
         className={`toolbar ${controlsDisabled ? 'disabled' : ''}${isTouchOnly && !toolbarExpanded ? ' toolbar-collapsed' : ''}`}
+        data-expanded={!isTouchOnly || toolbarExpanded ? 'true' : 'false'}
         onMouseDownCapture={(event) => {
           if (event.target instanceof HTMLElement && event.target.closest('button')) {
             event.preventDefault()
@@ -1292,6 +1293,7 @@ function EditorPanel({
             className="toolbar-expand-toggle"
             onClick={() => setToolbarExpanded((prev) => !prev)}
             aria-label={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
+            data-testid="toolbar-expand-toggle"
           >
             {toolbarExpanded ? '▴' : '▾'}
           </button>
@@ -1311,6 +1313,8 @@ function EditorPanel({
           className={editor?.isActive('strike') ? 'active' : ''}
           onClick={() => editor && toggleLineStrike(editor)}
           disabled={!hasTracker}
+          aria-label="Toggle strikethrough"
+          data-testid="toolbar-strikethrough"
         >
           S
         </button>
@@ -1399,6 +1403,8 @@ function EditorPanel({
               onClick={handleOutdent}
               disabled={!hasTracker || !isInList}
               title="Outdent"
+              aria-label="Outdent list item"
+              data-testid="toolbar-outdent"
             >
               ←
             </button>
@@ -1407,6 +1413,8 @@ function EditorPanel({
               onClick={handleIndent}
               disabled={!hasTracker || !isInList}
               title="Indent"
+              aria-label="Indent list item"
+              data-testid="toolbar-indent"
             >
               →
             </button>

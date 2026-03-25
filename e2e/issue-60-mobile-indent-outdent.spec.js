@@ -77,6 +77,24 @@ const SEED_CONTENT = {
 test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   let testPage = null
 
+  const ensureMobileToolbarExpanded = async (page) => {
+    const toolbar = page.locator('.toolbar')
+    await expect(toolbar).toHaveAttribute('data-expanded', 'true', { timeout: 5000 })
+  }
+
+  const readListDepthFromSelection = async (page) =>
+    page.evaluate(() => {
+      const sel = window.getSelection()
+      if (!sel?.anchorNode) return 0
+      let node = sel.anchorNode
+      let listDepth = 0
+      while (node && node !== document.body) {
+        if (node.nodeName === 'UL' || node.nodeName === 'OL') listDepth++
+        node = node.parentNode
+      }
+      return listDepth
+    })
+
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `Issue60 Notebook ${Date.now()}`)
@@ -88,9 +106,10 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Send out wedding invites' })
+    await ensureMobileToolbarExpanded(page)
 
-    const indentBtn = page.getByRole('button', { name: '→' })
-    const outdentBtn = page.getByRole('button', { name: '←' })
+    const indentBtn = page.getByTestId('toolbar-indent')
+    const outdentBtn = page.getByTestId('toolbar-outdent')
 
     // Buttons should be visible on mobile
     await expect(indentBtn).toBeVisible()
@@ -101,7 +120,9 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
     // Click the item and indent it
     await weddingInvites.click()
-    await page.waitForTimeout(300)
+    await expect(async () => {
+      expect(await readListDepthFromSelection(page)).toBe(1)
+    }).toPass({ timeout: 3000 })
 
     // Capture table row count before indent
     const rowCountBefore = await page.evaluate(() =>
@@ -110,38 +131,15 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
     // Indent: the item should become nested
     await indentBtn.click()
-    await page.waitForTimeout(500)
-
-    // Verify indentation happened — item should now be inside a nested list
-    const isNested = await page.evaluate(() => {
-      const sel = window.getSelection()
-      if (!sel?.anchorNode) return false
-      let node = sel.anchorNode
-      let listDepth = 0
-      while (node && node !== document.body) {
-        if (node.nodeName === 'UL' || node.nodeName === 'OL') listDepth++
-        node = node.parentNode
-      }
-      return listDepth >= 2
-    })
-    expect(isNested).toBe(true)
+    await expect(async () => {
+      expect(await readListDepthFromSelection(page)).toBeGreaterThanOrEqual(2)
+    }).toPass({ timeout: 3000 })
 
     // Outdent: should return to original level
     await outdentBtn.click()
-    await page.waitForTimeout(500)
-
-    const isFlat = await page.evaluate(() => {
-      const sel = window.getSelection()
-      if (!sel?.anchorNode) return false
-      let node = sel.anchorNode
-      let listDepth = 0
-      while (node && node !== document.body) {
-        if (node.nodeName === 'UL' || node.nodeName === 'OL') listDepth++
-        node = node.parentNode
-      }
-      return listDepth === 1
-    })
-    expect(isFlat).toBe(true)
+    await expect(async () => {
+      expect(await readListDepthFromSelection(page)).toBe(1)
+    }).toPass({ timeout: 3000 })
 
     // Table row count should be unchanged (no spurious rows created)
     const rowCountAfter = await page.evaluate(() =>
@@ -154,15 +152,18 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Get DJ scheduled' })
+    await ensureMobileToolbarExpanded(page)
 
-    const indentBtn = page.getByRole('button', { name: '→' })
-    const outdentBtn = page.getByRole('button', { name: '←' })
+    const indentBtn = page.getByTestId('toolbar-indent')
+    const outdentBtn = page.getByTestId('toolbar-outdent')
 
     // Click on the first list item (can't be indented or outdented)
     const djItem = page.getByText('Get DJ scheduled').first()
     await expect(djItem).toBeVisible({ timeout: 5000 })
     await djItem.click()
-    await page.waitForTimeout(300)
+    await expect(async () => {
+      expect(await readListDepthFromSelection(page)).toBe(1)
+    }).toPass({ timeout: 3000 })
 
     const rowCountBefore = await page.evaluate(() =>
       document.querySelectorAll('table tr').length
@@ -170,11 +171,12 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
     // Indent on first item should be a no-op
     await indentBtn.click()
-    await page.waitForTimeout(500)
 
     // Outdent on top-level item in table should be a no-op
     await outdentBtn.click()
-    await page.waitForTimeout(500)
+    await expect(async () => {
+      expect(await readListDepthFromSelection(page)).toBe(1)
+    }).toPass({ timeout: 3000 })
 
     // Table should have same number of rows — no spurious rows created
     const rowCountAfter = await page.evaluate(() =>
@@ -189,8 +191,8 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Wedding Planning' })
 
     // Indent/outdent buttons should not exist on desktop
-    const indentBtn = page.getByRole('button', { name: '→' })
-    const outdentBtn = page.getByRole('button', { name: '←' })
+    const indentBtn = page.getByTestId('toolbar-indent')
+    const outdentBtn = page.getByTestId('toolbar-outdent')
     await expect(indentBtn).not.toBeVisible()
     await expect(outdentBtn).not.toBeVisible()
   })
