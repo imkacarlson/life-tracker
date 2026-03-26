@@ -4,6 +4,7 @@ import { EMPTY_DOC } from '../utils/constants'
 import { sanitizeContentForSave } from '../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
+import { detectConflict } from '../utils/draftHelpers'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
@@ -58,28 +59,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   // This must react to both the page switch and the eventual arrival of the
   // server row/draft data; otherwise a fast navigation can miss the conflict.
   useEffect(() => {
-    if (!activeTrackerId) {
-      setDraftConflict(null)
-      return
-    }
-    if (!activeTrackerServer || !activeDraft || !activeDraft.ts) {
-      setDraftConflict(null)
-      return
-    }
-    const serverTime = new Date(activeTrackerServer.updated_at).getTime()
-    if (serverTime > activeDraft.ts) {
-      setDraftConflict({
-        trackerId: activeTrackerId,
-        draftTs: activeDraft.ts,
-        serverUpdatedAt: activeTrackerServer.updated_at,
-        draftContent: activeDraft.content,
-        draftTitle: activeDraft.title,
-        serverContent: activeTrackerServer.content,
-        serverTitle: activeTrackerServer.title,
-      })
-    } else {
-      setDraftConflict(null)
-    }
+    const conflict = detectConflict(activeTrackerId, activeTrackerServer, activeDraft)
+    setDraftConflict(conflict)
   }, [activeTrackerId, activeTrackerServer, activeDraft])
 
   useEffect(() => {
