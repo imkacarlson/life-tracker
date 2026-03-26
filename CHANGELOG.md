@@ -3,6 +3,16 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.1.1.0] - 2026-03-26
+
+### Added
+- Mobile pinch-to-zoom for editor content area via CSS `zoom` on `.editor-shell` (issue #32)
+- Zoom indicator badge: pill-shaped, bottom-right, tap to reset — follows DESIGN.md spec
+- First-use hint tooltip when a wide table is detected on a touch device
+- `useContentZoom` hook with imperative rAF-throttled gesture handling and midpoint scroll anchoring
+- Zoom math utilities (`zoomHelpers.js`) with 10 unit tests covering distance, midpoint, clamping, and scroll anchoring
+- Multi-touch guard in `mobileLongPressSelect` to suppress long-press during pinch gestures
+
 ## [0.1.0.0] - 2026-03-26
 
 ### Added
