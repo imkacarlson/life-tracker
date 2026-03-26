@@ -61,6 +61,29 @@ const waitForPageContent = async (client, pageId, predicate, timeoutMs = 10000) 
   throw new Error(`Timed out waiting for page ${pageId} content to match predicate`)
 }
 
+const placeCaretAtEndOfFirstParagraph = async (page) => {
+  await page.evaluate(() => {
+    const paragraph = document.querySelector('.ProseMirror p')
+    const editor = document.querySelector('.ProseMirror')
+    if (!paragraph || !editor) {
+      throw new Error('Could not find editor paragraph for caret placement')
+    }
+
+    const textNode = Array.from(paragraph.childNodes).find((node) => node.nodeType === Node.TEXT_NODE)
+    if (!textNode) {
+      throw new Error('Could not find text node for caret placement')
+    }
+
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.setStart(textNode, textNode.textContent?.length ?? 0)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    editor.focus()
+  })
+}
+
 // Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
 // without waiting for Supabase Storage signed-URL hydration.
 const TINY_PNG_DATA_URI =
@@ -146,10 +169,11 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
-      // Type some text (not touching the image)
-      const editor = page.locator('.tiptap')
-      await editor.click()
+      // Place the caret inside the existing paragraph, then type.
+      // Clicking the generic editor container on mobile can miss the text cursor entirely.
+      await placeCaretAtEndOfFirstParagraph(page)
       await page.keyboard.type(' extra text')
+      await expect(page.locator('.ProseMirror')).toContainText('Some text before the image. extra text')
 
       // Wait for auto-save to persist the typed text before checking storage
       await waitForPageContent(client, pg.id, (content) => JSON.stringify(content).includes('extra text'))
