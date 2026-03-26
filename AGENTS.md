@@ -119,6 +119,24 @@ The user organizes tasks in monthly "trackers" that are rich text documents:
 
 ## Testing
 
+Two-layer test strategy: **Vitest** for pure logic, **Playwright** for user journeys. Both run on every PR as a single gate (unit tests first, then E2E).
+
+### Unit tests (Vitest)
+
+Unit tests live in `src/utils/__tests__/`. They cover pure functions that take plain JS objects and return plain JS objects — no DOM, no jsdom needed.
+
+- `contentHelpers.test.js` — normalizeContent, collectStoragePaths, sanitizeContentForSave
+- `imageCleanup.test.js` — findRemovedImagePaths, collectAllImagePaths
+- `navigationHelpers.test.js` — buildHash, parseDeepLink
+- `listHelpers.test.js` — getListDepthAt, getListItemTypeAt (uses real ProseMirror Schema/EditorState)
+- `draftHelpers.test.js` — detectConflict
+
+**When to write a unit test:** If the function takes plain JS objects (or ProseMirror state) and returns data without requiring a browser or Tiptap editor view — unit test it.
+
+**When to write an E2E test:** If the behavior requires a browser, editor interaction, or real Supabase — E2E test it.
+
+### E2E tests (Playwright)
+
 Playwright E2E tests live in `e2e/`. Two viewport projects run automatically:
 - **Desktop Chrome** — default desktop viewport
 - **Mobile Chrome** — Pixel 7 device profile, overridden to 1080×2400 with touch enabled
@@ -127,18 +145,19 @@ Playwright E2E tests live in `e2e/`. Two viewport projects run automatically:
 1. Copy `.env.test` and fill in `TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 2. Add matching GitHub Secrets for CI (`TEST_USER_EMAIL`, `TEST_USER_PASSWORD`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
 
-**Commands:**
-- `npm run test:e2e` — run all E2E tests headlessly
-- `npm run test:e2e:ui` — open Playwright UI for visual test replay
-
 **Test philosophy:** Behavioral assertions; use `getByRole`/`getByText` where possible. Tests should survive UI overhauls.
 
 **Seed data:** Tests are self-contained — each test creates its own data (pages, sections, etc.) in `beforeAll` via the Supabase API using helpers from `e2e/test-helpers.js`. The `isolateSupabaseData` fixture in `e2e/fixtures.js` snapshots and restores DB state between tests as a safety net.
+
+### ProseMirror boundary
+
+Functions inside React hooks that use ProseMirror `EditorState` should be extracted into standalone util files (e.g., `src/utils/listHelpers.js`) and unit-tested with real ProseMirror state objects constructed via `@tiptap/pm/model` + `@tiptap/pm/state`. No jsdom needed — ProseMirror's state layer is pure JS.
 
 ## Commands
 
 - `npm run dev` - Start dev server (binds to 0.0.0.0 — accessible from phone on same network)
 - `npm run build` - Production build
+- `npm run test:unit` - Run Vitest unit tests
 - `npm run test:e2e` - Run Playwright E2E tests
 - `npm run test:e2e:ui` - Run Playwright E2E tests with UI
 
