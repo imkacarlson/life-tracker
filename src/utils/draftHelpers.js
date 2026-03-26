@@ -12,6 +12,7 @@ export const detectConflict = (trackerId, serverRow, draft) => {
   if (!serverRow || !draft || !draft.ts) return null
 
   const serverTime = new Date(serverRow.updated_at).getTime()
+  if (isNaN(serverTime)) return null
   if (serverTime > draft.ts) {
     return {
       trackerId,

@@ -65,4 +65,16 @@ describe('detectConflict', () => {
     expect(result).not.toBeNull()
     expect(result.trackerId).toBe('page-1')
   })
+
+  it('returns null when updated_at is null (NaN guard)', () => {
+    const server = serverRow(null)
+    const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+
+  it('returns null when updated_at is malformed (NaN guard)', () => {
+    const server = serverRow('not-a-date')
+    const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
 })

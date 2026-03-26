@@ -152,6 +152,7 @@ function App() {
     setTrackerPage,
     deleteTracker,
     draftConflict,
+    draftConflictRef,
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
@@ -675,14 +676,16 @@ function App() {
       <ConflictModal
         conflict={draftConflict}
         onUseServer={() => {
-          const serverContent = draftConflict?.serverContent
+          // Read from ref so the handler always sees the live conflict value,
+          // not a stale closure from a prior render.
+          const serverContent = draftConflictRef.current?.serverContent
           resolveConflictWithServer()
           if (editor && serverContent) {
             editor.commands.setContent(serverContent, { emitUpdate: false })
           }
         }}
         onUseDraft={() => {
-          const draftContent = draftConflict?.draftContent
+          const draftContent = draftConflictRef.current?.draftContent
           resolveConflictWithDraft()
           if (editor && draftContent) {
             editor.commands.setContent(draftContent, { emitUpdate: false })

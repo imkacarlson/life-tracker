@@ -9,6 +9,11 @@ Replace hash → `resolveNavHierarchy` (async Supabase lookup) with page identit
 
 ## Editor / Conflict
 
+**Spurious conflict from two-effect draft detection split**
+**Priority:** P2
+In `useTrackers`, `activeDraft` and `detectConflict` are now two separate effects. On fast navigation from page A (with a stale draft) to page B, there is a one-render window where `activeDraft` still holds page A's draft while `activeTrackerId` is already B. If page B's server row is immediately available, `detectConflict(B, serverB, draftA)` can fire a spurious conflict. Fix: coalesce both effects or guard the conflict detection with an explicit `draftTrackerId === activeTrackerId` check.
+*Flagged by: adversarial review (2026-03-26)*
+
 **Conflict modal accessibility**
 **Priority:** P3
 Add focus trap and keyboard dismiss (Escape key) to `ConflictModal`. Currently focus is not moved to the modal on open and there is no keyboard close path.

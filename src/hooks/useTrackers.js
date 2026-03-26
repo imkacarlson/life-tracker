@@ -22,6 +22,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
+  const draftConflictRef = useRef(null)
   const trackersRef = useRef(trackers)
   const pendingTitleByTrackerRef = useRef({})
 
@@ -53,6 +54,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   useEffect(() => {
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
+
+  useEffect(() => {
+    draftConflictRef.current = draftConflict
+  }, [draftConflict])
 
   useEffect(() => {
     if (!activeTrackerId) {
@@ -622,6 +627,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTrackerPage,
     deleteTracker,
     activeTrackerRef,
+    draftConflictRef,
     sectionTrackerPage,
     draftConflict,
     resolveConflictWithServer,
