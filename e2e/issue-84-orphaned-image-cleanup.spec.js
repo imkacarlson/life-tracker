@@ -205,12 +205,14 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await img.click()
       await page.keyboard.press('Backspace')
 
-      // Immediately undo (before the 2s debounce fires)
-      const isMac = process.platform === 'darwin'
-      await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z')
+      // Immediately undo (before the 2s debounce fires).
+      // Use the toolbar Undo button rather than a keyboard shortcut — on mobile
+      // the keyboard event can miss if the editor lost focus after Backspace.
+      await page.locator('button', { hasText: 'Undo' }).click()
 
       // Verify the image was restored in the editor before we inspect saved data.
-      await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 5000 })
+      // 8s gives mobile CI enough headroom for re-render after undo.
+      await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 8000 })
 
       // Wait for the saved page content to still reference this image.
       // Use generous timeout — the undo + re-save involves two debounce cycles.
