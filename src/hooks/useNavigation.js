@@ -76,7 +76,10 @@ export const useNavigation = ({
       const version = ++navVersionRef.current
       const resolved = await resolveNavHierarchy(parsed)
       if (navVersionRef.current !== version) return
-      if (!resolved?.notebookId) return
+      if (!resolved?.notebookId) {
+        console.warn('[nav] resolveNavHierarchy returned null for hash=%s — navigation dropped', hash)
+        return
+      }
 
       if (resolved.pageId && resolved.blockId) {
         hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
