@@ -44,6 +44,7 @@ import {
 } from '../extensions/keyboardShortcuts'
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
+import { getListDepthAt, getListItemTypeAt } from '../utils/listHelpers'
 
 export const useEditorSetup = ({
   session,
@@ -95,27 +96,7 @@ export const useEditorSetup = ({
   const previousDeepLinkFocusGuardRef = useRef(deepLinkFocusGuard)
   const pendingDesktopDeepLinkRecoveryRef = useRef(false)
 
-  const getListDepthAt = useCallback((state, pos) => {
-    const $pos = state.doc.resolve(pos)
-    let depth = 0
-    for (let d = $pos.depth; d > 0; d -= 1) {
-      const name = $pos.node(d).type?.name
-      if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') {
-        depth += 1
-      }
-    }
-    return depth
-  }, [])
-
-  const getListItemTypeAt = useCallback((state, pos) => {
-    const $pos = state.doc.resolve(pos)
-    for (let d = $pos.depth; d > 0; d -= 1) {
-      const name = $pos.node(d).type?.name
-      if (name === 'taskItem') return 'taskItem'
-      if (name === 'listItem') return 'listItem'
-    }
-    return null
-  }, [])
+  // getListDepthAt and getListItemTypeAt are imported from utils/listHelpers.js
 
   const editor = useEditor(
     {

@@ -4,6 +4,8 @@ import { EMPTY_DOC } from '../utils/constants'
 import { sanitizeContentForSave } from '../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
+import { detectConflict } from '../utils/draftHelpers'
+import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
@@ -16,9 +18,11 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [hasPendingSaves, setHasPendingSaves] = useState(false)
   const [draftConflict, setDraftConflict] = useState(null)
   const [draftInvalidation, setDraftInvalidation] = useState(0)
+  const [activeDraft, setActiveDraft] = useState(null)
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
+  const draftConflictRef = useRef(null)
   const trackersRef = useRef(trackers)
   const pendingTitleByTrackerRef = useRef({})
 
@@ -31,9 +35,6 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const latestDraftKeyByTrackerRef = useRef({})
 
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
-  // Drafts are only needed when entering a page; we don't need to re-read localStorage every render.
-  // draftInvalidation is bumped when a draft is cleared so this recomputes even if activeTrackerId stays the same.
-  const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId, draftInvalidation])
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
     // While a conflict is pending, show server content (modal blocks interaction).
@@ -54,41 +55,29 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
 
-  // Refs so the conflict-detection effect only fires when activeTrackerId changes.
-  const activeTrackerServerRef = useRef(activeTrackerServer)
-  const activeDraftRef = useRef(activeDraft)
-  useEffect(() => { activeTrackerServerRef.current = activeTrackerServer }, [activeTrackerServer])
-  useEffect(() => { activeDraftRef.current = activeDraft }, [activeDraft])
+  useEffect(() => {
+    draftConflictRef.current = draftConflict
+  }, [draftConflict])
 
-  // Detect stale draft vs newer server data when switching pages.
   useEffect(() => {
     if (!activeTrackerId) {
-      setDraftConflict(null)
+      setActiveDraft(null)
       return
     }
-    const server = activeTrackerServerRef.current
-    const draft = activeDraftRef.current
-    if (!server || !draft || !draft.ts) {
-      setDraftConflict(null)
-      return
-    }
-    const serverTime = new Date(server.updated_at).getTime()
-    if (serverTime > draft.ts) {
-      setDraftConflict({
-        trackerId: activeTrackerId,
-        draftTs: draft.ts,
-        serverUpdatedAt: server.updated_at,
-        draftContent: draft.content,
-        draftTitle: draft.title,
-        serverContent: server.content,
-        serverTitle: server.title,
-      })
-    } else {
-      setDraftConflict(null)
-    }
-    // Cleanup: if user navigates away while conflict is unresolved, clear it (server wins by default).
-    return () => setDraftConflict(null)
-  }, [activeTrackerId])
+    // Re-read the current page draft whenever the page changes, the backing
+    // server row settles, or we explicitly invalidate after clearing a draft.
+    // This avoids getting stuck on a stale "no draft" read during fast
+    // navigation back to a page with a locally injected draft.
+    setActiveDraft(readPageDraft(activeTrackerId))
+  }, [activeTrackerId, activeTrackerServer?.updated_at, draftInvalidation])
+
+  // Detect stale draft vs newer server data when the active page state settles.
+  // This must react to both the page switch and the eventual arrival of the
+  // server row/draft data; otherwise a fast navigation can miss the conflict.
+  useEffect(() => {
+    const conflict = detectConflict(activeTrackerId, activeTrackerServer, activeDraft)
+    setDraftConflict(conflict)
+  }, [activeTrackerId, activeTrackerServer, activeDraft])
 
   useEffect(() => {
     trackersRef.current = trackers
@@ -104,6 +93,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTitleDraft('')
     setSaveStatus('Saved')
     setHasPendingSaves(false)
+    setActiveDraft(null)
     pendingTitleByTrackerRef.current = {}
     saveTimersByTrackerRef.current = {}
     retryTimersByTrackerRef.current = {}
@@ -590,6 +580,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       deleteImagesFromStorage(imagePaths)
     }
 
+    clearNavHierarchyCache()
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
     delete pendingTitleByTrackerRef.current[tracker.id]
@@ -636,6 +627,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTrackerPage,
     deleteTracker,
     activeTrackerRef,
+    draftConflictRef,
     sectionTrackerPage,
     draftConflict,
     resolveConflictWithServer,

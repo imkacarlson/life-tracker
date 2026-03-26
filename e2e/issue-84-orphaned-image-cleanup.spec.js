@@ -46,6 +46,44 @@ const waitForStorageFileDeletion = async (client, storagePath, timeoutMs = 30000
   return false
 }
 
+const waitForPageContent = async (client, pageId, predicate, timeoutMs = 10000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await client
+      .from('pages')
+      .select('content')
+      .eq('id', pageId)
+      .single()
+    if (error) throw error
+    if (predicate(data?.content)) return data?.content
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  throw new Error(`Timed out waiting for page ${pageId} content to match predicate`)
+}
+
+const placeCaretAtEndOfFirstParagraph = async (page) => {
+  await page.evaluate(() => {
+    const paragraph = document.querySelector('.ProseMirror p')
+    const editor = document.querySelector('.ProseMirror')
+    if (!paragraph || !editor) {
+      throw new Error('Could not find editor paragraph for caret placement')
+    }
+
+    const textNode = Array.from(paragraph.childNodes).find((node) => node.nodeType === Node.TEXT_NODE)
+    if (!textNode) {
+      throw new Error('Could not find text node for caret placement')
+    }
+
+    const selection = window.getSelection()
+    const range = document.createRange()
+    range.setStart(textNode, textNode.textContent?.length ?? 0)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    editor.focus()
+  })
+}
+
 // Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
 // without waiting for Supabase Storage signed-URL hydration.
 const TINY_PNG_DATA_URI =
@@ -131,13 +169,14 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await waitForApp(page, `/#pg=${pg.id}`)
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
-      // Type some text (not touching the image)
-      const editor = page.locator('.tiptap')
-      await editor.click()
+      // Place the caret inside the existing paragraph, then type.
+      // Clicking the generic editor container on mobile can miss the text cursor entirely.
+      await placeCaretAtEndOfFirstParagraph(page)
       await page.keyboard.type(' extra text')
+      await expect(page.locator('.ProseMirror')).toContainText('Some text before the image. extra text')
 
-      // Wait for auto-save
-      await page.waitForTimeout(4000)
+      // Wait for auto-save to persist the typed text before checking storage
+      await waitForPageContent(client, pg.id, (content) => JSON.stringify(content).includes('extra text'))
 
       // Image should still exist
       expect(await storageFileExists(client, storagePath)).toBe(true)
@@ -166,14 +205,23 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await img.click()
       await page.keyboard.press('Backspace')
 
-      // Immediately undo (before the 2s debounce fires)
-      const isMac = process.platform === 'darwin'
-      await page.keyboard.press(isMac ? 'Meta+z' : 'Control+z')
+      // Immediately undo (before the 2s debounce fires).
+      // Use the toolbar Undo button rather than a keyboard shortcut — on mobile
+      // the keyboard event can miss if the editor lost focus after Backspace.
+      await page.locator('button', { hasText: 'Undo' }).click()
 
-      // Wait for auto-save to complete (poll for Saved status)
-      await expect(page.getByText('Saved')).toBeVisible({ timeout: 8000 })
-      // Extra buffer for storage cleanup to finish (if any was triggered)
-      await page.waitForTimeout(1000)
+      // Verify the image was restored in the editor before we inspect saved data.
+      // 8s gives mobile CI enough headroom for re-render after undo.
+      await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 8000 })
+
+      // Wait for the saved page content to still reference this image.
+      // Use generous timeout — the undo + re-save involves two debounce cycles.
+      await waitForPageContent(
+        client,
+        pg.id,
+        (content) => JSON.stringify(content).includes(storagePath),
+        15000,
+      )
 
       // Image should still exist (undo restored it before the save)
       expect(await storageFileExists(client, storagePath)).toBe(true)

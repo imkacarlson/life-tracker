@@ -1,5 +1,14 @@
 import { supabase } from '../lib/supabase'
 
+// Cache resolved page → hierarchy so that navigating back to a visited page
+// never requires a Supabase round-trip. On mobile, each round-trip adds
+// 200-800ms and can fail silently, causing navigateToHash to drop the navigation.
+// Keyed by pageId; values are { notebookId, sectionId, pageId }.
+// Cleared on sign-out via clearNavHierarchyCache().
+const pageHierarchyCache = new Map()
+
+export const clearNavHierarchyCache = () => pageHierarchyCache.clear()
+
 /**
  * Resolves a deep-link target into the full notebook/section/page hierarchy.
  * Returns null when the target cannot be resolved.
@@ -13,6 +22,12 @@ export const resolveNavHierarchy = async ({ notebookId = null, sectionId = null,
   }
 
   if (pageId) {
+    // Return from cache if this page's hierarchy was already resolved this session.
+    const cached = pageHierarchyCache.get(pageId)
+    if (cached) {
+      return { ...cached, blockId: blockId ?? null }
+    }
+
     const { data, error } = await supabase
       .from('pages')
       .select('id, section_id, sections!inner(id, notebook_id)')
@@ -30,12 +45,14 @@ export const resolveNavHierarchy = async ({ notebookId = null, sectionId = null,
       return null
     }
 
-    return {
+    const result = {
       notebookId: resolvedNotebookId,
       sectionId: data.section_id,
       pageId,
-      blockId: blockId ?? null,
     }
+    pageHierarchyCache.set(pageId, result)
+
+    return { ...result, blockId: blockId ?? null }
   }
 
   if (sectionId) {

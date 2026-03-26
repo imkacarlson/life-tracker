@@ -133,8 +133,27 @@ export const test = base.extend({
       try {
         await use()
       } finally {
-        // Give any in-flight autosave debounce a chance to complete before final restore.
-        await new Promise((resolve) => setTimeout(resolve, 2500))
+        // The app's autosave debounce is 2 000 ms.  Wait at least that long
+        // before polling so the debounce has a chance to fire.  Then poll the
+        // DB every 500 ms until two consecutive reads match — meaning any
+        // in-flight save has landed.  Ignore query errors (treat as "changed").
+        await new Promise((r) => setTimeout(r, 2000))
+        const supabase = await getSupabaseClient()
+        const userId = snapshot.userId
+        let prev = null
+        const deadline = Date.now() + 3000
+        while (Date.now() < deadline) {
+          const { data, error } = await supabase
+            .from('pages')
+            .select('id,content,title')
+            .eq('user_id', userId)
+          if (!error) {
+            const snap = JSON.stringify(data ?? [])
+            if (prev !== null && snap === prev) break
+            prev = snap
+          }
+          await new Promise((r) => setTimeout(r, 500))
+        }
         await restoreSnapshot(snapshot)
       }
     },

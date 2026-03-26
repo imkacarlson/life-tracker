@@ -24,7 +24,7 @@
   .sidebar {
     order: 2;
     border-left: none;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--border);
     padding: 1rem;
     width: 100%;
   }

@@ -64,6 +64,7 @@ test.describe('Issue #77 draft conflict resolution', () => {
 
     // Navigate to the dedicated nav-away page via hashchange
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, navAwayPage.id)
+    await expect(page.locator('.title-input')).toHaveValue('Nav Away Page', { timeout: 10000 })
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
     await expect(page.locator('.ProseMirror')).toContainText('Placeholder', { timeout: 10000 })
 
@@ -79,17 +80,34 @@ test.describe('Issue #77 draft conflict resolution', () => {
       { pageId: testPage.id, content: DRAFT_CONTENT, ts: staleTs },
     )
 
-    // Update server timestamp to be newer than the draft
+    // Update server timestamp to be newer than the draft.
+    // We set it to NOW which is guaranteed newer than staleTs (1 hour ago).
+    // Then we poll until the server reflects a timestamp newer than staleTs,
+    // without asserting the exact format (Postgres may normalize Z → +00:00).
     await supabaseInfo.client
       .from('pages')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', testPage.id)
 
-    // Navigate back to our test page to trigger conflict detection
+    await expect(async () => {
+      const { data, error } = await supabaseInfo.client
+        .from('pages')
+        .select('updated_at')
+        .eq('id', testPage.id)
+        .single()
+      if (error) throw error
+      const serverMs = new Date(data?.updated_at).getTime()
+      expect(serverMs).toBeGreaterThan(staleTs)
+    }).toPass({ timeout: 5000 })
+
+    // Navigate back to our test page to trigger conflict detection.
+    // Clear the hash first so the hashchange always fires even if we were already on this id.
+    await page.evaluate(() => { window.location.hash = '' })
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
+    await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 15000 })
 
     // Wait for conflict modal to appear
-    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 15000 })
 
     return testPage
   }

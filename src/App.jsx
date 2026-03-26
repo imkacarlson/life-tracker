@@ -8,6 +8,7 @@ import { useNavigation } from './hooks/useNavigation'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
+import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import {
   saveSelection,
   readStoredSelection,
@@ -151,6 +152,7 @@ function App() {
     setTrackerPage,
     deleteTracker,
     draftConflict,
+    draftConflictRef,
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
@@ -372,6 +374,7 @@ function App() {
   const handleSignOut = async () => {
     if (!confirmLeaveWhileSaving()) return
     await signOut()
+    clearNavHierarchyCache()
     setMessage('')
     setActiveNotebookId(null)
     setActiveSectionId(null)
@@ -673,13 +676,21 @@ function App() {
       <ConflictModal
         conflict={draftConflict}
         onUseServer={() => {
-          const serverContent = draftConflict?.serverContent
+          // Read from ref so the handler always sees the live conflict value,
+          // not a stale closure from a prior render.
+          const serverContent = draftConflictRef.current?.serverContent
           resolveConflictWithServer()
           if (editor && serverContent) {
             editor.commands.setContent(serverContent, { emitUpdate: false })
           }
         }}
-        onUseDraft={resolveConflictWithDraft}
+        onUseDraft={() => {
+          const draftContent = draftConflictRef.current?.draftContent
+          resolveConflictWithDraft()
+          if (editor && draftContent) {
+            editor.commands.setContent(draftContent, { emitUpdate: false })
+          }
+        }}
       />
     </div>
   )

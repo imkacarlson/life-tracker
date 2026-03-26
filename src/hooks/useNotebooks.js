@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
+import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 
 export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   const [notebooks, setNotebooks] = useState([])
@@ -141,6 +142,7 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
       deleteImagesFromStorage(imagePaths)
     }
 
+    clearNavHierarchyCache()
     const nextNotebooks = notebooks.filter((item) => item.id !== notebook.id)
     setNotebooks(nextNotebooks)
     setActiveNotebookId(nextNotebooks[0]?.id ?? null)

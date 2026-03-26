@@ -34,8 +34,9 @@
 }
 
 .title-input {
+  font-family: var(--font-display);
   font-size: 2rem;
-  font-weight: 600;
+  font-weight: 700;
   padding: 0;
   border: none;
   background: transparent;
@@ -44,7 +45,7 @@
 
 .title-input:focus {
   outline: none;
-  border-bottom: 2px solid #2563eb;
+  border-bottom: 2px solid var(--accent);
 }
 
 .status-row {
@@ -52,6 +53,8 @@
   align-items: center;
   gap: 0.75rem;
   margin-top: 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
 }
 
 .editor-shell {
@@ -76,7 +79,7 @@
 }
 
 .editor-empty {
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .editor-shell img {
@@ -128,18 +131,18 @@
 
 .editor-shell th,
 .editor-shell td {
-  border: 1px solid #333;
+  border: 1px solid var(--border-strong);
   padding: 0.5rem;
   position: relative;
 }
 
 .editor-shell td.selectedCell,
 .editor-shell th.selectedCell {
-  background: #e2e8f0;
+  background: var(--border);
 }
 
 .editor-shell th {
-  background: #eef2ff;
+  background: var(--surface-raised);
   text-align: left;
 }
 
@@ -188,7 +191,7 @@
 }
 
 .editor-shell a {
-  color: #2563eb;
+  color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
 }
