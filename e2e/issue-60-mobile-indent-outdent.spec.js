@@ -130,12 +130,14 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     )
 
     // Indent: the item should become nested
+    await ensureMobileToolbarExpanded(page)
     await indentBtn.click()
     await expect(async () => {
       expect(await readListDepthFromSelection(page)).toBeGreaterThanOrEqual(2)
     }).toPass({ timeout: 3000 })
 
     // Outdent: should return to original level
+    await ensureMobileToolbarExpanded(page)
     await outdentBtn.click()
     await expect(async () => {
       expect(await readListDepthFromSelection(page)).toBe(1)

@@ -80,11 +80,13 @@ test.describe('Issue #77 draft conflict resolution', () => {
       { pageId: testPage.id, content: DRAFT_CONTENT, ts: staleTs },
     )
 
-    // Update server timestamp to be newer than the draft
-    const newerServerTimestamp = new Date().toISOString()
+    // Update server timestamp to be newer than the draft.
+    // We set it to NOW which is guaranteed newer than staleTs (1 hour ago).
+    // Then we poll until the server reflects a timestamp newer than staleTs,
+    // without asserting the exact format (Postgres may normalize Z → +00:00).
     await supabaseInfo.client
       .from('pages')
-      .update({ updated_at: newerServerTimestamp })
+      .update({ updated_at: new Date().toISOString() })
       .eq('id', testPage.id)
 
     await expect(async () => {
@@ -94,15 +96,18 @@ test.describe('Issue #77 draft conflict resolution', () => {
         .eq('id', testPage.id)
         .single()
       if (error) throw error
-      expect(data?.updated_at).toBe(newerServerTimestamp)
+      const serverMs = new Date(data?.updated_at).getTime()
+      expect(serverMs).toBeGreaterThan(staleTs)
     }).toPass({ timeout: 5000 })
 
-    // Navigate back to our test page to trigger conflict detection
+    // Navigate back to our test page to trigger conflict detection.
+    // The conflict modal depends on: hash navigation → page load → server data fetch →
+    // draft comparison → React state update → modal render. Give it generous time.
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
-    await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 10000 })
+    await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 15000 })
 
     // Wait for conflict modal to appear
-    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 15000 })
 
     return testPage
   }

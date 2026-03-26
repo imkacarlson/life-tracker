@@ -61,6 +61,10 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
 
   const getStrikeButton = (page) => page.getByTestId('toolbar-strikethrough')
 
+  const ensureToolbarReady = async (page) => {
+    await expect(page.locator('.toolbar')).toHaveAttribute('data-expanded', 'true', { timeout: 5000 })
+  }
+
   const selectTextRangeInParagraph = async (page, paragraphSelector, startOffset, endOffset) => {
     await page.evaluate(
       ({ selector, start, end }) => {
@@ -104,6 +108,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     })
 
     // Click the S (strikethrough) toolbar button
+    await ensureToolbarReady(page)
     const strikeBtn = getStrikeButton(page)
     await strikeBtn.click()
     await expect(async () => {
@@ -114,6 +119,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
       expect(hasStrikeAfter).not.toBe(hasStrikeBefore)
     }).toPass({ timeout: 3000 })
 
+    await ensureToolbarReady(page)
     await strikeBtn.click()
     await expect(async () => {
       const hasStrikeRestored = await listItem.evaluate((el) => {
@@ -132,6 +138,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
 
     await block.click({ position: { x: 8, y: 8 } })
 
+    await ensureToolbarReady(page)
     const strikeBtn = getStrikeButton(page)
 
     // Toggle on
@@ -147,6 +154,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     }).toPass({ timeout: 3000 })
 
     // Toggle off
+    await ensureToolbarReady(page)
     await strikeBtn.click()
     await expect(async () => {
       const hasStrikeOff = await block.evaluate((el) => {
@@ -167,6 +175,7 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     await paragraph.click()
     await selectTextRangeInParagraph(page, '.ProseMirror li:first-of-type p', 0, 3)
 
+    await ensureToolbarReady(page)
     const strikeBtn = getStrikeButton(page)
     await strikeBtn.click()
     await expect(async () => {

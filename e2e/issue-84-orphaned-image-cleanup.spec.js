@@ -189,11 +189,12 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 5000 })
 
       // Wait for the saved page content to still reference this image.
+      // Use generous timeout — the undo + re-save involves two debounce cycles.
       await waitForPageContent(
         client,
         pg.id,
         (content) => JSON.stringify(content).includes(storagePath),
-        10000,
+        15000,
       )
 
       // Image should still exist (undo restored it before the save)

@@ -28,15 +28,18 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.35rem;
-  overflow: hidden;
-  transition: max-height var(--duration-medium) var(--ease-out),
-              opacity var(--duration-medium) var(--ease-out);
-  max-height: 500px;
-  opacity: 1;
 }
 
 .toolbar-collapsed .toolbar-extra {
   display: none;
+}
+
+.toolbar-collapsed {
+  pointer-events: none;
+}
+
+.toolbar-collapsed:not(.disabled) .toolbar-core {
+  pointer-events: auto;
 }
 
 .toolbar-expand-toggle {
