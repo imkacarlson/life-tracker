@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
 import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
+import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 
 const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
 
@@ -235,6 +236,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
       deleteImagesFromStorage(imagePaths)
     }
 
+    clearNavHierarchyCache()
     const nextSections = sections.filter((item) => item.id !== section.id)
     setSections(nextSections)
     setActiveSectionId((prev) => (prev === section.id ? nextSections[0]?.id ?? null : prev))
@@ -252,6 +254,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
       return false
     }
 
+    clearNavHierarchyCache()
     setSections((prev) => prev.filter((item) => item.id !== section.id))
     return true
   }

@@ -5,6 +5,7 @@ import { sanitizeContentForSave } from '../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
+import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
@@ -17,6 +18,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const [hasPendingSaves, setHasPendingSaves] = useState(false)
   const [draftConflict, setDraftConflict] = useState(null)
   const [draftInvalidation, setDraftInvalidation] = useState(0)
+  const [activeDraft, setActiveDraft] = useState(null)
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -32,9 +34,6 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const latestDraftKeyByTrackerRef = useRef({})
 
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
-  // Drafts are only needed when entering a page; we don't need to re-read localStorage every render.
-  // draftInvalidation is bumped when a draft is cleared so this recomputes even if activeTrackerId stays the same.
-  const activeDraft = useMemo(() => (activeTrackerId ? readPageDraft(activeTrackerId) : null), [activeTrackerId, draftInvalidation])
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
     // While a conflict is pending, show server content (modal blocks interaction).
@@ -54,6 +53,18 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   useEffect(() => {
     activeTrackerRef.current = activeTracker
   }, [activeTracker])
+
+  useEffect(() => {
+    if (!activeTrackerId) {
+      setActiveDraft(null)
+      return
+    }
+    // Re-read the current page draft whenever the page changes, the backing
+    // server row settles, or we explicitly invalidate after clearing a draft.
+    // This avoids getting stuck on a stale "no draft" read during fast
+    // navigation back to a page with a locally injected draft.
+    setActiveDraft(readPageDraft(activeTrackerId))
+  }, [activeTrackerId, activeTrackerServer?.updated_at, draftInvalidation])
 
   // Detect stale draft vs newer server data when the active page state settles.
   // This must react to both the page switch and the eventual arrival of the
@@ -77,6 +88,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     setTitleDraft('')
     setSaveStatus('Saved')
     setHasPendingSaves(false)
+    setActiveDraft(null)
     pendingTitleByTrackerRef.current = {}
     saveTimersByTrackerRef.current = {}
     retryTimersByTrackerRef.current = {}
@@ -563,6 +575,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       deleteImagesFromStorage(imagePaths)
     }
 
+    clearNavHierarchyCache()
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
     delete pendingTitleByTrackerRef.current[tracker.id]

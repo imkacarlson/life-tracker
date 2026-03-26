@@ -8,6 +8,7 @@ import { useNavigation } from './hooks/useNavigation'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
+import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import {
   saveSelection,
   readStoredSelection,
@@ -372,6 +373,7 @@ function App() {
   const handleSignOut = async () => {
     if (!confirmLeaveWhileSaving()) return
     await signOut()
+    clearNavHierarchyCache()
     setMessage('')
     setActiveNotebookId(null)
     setActiveSectionId(null)
@@ -679,7 +681,13 @@ function App() {
             editor.commands.setContent(serverContent, { emitUpdate: false })
           }
         }}
-        onUseDraft={resolveConflictWithDraft}
+        onUseDraft={() => {
+          const draftContent = draftConflict?.draftContent
+          resolveConflictWithDraft()
+          if (editor && draftContent) {
+            editor.commands.setContent(draftContent, { emitUpdate: false })
+          }
+        }}
       />
     </div>
   )
