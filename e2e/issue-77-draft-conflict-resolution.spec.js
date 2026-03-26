@@ -101,8 +101,8 @@ test.describe('Issue #77 draft conflict resolution', () => {
     }).toPass({ timeout: 5000 })
 
     // Navigate back to our test page to trigger conflict detection.
-    // The conflict modal depends on: hash navigation → page load → server data fetch →
-    // draft comparison → React state update → modal render. Give it generous time.
+    // Clear the hash first so the hashchange always fires even if we were already on this id.
+    await page.evaluate(() => { window.location.hash = '' })
     await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
     await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 15000 })
 
