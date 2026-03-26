@@ -90,6 +90,7 @@
 .editor-shell table {
   width: 100%;
   border-collapse: collapse;
+  border: 1px solid var(--table-border);
   margin: 1rem 0;
 }
 
@@ -131,7 +132,7 @@
 
 .editor-shell th,
 .editor-shell td {
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--table-border);
   padding: 0.5rem;
   position: relative;
 }
