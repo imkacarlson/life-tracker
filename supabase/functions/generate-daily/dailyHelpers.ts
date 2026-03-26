@@ -6,6 +6,7 @@ export type NextStepItem = {
   dueBucket: DueBucket
   isOverdue: boolean
   hasExplicitDate: boolean
+  parentContext?: string
 }
 
 export type CandidateForModel = {
@@ -14,6 +15,7 @@ export type CandidateForModel = {
   due_bucket: DueBucket
   is_overdue: boolean
   has_explicit_date: boolean
+  parent_context?: string
 }
 
 export type ParsedTaskBuckets = {
@@ -41,6 +43,7 @@ type FlattenedBlock = {
   inlineContent?: any[]
   paragraphAttrs?: Record<string, any>
   itemAttrs?: Record<string, any>
+  parentText?: string
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -187,7 +190,7 @@ const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
   return segments
 }
 
-const flattenBlocks = (node: any, into: FlattenedBlock[]) => {
+const flattenBlocks = (node: any, into: FlattenedBlock[], parentText?: string) => {
   if (!node || typeof node !== 'object') return
 
   if (node.type === 'horizontalRule') {
@@ -203,6 +206,7 @@ const flattenBlocks = (node: any, into: FlattenedBlock[]) => {
       text: normalizeText(segments.map((segment) => segment.text).join('')),
       inlineContent: node.content || [],
       paragraphAttrs: node.attrs || {},
+      parentText,
     })
     return
   }
@@ -211,25 +215,31 @@ const flattenBlocks = (node: any, into: FlattenedBlock[]) => {
     const firstParagraph = (node.content || []).find((child: any) => child?.type === 'paragraph')
     const inlineContent = firstParagraph?.content || []
     const segments = collectInlineSegments(inlineContent)
+    const itemText = normalizeText(segments.map((segment) => segment.text).join(''))
 
     into.push({
       kind: 'list',
       nodeType: node.type,
-      text: normalizeText(segments.map((segment) => segment.text).join('')),
+      text: itemText,
       inlineContent,
       paragraphAttrs: firstParagraph?.attrs || {},
       itemAttrs: node.attrs || {},
+      parentText,
     })
 
+    // Chain parent context for nested children (e.g., "Wedding > Venue")
+    const childParent = parentText && itemText
+      ? `${parentText} > ${itemText}`
+      : itemText || parentText
     ;(node.content || []).forEach((child: any) => {
       if (child === firstParagraph) return
-      flattenBlocks(child, into)
+      flattenBlocks(child, into, childParent)
     })
     return
   }
 
   if (Array.isArray(node.content)) {
-    node.content.forEach((child: any) => flattenBlocks(child, into))
+    node.content.forEach((child: any) => flattenBlocks(child, into, parentText))
   }
 }
 
@@ -322,6 +332,7 @@ const extractNextStepsFromContent = (content: any, today: string): NextStepItem[
       dueBucket: dueMeta.dueBucket,
       isOverdue: dueMeta.isOverdue,
       hasExplicitDate: dueMeta.hasExplicitDate,
+      parentContext: block.parentText || undefined,
     })
   }
 
@@ -341,13 +352,17 @@ export const buildCandidatesForModel = (trackerPages: any[], today: string) => {
     cidToBlockId.set(cid, item.blockId)
     cidToText.set(cid, item.text)
 
-    return {
+    const candidate: CandidateForModel = {
       cid,
       text: item.text,
       due_bucket: item.dueBucket,
       is_overdue: item.isOverdue,
       has_explicit_date: item.hasExplicitDate,
     }
+    if (item.parentContext) {
+      candidate.parent_context = item.parentContext
+    }
+    return candidate
   })
 
   return {
