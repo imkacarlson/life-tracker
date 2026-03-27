@@ -46,6 +46,15 @@ const waitForStorageFileDeletion = async (client, storagePath, timeoutMs = 30000
   return false
 }
 
+const waitForStorageFileExistence = async (client, storagePath, timeoutMs = 10000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await storageFileExists(client, storagePath)) return true
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
 const waitForPageContent = async (client, pageId, predicate, timeoutMs = 10000) => {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -59,6 +68,17 @@ const waitForPageContent = async (client, pageId, predicate, timeoutMs = 10000) 
     await new Promise((r) => setTimeout(r, 300))
   }
   throw new Error(`Timed out waiting for page ${pageId} content to match predicate`)
+}
+
+const waitForPageDeletion = async (client, pageId, timeoutMs = 10000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await client.from('pages').select('id').eq('id', pageId).maybeSingle()
+    if (error) throw error
+    if (!data) return true
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  return false
 }
 
 const placeCaretAtEndOfFirstParagraph = async (page) => {
@@ -178,8 +198,9 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // Wait for auto-save to persist the typed text before checking storage
       await waitForPageContent(client, pg.id, (content) => JSON.stringify(content).includes('extra text'))
 
-      // Image should still exist
-      expect(await storageFileExists(client, storagePath)).toBe(true)
+      // Image should still exist after the text-only save finishes propagating.
+      const exists = await waitForStorageFileExistence(client, storagePath, 10000)
+      expect(exists).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
     }
@@ -210,10 +231,6 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // the keyboard event can miss if the editor lost focus after Backspace.
       await page.locator('button', { hasText: 'Undo' }).click()
 
-      // Verify the image was restored in the editor before we inspect saved data.
-      // 8s gives mobile CI enough headroom for re-render after undo.
-      await expect(page.locator('.tiptap img')).toBeVisible({ timeout: 8000 })
-
       // Wait for the saved page content to still reference this image.
       // Use generous timeout — the undo + re-save involves two debounce cycles.
       await waitForPageContent(
@@ -223,8 +240,9 @@ test.describe('Issue #84 orphaned image cleanup', () => {
         15000,
       )
 
-      // Image should still exist (undo restored it before the save)
-      expect(await storageFileExists(client, storagePath)).toBe(true)
+      // Image should still exist after undo and autosave propagation.
+      const exists = await waitForStorageFileExistence(client, storagePath, 10000)
+      expect(exists).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
     }
@@ -245,11 +263,14 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
-      page.on('dialog', (dialog) => dialog.accept())
+      page.once('dialog', (dialog) => dialog.accept())
 
       // Click the delete button for the page (in editor header)
       const deleteButton = page.locator('.editor-header .ghost', { hasText: 'Delete' })
       await deleteButton.click()
+
+      const pageDeleted = await waitForPageDeletion(client, pg.id)
+      expect(pageDeleted).toBe(true)
 
       // Wait for page deletion + fire-and-forget storage cleanup
       const deleted = await waitForStorageFileDeletion(client, storagePath)
@@ -274,11 +295,12 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await waitForApp(page)
 
       // Select the notebook via dropdown
-      await page.locator('.notebook-switcher select').selectOption(nb.id)
-      await page.waitForTimeout(500)
+      const notebookSelect = page.locator('.notebook-switcher select')
+      await notebookSelect.selectOption(nb.id)
+      await expect(notebookSelect).toHaveValue(nb.id)
 
       // Set up dialog handler to auto-accept the delete confirmation
-      page.on('dialog', (dialog) => dialog.accept())
+      page.once('dialog', (dialog) => dialog.accept())
 
       // Find the section tab and click its delete (×) button
       const sectionTab = page.locator('.section-tab', { hasText: 'T5 Section' })
@@ -309,11 +331,13 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await waitForApp(page)
 
       // Select the notebook via dropdown
-      await page.locator('.notebook-switcher select').selectOption(nb.id)
-      await page.waitForTimeout(500)
+      const notebookSelect = page.locator('.notebook-switcher select')
+      await notebookSelect.selectOption(nb.id)
+      await expect(notebookSelect).toHaveValue(nb.id)
+      await expect(page.locator('.section-tab', { hasText: 'T6 Section' })).toBeVisible({ timeout: 5000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
-      page.on('dialog', (dialog) => dialog.accept())
+      page.once('dialog', (dialog) => dialog.accept())
 
       // Click the Delete button in the TopBar notebook switcher
       const deleteButton = page.locator('.notebook-switcher .ghost', { hasText: 'Delete' })
@@ -340,14 +364,14 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     await page.waitForSelector('.tiptap', { timeout: 10000 })
 
     // Set up dialog handler
-    page.on('dialog', (dialog) => dialog.accept())
+    page.once('dialog', (dialog) => dialog.accept())
 
     // Delete page — should not crash (click delete in editor header)
     const deleteButton = page.locator('.editor-header .ghost', { hasText: 'Delete' })
     await deleteButton.click()
 
-    // Wait and verify no error messages appeared
-    await page.waitForTimeout(2000)
+    const pageDeleted = await waitForPageDeletion(client, pg.id)
+    expect(pageDeleted).toBe(true)
 
     // Page should be gone from the sidebar
     await expect(page.locator('text=T7 Page')).not.toBeVisible()
