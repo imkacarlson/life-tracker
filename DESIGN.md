@@ -36,12 +36,14 @@
 - **Neutrals (warm stone grays):**
   - Stone 900: `#1C1917` — primary text
   - Stone 600: `#57534E` — secondary text
+  - Stone 500: `#78716C` — utility contrast, table borders
   - Stone 400: `#A8A29E` — muted text, placeholders
   - Stone 200: `#E7E5E4` — borders
   - Stone 300: `#D6D3D1` — strong borders (dividers, toolbar)
   - Stone 100: `#F5F5F4` — raised surfaces, toolbar background
   - Stone 50: `#FAFAF9` — page background
   - White: `#FFFFFF` — card/surface background
+- **Table borders:** Use Stone 500 `#78716C` for table gridlines and outer table edges so tables stay clearly legible against the warm neutral canvas without darkening other dividers.
 - **Semantic:**
   - Success: `#16A34A` — saved, completed
   - Warning: `#D97706` — unsaved changes
@@ -118,6 +120,7 @@
   --surface-raised: #F5F5F4;
   --border: #E7E5E4;
   --border-strong: #D6D3D1;
+  --table-border: #78716C;
   --text: #1C1917;
   --text-secondary: #57534E;
   --text-muted: #A8A29E;
