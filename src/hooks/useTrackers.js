@@ -59,25 +59,30 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     draftConflictRef.current = draftConflict
   }, [draftConflict])
 
+  // Read the draft and detect conflicts in a single effect so both values are
+  // always computed from the same draft snapshot.  Two separate effects caused a
+  // one-render flash of the conflict modal: the draft-read effect would call
+  // setActiveDraft(null) which only took effect next render, while the conflict
+  // effect ran with the stale activeDraft and briefly set a conflict.
   useEffect(() => {
     if (!activeTrackerId) {
       setActiveDraft(null)
+      setDraftConflict(null)
       return
     }
-    // Re-read the current page draft whenever the page changes, the backing
-    // server row settles, or we explicitly invalidate after clearing a draft.
-    // This avoids getting stuck on a stale "no draft" read during fast
-    // navigation back to a page with a locally injected draft.
-    setActiveDraft(readPageDraft(activeTrackerId))
-  }, [activeTrackerId, activeTrackerServer?.updated_at, draftInvalidation])
-
-  // Detect stale draft vs newer server data when the active page state settles.
-  // This must react to both the page switch and the eventual arrival of the
-  // server row/draft data; otherwise a fast navigation can miss the conflict.
-  useEffect(() => {
-    const conflict = detectConflict(activeTrackerId, activeTrackerServer, activeDraft)
+    const draft = readPageDraft(activeTrackerId)
+    const conflict = detectConflict(activeTrackerId, activeTrackerServer, draft)
+    // If the draft exists but content matches the server (stale draft left over from a
+    // previous session whose save succeeded), clear it silently so the status doesn't
+    // stick on "Unsaved (local)" and localStorage doesn't leak orphan entries.
+    if (draft && !conflict && activeTrackerServer) {
+      clearPageDraft(activeTrackerId)
+      setActiveDraft(null)
+    } else {
+      setActiveDraft(draft)
+    }
     setDraftConflict(conflict)
-  }, [activeTrackerId, activeTrackerServer, activeDraft])
+  }, [activeTrackerId, activeTrackerServer, draftInvalidation])
 
   useEffect(() => {
     trackersRef.current = trackers
