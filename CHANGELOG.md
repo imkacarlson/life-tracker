@@ -3,6 +3,16 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.1.2.0] - 2026-03-28
+
+### Fixed
+- Conflict modal no longer flashes briefly after every save (issue #99) — merged two React effects into one atomic effect so draft-read and conflict-detect always use the same draft snapshot
+- `detectConflict` now compares content before timestamps — stale drafts with identical content no longer trigger false conflict modals
+- Stale same-content drafts are automatically cleared from localStorage on page load, preventing "Unsaved (local)" status from persisting and localStorage quota leaks
+
+### Changed
+- Unit test count: 63 → 84 (+21 tests, including 5 new content-equality cases for `detectConflict`)
+
 ## [0.1.1.0] - 2026-03-26
 
 ### Added
