@@ -1,8 +1,9 @@
+import { forwardRef } from 'react'
 import { EditorContent } from '@tiptap/react'
 
-function EditorShell({ hasTracker, editor }) {
+const EditorShell = forwardRef(function EditorShell({ hasTracker, editor }, ref) {
   return (
-    <div className="editor-shell">
+    <div className="editor-shell" ref={ref}>
       {hasTracker ? (
         <EditorContent editor={editor} />
       ) : (
@@ -12,6 +13,6 @@ function EditorShell({ hasTracker, editor }) {
       )}
     </div>
   )
-}
+})
 
 export default EditorShell

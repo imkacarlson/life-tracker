@@ -7,6 +7,7 @@ import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
 import { toggleLineStrike } from '../extensions/keyboard/toggleLineStrike'
 import { buildHash } from '../utils/navigationHelpers'
+import { useContentZoom } from '../hooks/useContentZoom'
 import EditorHeader from './editor/EditorHeader'
 import FindBar from './editor/FindBar'
 import AiInsertModal from './editor/AiInsertModal'
@@ -52,6 +53,7 @@ function EditorPanel({
   showAiInsert = true,
 }) {
   const editorPanelRef = useRef(null)
+  const editorShellRef = useRef(null)
   const fileInputRef = useRef(null)
   const tableButtonRef = useRef(null)
   const tablePickerRef = useRef(null)
@@ -98,6 +100,8 @@ function EditorPanel({
   const [toolbarExpanded, setToolbarExpanded] = useState(true)
   const gridSize = 5
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
+  const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
+    useContentZoom(editorShellRef, isTouchOnly)
 
   const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
 
@@ -1744,7 +1748,26 @@ function EditorPanel({
         onSubmit={handleAiInsertSubmit}
       />
 
-      <EditorShell hasTracker={hasTracker} editor={editor} />
+      <EditorShell ref={editorShellRef} hasTracker={hasTracker} editor={editor} />
+
+      {isZoomSupported && zoomLevel !== 1.0 && (
+        <button
+          type="button"
+          className={`zoom-badge${gestureRecent ? ' zoom-badge--active' : ''}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => e.preventDefault()}
+          onClick={resetZoom}
+          aria-label={`Zoom ${Math.round(zoomLevel * 100)}%. Tap to reset.`}
+        >
+          {Math.round(zoomLevel * 100)}%
+        </button>
+      )}
+
+      {showHint && (
+        <div className="zoom-hint" onClick={dismissHint}>
+          Pinch to zoom. Tap badge to reset.
+        </div>
+      )}
 
       {contextMenu.open && (
         <div

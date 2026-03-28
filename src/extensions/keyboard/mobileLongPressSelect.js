@@ -55,6 +55,12 @@ export const MobileLongPressSelect = Extension.create({
           const onTouchMove = (event) => {
             if (!touchStartTime || !event.touches || event.touches.length === 0) return
 
+            // Suppress long-press when a second finger arrives (pinch-to-zoom)
+            if (event.touches.length > 1) {
+              touchMoved = true
+              return
+            }
+
             const touch = event.touches[0]
             const dx = touch.clientX - startX
             const dy = touch.clientY - startY

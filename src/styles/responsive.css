@@ -1,4 +1,8 @@
 @media (max-width: 900px) {
+  .editor-shell {
+    touch-action: pan-x pan-y;
+  }
+
   .app {
     height: auto;
     min-height: 100vh;

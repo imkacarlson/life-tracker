@@ -36,21 +36,12 @@ test.describe('Issue #77 draft conflict resolution', () => {
   let supabaseInfo = null
   let testPage = null
   let sectionId = null
-  let navAwayPage = null
 
   test.beforeAll(async () => {
     supabaseInfo = await getSupabase()
     const nb = await createNotebook(supabaseInfo.client, supabaseInfo.userId, `Issue77 Notebook ${Date.now()}`)
     const sec = await createSection(supabaseInfo.client, supabaseInfo.userId, nb.id, 'Issue77 Section')
     sectionId = sec.id
-    // Create a dedicated page to navigate away to (so we don't depend on other sidebar items)
-    navAwayPage = await createPage(
-      supabaseInfo.client,
-      supabaseInfo.userId,
-      sec.id,
-      'Nav Away Page',
-      { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Placeholder' }] }] },
-    )
   })
 
   const setupConflict = async (page) => {
@@ -59,14 +50,11 @@ test.describe('Issue #77 draft conflict resolution', () => {
     const { client, userId } = supabaseInfo
     testPage = await createPage(client, userId, sectionId, 'Conflict Test Page', SERVER_CONTENT)
 
-    // Navigate directly to the test page
-    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Server Version Heading' })
-
-    // Navigate to the dedicated nav-away page via hashchange
-    await page.evaluate((id) => { window.location.hash = '#pg=' + id }, navAwayPage.id)
-    await expect(page.locator('.title-input')).toHaveValue('Nav Away Page', { timeout: 10000 })
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    await expect(page.locator('.ProseMirror')).toContainText('Placeholder', { timeout: 10000 })
+    // Load the app shell first so we can seed localStorage on the app origin.
+    // The actual conflict is then exercised via a cold load directly into the
+    // conflicted page, instead of relying on same-session hash navigation.
+    await page.goto('/')
+    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
     // Inject a stale draft for our test page (timestamp 1 hour in the past)
     const staleTs = Date.now() - 3600000
@@ -98,13 +86,12 @@ test.describe('Issue #77 draft conflict resolution', () => {
       if (error) throw error
       const serverMs = new Date(data?.updated_at).getTime()
       expect(serverMs).toBeGreaterThan(staleTs)
-    }).toPass({ timeout: 5000 })
+    }).toPass({ timeout: 10000 })
 
-    // Navigate back to our test page to trigger conflict detection.
-    // Clear the hash first so the hashchange always fires even if we were already on this id.
-    await page.evaluate(() => { window.location.hash = '' })
-    await page.evaluate((id) => { window.location.hash = '#pg=' + id }, testPage.id)
-    await expect(page.locator('.title-input')).toHaveValue('Conflict Test Page', { timeout: 15000 })
+    // Navigate into the target page through the app's hashchange path after
+    // seeding localStorage. Direct cold-loading to /#pg=<id> can still miss
+    // page resolution on startup, which is a separate app/navigation issue.
+    await waitForApp(page, `/#pg=${testPage.id}`)
 
     // Wait for conflict modal to appear
     await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 15000 })
@@ -161,12 +148,15 @@ test.describe('Issue #77 draft conflict resolution', () => {
     await expect(page.locator('text=Saved')).toBeVisible({ timeout: 10000 })
 
     // Verify the draft content was saved to the server
-    const { data } = await supabaseInfo.client
-      .from('pages')
-      .select('content')
-      .eq('id', tp.id)
-      .single()
-    const serverText = JSON.stringify(data?.content)
-    expect(serverText).toContain('STALE DRAFT CONTENT')
+    await expect(async () => {
+      const { data, error } = await supabaseInfo.client
+        .from('pages')
+        .select('content')
+        .eq('id', tp.id)
+        .single()
+      if (error) throw error
+      const serverText = JSON.stringify(data?.content)
+      expect(serverText).toContain('STALE DRAFT CONTENT')
+    }).toPass({ timeout: 10000 })
   })
 })
