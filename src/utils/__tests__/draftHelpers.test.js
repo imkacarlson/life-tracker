@@ -2,19 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { detectConflict } from '../draftHelpers'
 
 describe('detectConflict', () => {
+  // Server and draft with DIFFERENT content (the conflict-worthy case).
   const serverRow = (updatedAt) => ({
     updated_at: updatedAt,
-    content: { type: 'doc', content: [{ type: 'paragraph' }] },
+    content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'server' }] }] },
     title: 'Server Title',
   })
 
   const draft = (ts) => ({
     ts,
-    content: { type: 'doc', content: [{ type: 'paragraph' }] },
+    content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'draft' }] }] },
     title: 'Draft Title',
   })
 
-  it('returns conflict when server is newer than draft', () => {
+  it('returns conflict when server is newer than draft and content differs', () => {
     const server = serverRow('2026-03-25T12:00:00.000Z')
     const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
     const result = detectConflict('page-1', server, d)
@@ -75,6 +76,53 @@ describe('detectConflict', () => {
   it('returns null when updated_at is malformed (NaN guard)', () => {
     const server = serverRow('not-a-date')
     const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+
+  // Content equality tests (issue #99: prevent false conflict on stale drafts)
+
+  it('returns null when content is identical even if server is newer', () => {
+    const sharedContent = { type: 'doc', content: [{ type: 'paragraph' }] }
+    const server = { updated_at: '2026-03-25T12:00:00.000Z', content: sharedContent, title: 'Title' }
+    const d = { ts: new Date('2026-03-25T11:00:00.000Z').getTime(), content: sharedContent, title: 'Title' }
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+
+  it('returns null when content is identical and draft is newer', () => {
+    const sharedContent = { type: 'doc', content: [{ type: 'paragraph' }] }
+    const server = { updated_at: '2026-03-25T11:00:00.000Z', content: sharedContent, title: 'Title' }
+    const d = { ts: new Date('2026-03-25T12:00:00.000Z').getTime(), content: sharedContent, title: 'Title' }
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+
+  it('returns null when content is identical but titles differ', () => {
+    // Title mismatch alone is not a conflict worth blocking the user for;
+    // the content equality check takes precedence.
+    const sharedContent = { type: 'doc', content: [{ type: 'paragraph' }] }
+    const server = { updated_at: '2026-03-25T12:00:00.000Z', content: sharedContent, title: 'Server' }
+    const d = { ts: new Date('2026-03-25T11:00:00.000Z').getTime(), content: sharedContent, title: 'Draft' }
+    expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+
+  it('returns conflict when content differs and server is newer', () => {
+    const server = {
+      updated_at: '2026-03-25T12:00:00.000Z',
+      content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A' }] }] },
+      title: 'Title',
+    }
+    const d = {
+      ts: new Date('2026-03-25T11:00:00.000Z').getTime(),
+      content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'B' }] }] },
+      title: 'Title',
+    }
+    const result = detectConflict('page-1', server, d)
+    expect(result).not.toBeNull()
+    expect(result.trackerId).toBe('page-1')
+  })
+
+  it('returns null when draft.content is missing', () => {
+    const server = serverRow('2026-03-25T12:00:00.000Z')
+    const d = { ts: new Date('2026-03-25T11:00:00.000Z').getTime(), title: 'Draft' }
     expect(detectConflict('page-1', server, d)).toBeNull()
   })
 })
