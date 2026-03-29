@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { generateJSON } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { supabase } from '../lib/supabase'
+import { resizeAndEncode } from '../utils/imageResize'
 import PasteRecipeModal from './editor/PasteRecipeModal'
 
 function Sidebar({
@@ -23,6 +24,7 @@ function Sidebar({
   const [pasteRecipeOpen, setPasteRecipeOpen] = useState(false)
   const [pasteRecipeText, setPasteRecipeText] = useState('')
   const [pasteRecipeLoading, setPasteRecipeLoading] = useState(false)
+  const [pasteRecipeFiles, setPasteRecipeFiles] = useState([])
 
   const reorderList = (items, draggedId, targetId) => {
     const fromIndex = items.findIndex((item) => item.id === draggedId)
@@ -71,7 +73,7 @@ function Sidebar({
   const handlePasteRecipeSubmit = async () => {
     if (!session || !sectionId || pasteRecipeLoading) return
     const text = pasteRecipeText.trim()
-    if (!text) return
+    if (!text && pasteRecipeFiles.length === 0) return
 
     // Capture callback at click time to prevent section-switch race during the AI call
     const createWithContent = onCreateWithContent
@@ -84,9 +86,32 @@ function Sidebar({
       const { data: { session: currentSession } } = await supabase.auth.getSession()
       if (!currentSession) throw new Error('You must be logged in')
 
+      // Resize and encode attached images
+      const images = []
+      for (const entry of pasteRecipeFiles) {
+        try {
+          const result = await resizeAndEncode(entry.file)
+          images.push({ base64: result.base64, mediaType: result.mediaType })
+        } catch (err) {
+          console.error('Image resize failed:', err)
+          // Partial failure — skip this image, keep others
+        }
+      }
+
+      // If user attached images but all failed to resize, give a clear error
+      if (images.length === 0 && pasteRecipeFiles.length > 0 && !text) {
+        throw new Error('All images failed to process. Try different photos.')
+      }
+
+      // Enforce ~1.5MB total payload budget
+      const totalSize = images.reduce((sum, img) => sum + img.base64.length, 0)
+      if (totalSize > 1_500_000) {
+        throw new Error('Total image size too large. Try fewer or smaller photos.')
+      }
+
       // Call the edge function to format the recipe
       const { data, error } = await supabase.functions.invoke('ai-paste-recipe', {
-        body: { provider, model, text },
+        body: { provider, model, text: text || '', images },
         headers: { Authorization: `Bearer ${currentSession.access_token}` },
       })
 
@@ -105,6 +130,8 @@ function Sidebar({
 
       setPasteRecipeOpen(false)
       setPasteRecipeText('')
+      pasteRecipeFiles.forEach((f) => URL.revokeObjectURL(f.previewUrl))
+      setPasteRecipeFiles([])
     } catch (err) {
       console.error('Paste recipe failed:', err)
       alert('Failed to create recipe: ' + (err.message || String(err)))
@@ -181,10 +208,14 @@ function Sidebar({
         loading={pasteRecipeLoading}
         text={pasteRecipeText}
         onTextChange={setPasteRecipeText}
+        files={pasteRecipeFiles}
+        onFilesChange={setPasteRecipeFiles}
         onClose={() => {
           if (!pasteRecipeLoading) {
             setPasteRecipeOpen(false)
             setPasteRecipeText('')
+            pasteRecipeFiles.forEach((f) => URL.revokeObjectURL(f.previewUrl))
+            setPasteRecipeFiles([])
           }
         }}
         onSubmit={handlePasteRecipeSubmit}
