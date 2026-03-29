@@ -33,6 +33,23 @@ If a page-move-to-section feature is ever added, `pageHierarchyCache` entries wi
 E2E tests currently depend on fragile shared seed data. Migrate to self-contained per-test setup using Supabase API helpers and the `isolateSupabaseData` fixture.
 *Tracked in: GitHub issue #88*
 
+## Recipe Inserter
+
+**URL paste / web clipper for recipes**
+**Priority:** P3
+Detect pasted URLs in the Paste Recipe modal, fetch and extract recipe content. High risk due to CORS and scraping reliability — needs separate design.
+*Deferred from: recipe photo attachments plan*
+
+**PDF recipe support**
+**Priority:** P3
+Accept PDF files in the Paste Recipe modal. Requires PDF-to-image conversion before sending to AI.
+*Deferred from: recipe photo attachments plan*
+
+**E2E tests for recipe photo attachments**
+**Priority:** P2
+Add Playwright E2E tests for attach/remove/thumbnail flows in the Paste Recipe modal (`e2e/paste-recipe-attachments.spec.js`).
+*Deferred from: recipe photo attachments plan*
+
 ## Completed
 
 **Spurious conflict from two-effect draft detection split**

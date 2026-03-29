@@ -3,6 +3,23 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.1.3.0] - 2026-03-28
+
+### Added
+- Photo attachments in Paste Recipe modal — attach up to 5 images (camera, gallery, drag-and-drop, clipboard paste) that AI reads to extract and format recipes
+- Client-side image resize utility (`imageResize.js`) — scales to max 1024px, JPEG 80% quality, base64 encoded
+- Thumbnail grid with remove buttons, drop zone visual feedback, and 5-image cap with inline limit message
+- Multimodal AI support across all 3 providers (Anthropic, OpenAI, Google) — images sent as base64 alongside text
+- Server-side image validation: media type allowlist (jpeg/png/webp), per-image 500KB limit, base64 format check
+- Unit tests for `resizeAndEncode` utility (5 tests covering output shape, scaling, error paths)
+- Mobile-responsive attachment UI (48px thumbnails, sticky action buttons, scrollable modal)
+
+### Changed
+- Paste Recipe modal description updated to mention photo support
+- Edge function accepts optional `images` array alongside `text` (backward compatible — text-only still works)
+- System prompt updated to handle image-based recipe input
+- Unit test count: 84 → 89 (+5 imageResize tests)
+
 ## [0.1.2.0] - 2026-03-28
 
 ### Fixed

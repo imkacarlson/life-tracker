@@ -190,3 +190,117 @@
 .conflict-timestamps p {
   margin: 0.2rem 0;
 }
+
+/* Recipe modal — attachment UI */
+
+.recipe-modal {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.recipe-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.recipe-attach-btn {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.75rem;
+}
+
+.recipe-limit-msg {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.recipe-thumb-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recipe-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.recipe-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.recipe-thumb-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #57534E;
+  color: #fff;
+  font-size: 16px;
+  line-height: 28px;
+  text-align: center;
+  cursor: pointer;
+  /* 44px touch target via padding */
+  box-sizing: content-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recipe-thumb-remove::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+
+.recipe-thumb-error {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  background: var(--error);
+  color: #fff;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.recipe-drop-active {
+  border: 2px dashed var(--accent) !important;
+}
+
+@media (max-width: 900px) {
+  .recipe-modal {
+    width: 100%;
+    border-radius: var(--radius-md);
+  }
+
+  .recipe-modal .ai-insert-textarea {
+    min-height: 100px;
+  }
+
+  .recipe-modal .ai-insert-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    padding: 0.75rem 0 0;
+  }
+
+  .recipe-thumb {
+    width: 48px;
+    height: 48px;
+  }
+}
