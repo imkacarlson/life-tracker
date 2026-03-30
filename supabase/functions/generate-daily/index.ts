@@ -3,6 +3,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 import {
   buildCandidatesForModel,
+  filterCandidatesForDaily,
   mapTasksFromCids,
   parseTaskBuckets,
 } from './dailyHelpers.ts'
@@ -116,8 +117,9 @@ Deno.serve(async (req) => {
     }
 
     const { candidates, cidToBlockId, cidToText } = buildCandidatesForModel(trackerPages, today)
+    const modelCandidates = filterCandidatesForDaily(candidates)
 
-    if (!candidates.length) {
+    if (!modelCandidates.length) {
       return jsonResponse({
         asap: [],
         fyi: [],
@@ -139,9 +141,9 @@ Rules:
 - has_explicit_date=true means the source item contains a user-highlighted due date.
 - If has_explicit_date=false, treat date-like text as context/status notes, not due dates.
 - Use only candidate text + metadata to prioritize and bucket tasks.
-- If due_bucket is later, omit the item.
-- ASAP is overdue/today items plus undated urgent items.
+- ASAP is only due_bucket=overdue or due_bucket=today.
 - FYI is due_bucket=soon. For FYI items, always include the due date inline when the candidate text contains one (preserve the original format, e.g., "3/15"). Do not fabricate dates that aren't in the source text.
+- Do not include backlog, someday, or undated tasks.
 - If a candidate has parent_context, it is a sub-item nested under that parent. Use the parent context to make the task description self-contained (e.g., parent "Wedding planning" + task "Book photographer" → "Wedding: Book photographer").
 - Keep task text concise and actionable.
 - Use cids (not block IDs) in output.
@@ -154,7 +156,7 @@ If a bucket is empty, return an empty array.`
     const userMessage = [
       `TODAY: ${today}`,
       `DAY_OF_WEEK: ${dayOfWeek}`,
-      `CANDIDATES_JSON: ${JSON.stringify(candidates)}`,
+      `CANDIDATES_JSON: ${JSON.stringify(modelCandidates)}`,
     ].join('\n')
 
     let fetchUrl = providerConfig.url
@@ -174,10 +176,19 @@ If a bucket is empty, return an empty array.`
     const rawText = providerConfig.extractResponse(data)
     const parsed = parseTaskBuckets(rawText)
 
-    const allowedCids = new Set(candidates.map((candidate) => candidate.cid))
+    const asapAllowedCids = new Set(
+      modelCandidates
+        .filter((candidate) => candidate.due_bucket === 'overdue' || candidate.due_bucket === 'today')
+        .map((candidate) => candidate.cid),
+    )
+    const fyiAllowedCids = new Set(
+      modelCandidates
+        .filter((candidate) => candidate.due_bucket === 'soon')
+        .map((candidate) => candidate.cid),
+    )
 
-    const mappedAsap = mapTasksFromCids(parsed.asap, allowedCids, cidToBlockId, cidToText)
-    const mappedFyi = mapTasksFromCids(parsed.fyi, allowedCids, cidToBlockId, cidToText)
+    const mappedAsap = mapTasksFromCids(parsed.asap, asapAllowedCids, cidToBlockId, cidToText)
+    const mappedFyi = mapTasksFromCids(parsed.fyi, fyiAllowedCids, cidToBlockId, cidToText)
 
     const asap = mappedAsap.mapped
     const fyi = mappedFyi.mapped
@@ -205,7 +216,7 @@ If a bucket is empty, return an empty array.`
     ) {
       warning = appendWarning(
         warning,
-        'FYI: AI output must use cids from CANDIDATES_JSON. Non-cid references were ignored.',
+        'FYI: AI output must use matching cids from CANDIDATES_JSON for each bucket. Invalid references were ignored.',
       )
     }
 

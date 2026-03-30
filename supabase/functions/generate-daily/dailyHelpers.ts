@@ -18,6 +18,14 @@ export type CandidateForModel = {
   parent_context?: string
 }
 
+export const filterCandidatesForDaily = (candidates: CandidateForModel[]) =>
+  (candidates || []).filter(
+    (candidate) =>
+      candidate.due_bucket === 'overdue' ||
+      candidate.due_bucket === 'today' ||
+      candidate.due_bucket === 'soon',
+  )
+
 export type ParsedTaskBuckets = {
   asap: any[]
   fyi: any[]
