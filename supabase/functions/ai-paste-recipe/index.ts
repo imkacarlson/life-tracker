@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -276,6 +277,7 @@ Rules:
 
     return jsonResponse({ markdown, title })
   } catch (err) {
-    return jsonResponse({ error: String(err) }, 500)
+    console.error('ai-paste-recipe error:', err)
+    return jsonResponse({ error: 'Internal error processing recipe request.' }, 500)
   }
 })

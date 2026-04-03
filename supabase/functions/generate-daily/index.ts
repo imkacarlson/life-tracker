@@ -8,8 +8,9 @@ import {
   parseTaskBuckets,
 } from './dailyHelpers.ts'
 
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -170,7 +171,8 @@ If a bucket is empty, return an empty array.`
     const data = await response.json()
 
     if (!response.ok) {
-      return jsonResponse({ error: 'LLM API error', details: data }, 502)
+      console.error('LLM API error:', JSON.stringify(data))
+      return jsonResponse({ error: 'LLM API error. Check edge function logs for details.' }, 502)
     }
 
     const rawText = providerConfig.extractResponse(data)
@@ -227,6 +229,7 @@ If a bucket is empty, return an empty array.`
       warning,
     })
   } catch (err) {
-    return jsonResponse({ error: String(err) }, 500)
+    console.error('generate-daily error:', err)
+    return jsonResponse({ error: 'Internal error processing daily generation request.' }, 500)
   }
 })
