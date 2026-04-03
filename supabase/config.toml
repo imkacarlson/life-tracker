@@ -1,19 +1,19 @@
 
 [functions.generate-daily]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/generate-daily/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generate-daily/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/generate-daily/*.html" ]
 
 [functions.ai-insert]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 entrypoint = "./functions/ai-insert/index.ts"
+
+[functions.ai-paste-recipe]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/ai-paste-recipe/index.ts"
 
 [functions.check-scores]
 enabled = true

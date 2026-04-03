@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -283,7 +284,8 @@ Rules:
     const responseData = await response.json()
 
     if (!response.ok) {
-      return jsonResponse({ error: 'LLM API error', details: responseData }, 502)
+      console.error('LLM API error:', JSON.stringify(responseData))
+      return jsonResponse({ error: 'LLM API error. Check edge function logs for details.' }, 502)
     }
 
     const rawText = providerConfig.extractResponse(responseData)
@@ -307,6 +309,7 @@ Rules:
       notes,
     })
   } catch (err) {
-    return jsonResponse({ error: String(err) }, 500)
+    console.error('ai-insert error:', err)
+    return jsonResponse({ error: 'Internal error processing AI insert request.' }, 500)
   }
 })
