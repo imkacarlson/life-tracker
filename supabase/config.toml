@@ -14,3 +14,8 @@ entrypoint = "./functions/generate-daily/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/ai-insert/index.ts"
+
+[functions.check-scores]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/check-scores/index.ts"
