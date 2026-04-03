@@ -3,6 +3,18 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.2.0.0] - 2026-04-02
+
+### Added
+- Sports score email notifications — polls ESPN every 15 minutes via pg_cron, emails results with sport-specific sender names (e.g., "MLB Scores", "NBA Scores")
+- 9 tracked teams: Nationals, Pacers, Capitals, Commanders, Colts, IU Football, IU Men's Basketball, IU Women's Basketball, Washington Spirit
+- AI game summaries via Gemini 2.5 Flash with Google Search grounding (record, standings, recent news, next game)
+- Deduplication via unique constraint on (team_id, espn_game_id) — no duplicate emails on re-runs
+- 7-day rolling cleanup of score_history and notification_log tables
+- Supabase Edge Function `check-scores` with cron secret auth
+- Database schema: sport_teams, score_history, notification_log tables with RLS policies
+- pg_cron + pg_net migration for automated 15-minute polling schedule
+
 ## [0.1.3.0] - 2026-03-28
 
 ### Added
