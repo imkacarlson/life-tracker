@@ -294,18 +294,18 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     try {
       await waitForApp(page)
 
-      // Select the notebook via dropdown
-      const notebookSelect = page.locator('.notebook-switcher select')
-      await notebookSelect.selectOption(nb.id)
-      await expect(notebookSelect).toHaveValue(nb.id)
+      // Select the notebook via the navigation tree
+      const notebookNode = page.locator('.tree-node-notebook', { hasText: nb.title })
+      await notebookNode.click()
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.once('dialog', (dialog) => dialog.accept())
 
-      // Find the section tab and click its delete (×) button
-      const sectionTab = page.locator('.section-tab', { hasText: 'T5 Section' })
-      await expect(sectionTab).toBeVisible({ timeout: 5000 })
-      await sectionTab.locator('.tab-delete').click()
+      // Right-click the section node and delete it from the tree context menu
+      const sectionNode = page.locator('.tree-node-section', { hasText: 'T5 Section' })
+      await expect(sectionNode).toBeVisible({ timeout: 5000 })
+      await sectionNode.click({ button: 'right' })
+      await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
 
       // Wait for section deletion + fire-and-forget storage cleanup
       const deleted1 = await waitForStorageFileDeletion(client, storagePath1)
@@ -330,18 +330,17 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     try {
       await waitForApp(page)
 
-      // Select the notebook via dropdown
-      const notebookSelect = page.locator('.notebook-switcher select')
-      await notebookSelect.selectOption(nb.id)
-      await expect(notebookSelect).toHaveValue(nb.id)
-      await expect(page.locator('.section-tab', { hasText: 'T6 Section' })).toBeVisible({ timeout: 5000 })
+      // Select the notebook via the navigation tree
+      const notebookNode = page.locator('.tree-node-notebook', { hasText: nb.title })
+      await notebookNode.click()
+      await expect(page.locator('.tree-node-section', { hasText: 'T6 Section' })).toBeVisible({ timeout: 5000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.once('dialog', (dialog) => dialog.accept())
 
-      // Click the Delete button in the TopBar notebook switcher
-      const deleteButton = page.locator('.notebook-switcher .ghost', { hasText: 'Delete' })
-      await deleteButton.click()
+      // Right-click the notebook node and delete it from the tree context menu
+      await notebookNode.click({ button: 'right' })
+      await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
 
       // Wait for notebook deletion + fire-and-forget storage cleanup
       const deleted = await waitForStorageFileDeletion(client, storagePath)

@@ -120,7 +120,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
 
     const { blockId, styleLocator } = await resolveDeepLinkTarget(page)
 
-    await page.locator('.topbar').click({ position: { x: 12, y: 12 } })
+    await page.locator('.slim-header').click({ position: { x: 12, y: 12 } })
     await expect(async () => {
       const content = await styleLocator.textContent()
       expect(content?.trim() || '').toBe('')
@@ -150,7 +150,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
     const initialState = await getSelectionState(page)
     expect(initialState.activeInEditor).toBeFalsy()
 
-    await page.locator('.topbar').click({ position: { x: 12, y: 12 } })
+    await page.locator('.slim-header').click({ position: { x: 12, y: 12 } })
     await expect(async () => {
       const content = await styleLocator.textContent()
       expect(content?.trim() || '').toBe('')
