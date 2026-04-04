@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { generateJSON } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { supabase } from '../../lib/supabase'
@@ -29,6 +29,12 @@ function NavigationTree({
 }) {
   const dragIdRef = useRef(null)
   const [overId, setOverId] = useState(null)
+  const [expandedNotebooks, setExpandedNotebooks] = useState(
+    () => (activeNotebookId ? new Set([activeNotebookId]) : new Set()),
+  )
+  const [expandedSections, setExpandedSections] = useState(
+    () => (activeSectionId ? new Set([activeSectionId]) : new Set()),
+  )
   const [pasteRecipeOpen, setPasteRecipeOpen] = useState(false)
   const [pasteRecipeText, setPasteRecipeText] = useState('')
   const [pasteRecipeLoading, setPasteRecipeLoading] = useState(false)
@@ -36,6 +42,47 @@ function NavigationTree({
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const treeClassName = ['nav-tree-container', className].filter(Boolean).join(' ')
+
+  const toggleNotebook = (id) => {
+    setExpandedNotebooks((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSection = (id) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleSelectNotebook = (id) => {
+    setExpandedNotebooks((prev) => new Set(prev).add(id))
+    onSelectNotebook?.(id)
+  }
+
+  const handleSelectSection = (id) => {
+    setExpandedSections((prev) => new Set(prev).add(id))
+    onSelectSection?.(id)
+  }
+
+  // Auto-expand when active IDs change from parent (deep links, URL navigation)
+  useEffect(() => {
+    if (activeNotebookId) {
+      setExpandedNotebooks((prev) => (prev.has(activeNotebookId) ? prev : new Set(prev).add(activeNotebookId)))
+    }
+  }, [activeNotebookId])
+
+  useEffect(() => {
+    if (activeSectionId) {
+      setExpandedSections((prev) => (prev.has(activeSectionId) ? prev : new Set(prev).add(activeSectionId)))
+    }
+  }, [activeSectionId])
 
   const reorderList = (items, draggedId, targetId) => {
     const fromIndex = items.findIndex((item) => item.id === draggedId)
@@ -191,7 +238,7 @@ function NavigationTree({
         <div className="nav-tree-scroll" role="tree" aria-label="Notebook navigation">
           {notebooks.map((notebook) => {
             const notebookActive = notebook.id === activeNotebookId
-            const notebookExpanded = notebookActive
+            const notebookExpanded = expandedNotebooks.has(notebook.id)
 
             return (
               <div key={notebook.id} className="tree-branch">
@@ -200,13 +247,18 @@ function NavigationTree({
                   role="treeitem"
                   aria-expanded={notebookExpanded}
                   className={`tree-node tree-node-notebook ${notebookActive ? 'active' : ''}`}
-                  onClick={() => onSelectNotebook?.(notebook.id)}
+                  onClick={() => handleSelectNotebook(notebook.id)}
                   onContextMenu={handleOpenContextMenu('notebook', notebook)}
                   onTouchStart={handleTouchStart('notebook', notebook)}
                   onTouchEnd={cancelLongPress}
                   onTouchMove={cancelLongPress}
                 >
-                  <span className={`tree-chevron ${notebookExpanded ? 'expanded' : ''}`}>
+                  <span
+                    className={`tree-chevron ${notebookExpanded ? 'expanded' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); toggleNotebook(notebook.id) }}
+                    role="button"
+                    aria-label={notebookExpanded ? 'Collapse notebook' : 'Expand notebook'}
+                  >
                     <ChevronIcon />
                   </span>
                   <span className="tree-label sidebar-title">{notebook.title}</span>
@@ -219,7 +271,7 @@ function NavigationTree({
                     ) : (
                       sections.map((section) => {
                         const sectionActive = section.id === activeSectionId
-                        const sectionExpanded = sectionActive
+                        const sectionExpanded = expandedSections.has(section.id)
 
                         return (
                           <div key={section.id} className="tree-branch">
@@ -228,13 +280,18 @@ function NavigationTree({
                               role="treeitem"
                               aria-expanded={sectionExpanded}
                               className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
-                              onClick={() => onSelectSection?.(section.id)}
+                              onClick={() => handleSelectSection(section.id)}
                               onContextMenu={handleOpenContextMenu('section', section)}
                               onTouchStart={handleTouchStart('section', section)}
                               onTouchEnd={cancelLongPress}
                               onTouchMove={cancelLongPress}
                             >
-                              <span className={`tree-chevron ${sectionExpanded ? 'expanded' : ''}`}>
+                              <span
+                                className={`tree-chevron ${sectionExpanded ? 'expanded' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); toggleSection(section.id) }}
+                                role="button"
+                                aria-label={sectionExpanded ? 'Collapse section' : 'Expand section'}
+                              >
                                 <ChevronIcon />
                               </span>
                               <span
