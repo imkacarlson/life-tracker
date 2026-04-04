@@ -90,9 +90,10 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
     // Section Alpha should still be expanded (independent state)
     await expect(rowFor(page, 'Section Alpha')).toHaveAttribute('aria-expanded', 'true')
 
-    // Both pages should be visible
-    await expect(page.locator('.tree-node', { hasText: 'Page Alpha' })).toBeVisible()
+    // Only the active section (Beta) shows its pages; Alpha's pages are not
+    // loaded because the data layer fetches pages for the active section only.
     await expect(page.locator('.tree-node', { hasText: 'Page Beta' })).toBeVisible()
+    await expect(page.locator('.tree-node', { hasText: 'Page Alpha' })).toBeHidden()
   })
 
   test('clicking row label selects and expands the item', async ({ page }) => {

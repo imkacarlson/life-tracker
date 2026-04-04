@@ -302,7 +302,7 @@ function NavigationTree({
                               <span className="tree-label sidebar-title">{section.title}</span>
                             </button>
 
-                            {sectionExpanded ? (
+                            {sectionExpanded && sectionActive ? (
                               <div className="tree-children tree-children-pages" role="group">
                                 {loading ? (
                                   <p className="subtle tree-empty">Loading pages...</p>
