@@ -266,7 +266,9 @@ function NavigationTree({
 
                 {notebookExpanded ? (
                   <div className="tree-children tree-children-sections" role="group">
-                    {sections.length === 0 ? (
+                    {!notebookActive ? (
+                      <p className="subtle tree-empty">Select notebook to load sections.</p>
+                    ) : sections.length === 0 ? (
                       <p className="subtle tree-empty">No sections yet.</p>
                     ) : (
                       sections.map((section) => {

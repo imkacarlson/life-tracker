@@ -74,6 +74,32 @@ export const createPage = async (client, userId, sectionId, title, content, sort
   return data
 }
 
+const findFallbackPageHash = async () => {
+  const { client, userId } = await getSupabase()
+  const { data: pageRow, error: pageError } = await client
+    .from('pages')
+    .select('id, section_id')
+    .eq('user_id', userId)
+    .order('sort_order', { ascending: true, nullsLast: true })
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (pageError) throw pageError
+  if (!pageRow) return null
+
+  const { data: sectionRow, error: sectionError } = await client
+    .from('sections')
+    .select('id, notebook_id')
+    .eq('id', pageRow.section_id)
+    .maybeSingle()
+
+  if (sectionError) throw sectionError
+  if (!sectionRow?.notebook_id) return null
+
+  return `/#nb=${sectionRow.notebook_id}&sec=${sectionRow.id}&pg=${pageRow.id}`
+}
+
 /** Navigate to the app root (or a hash) and wait for auth + editor to be ready.
  *  Options:
  *    expectedText — if provided, also waits for this text to appear in the editor
@@ -124,10 +150,18 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
       await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
     }
   } catch (error) {
+    if (!hash || hash === '/') {
+      const fallbackHash = await findFallbackPageHash()
+      if (!fallbackHash) throw error
+      await page.goto(fallbackHash)
+      await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
+      await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+      return
+    }
+
     // Fallback: if hashchange navigation misses the target page, reload
     // directly to the hash URL and wait again. This keeps tests deterministic
     // without depending on a single navigation path.
-    if (!hash || hash === '/') throw error
     await page.goto(hash)
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
