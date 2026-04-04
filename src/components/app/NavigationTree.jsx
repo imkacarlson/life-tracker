@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { generateJSON } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { supabase } from '../../lib/supabase'
@@ -86,6 +86,29 @@ function NavigationTree({
     event.stopPropagation()
     onOpenContextMenu?.(event, type, item)
   }
+
+  const longPressTimerRef = useRef(null)
+
+  const handleTouchStart = useCallback(
+    (type, item) => (event) => {
+      const touch = event.touches[0]
+      if (!touch) return
+      const x = touch.clientX
+      const y = touch.clientY
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null
+        onOpenContextMenu?.({ preventDefault() {}, clientX: x, clientY: y }, type, item)
+      }, 500)
+    },
+    [onOpenContextMenu],
+  )
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current != null) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }, [])
 
   const closePasteRecipeModal = () => {
     setPasteRecipeOpen(false)
@@ -179,6 +202,9 @@ function NavigationTree({
                   className={`tree-node tree-node-notebook ${notebookActive ? 'active' : ''}`}
                   onClick={() => onSelectNotebook?.(notebook.id)}
                   onContextMenu={handleOpenContextMenu('notebook', notebook)}
+                  onTouchStart={handleTouchStart('notebook', notebook)}
+                  onTouchEnd={cancelLongPress}
+                  onTouchMove={cancelLongPress}
                 >
                   <span className={`tree-chevron ${notebookExpanded ? 'expanded' : ''}`}>
                     <ChevronIcon />
@@ -204,6 +230,9 @@ function NavigationTree({
                               className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
                               onClick={() => onSelectSection?.(section.id)}
                               onContextMenu={handleOpenContextMenu('section', section)}
+                              onTouchStart={handleTouchStart('section', section)}
+                              onTouchEnd={cancelLongPress}
+                              onTouchMove={cancelLongPress}
                             >
                               <span className={`tree-chevron ${sectionExpanded ? 'expanded' : ''}`}>
                                 <ChevronIcon />
@@ -242,6 +271,9 @@ function NavigationTree({
                                         } ${overId === tracker.id ? 'drag-over' : ''}`}
                                         onClick={() => onSelectPage?.(tracker.id)}
                                         onContextMenu={handleOpenContextMenu('page', tracker)}
+                                        onTouchStart={handleTouchStart('page', tracker)}
+                                        onTouchEnd={cancelLongPress}
+                                        onTouchMove={cancelLongPress}
                                       >
                                         <span className="tree-page-marker" aria-hidden="true" />
                                         <span className="tree-label sidebar-title">{tracker.title}</span>

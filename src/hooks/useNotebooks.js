@@ -145,7 +145,9 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     clearNavHierarchyCache()
     const nextNotebooks = notebooks.filter((item) => item.id !== notebook.id)
     setNotebooks(nextNotebooks)
-    setActiveNotebookId(nextNotebooks[0]?.id ?? null)
+    if (notebook.id === activeNotebookId) {
+      setActiveNotebookId(nextNotebooks[0]?.id ?? null)
+    }
   }
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
