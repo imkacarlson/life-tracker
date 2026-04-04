@@ -134,10 +134,18 @@ setup('authenticate test user', async ({ page }) => {
 
   await page.goto('/')
 
-  // Fill in the login form
-  await page.fill('input[type="email"]', email)
-  await page.fill('input[type="password"]', password)
-  await page.click('button[type="submit"]')
+  // Some local runs can start with an already-authenticated shell, while others
+  // need the login form to finish mounting before we can submit credentials.
+  await page.waitForSelector('input[type="email"], .app:not(.app-auth)', { timeout: 15000 })
+
+  const emailInput = page.locator('input[type="email"]')
+  const appShell = page.locator('.app:not(.app-auth)')
+  const hasAppShell = await appShell.isVisible().catch(() => false)
+  if (!hasAppShell) {
+    await emailInput.fill(email)
+    await page.fill('input[type="password"]', password)
+    await page.click('button[type="submit"]')
+  }
 
   // Wait until the authenticated app shell is visible (not the login screen)
   await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
