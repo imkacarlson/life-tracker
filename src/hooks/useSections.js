@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
 import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
+import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
 const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
 
@@ -108,21 +109,30 @@ const fixForwardBlockRefs = (content, blockIdMap) => {
 export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelectionRef) => {
   const [sections, setSections] = useState([])
   const [activeSectionId, setActiveSectionId] = useState(null)
+  const [sectionsLoading, setSectionsLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const loadRequestIdRef = useRef(0)
 
   const loadSections = useCallback(
     async (notebookId) => {
       if (!userId || !notebookId) return
+      const requestId = ++loadRequestIdRef.current
+      setSectionsLoading(true)
       setMessage('')
-      const { data, error } = await supabase
-        .from('sections')
-        .select('id, title, color, sort_order, created_at, updated_at')
-        .eq('notebook_id', notebookId)
-        .order('sort_order', { ascending: true, nullsFirst: true })
-        .order('created_at', { ascending: true })
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('sections')
+          .select('id, title, color, sort_order, created_at, updated_at')
+          .eq('notebook_id', notebookId)
+          .order('sort_order', { ascending: true, nullsFirst: true })
+          .order('created_at', { ascending: true }),
+      )
+
+      if (loadRequestIdRef.current !== requestId) return
 
       if (error) {
         setMessage(error.message)
+        setSectionsLoading(false)
         return
       }
 
@@ -140,6 +150,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
           return data?.[0]?.id ?? null
         })
       }
+      setSectionsLoading(false)
     },
     [userId, pendingNavRef, savedSelectionRef],
   )
@@ -147,8 +158,10 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!userId || !activeNotebookId) {
+        loadRequestIdRef.current += 1
         setSections([])
         setActiveSectionId(null)
+        setSectionsLoading(false)
         setMessage('')
         return
       }
@@ -377,6 +390,7 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
   return {
     sections,
+    sectionsLoading,
     activeSectionId,
     setActiveSectionId,
     activeSection,

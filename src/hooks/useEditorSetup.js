@@ -70,6 +70,7 @@ export const useEditorSetup = ({
   const preservedHighlightRef = useRef(null)
   const suppressSaveRef = useRef(false)
   const suppressFocusRef = useRef(false)
+  const touchNavigationGuardRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
   const activeTrackerIdRef = useRef(activeTrackerId)
   // Save only after a specific load pass has fully established page ownership.
@@ -389,7 +390,10 @@ export const useEditorSetup = ({
       const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
-        const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
+        const suppressTouchNavigationFocus =
+          isTouchOnlyDevice() && touchNavigationGuardRef.current
+        const suppressProgrammaticFocus =
+          isTouchOnlyDevice() && (deepLinkFocusGuard || suppressTouchNavigationFocus)
         markLoadReady(activeTrackerId ?? null)
         suppressSaveRef.current = false
         suppressFocusRef.current = true
@@ -398,9 +402,11 @@ export const useEditorSetup = ({
         if (suppressProgrammaticFocus && !editor.isDestroyed) {
           editor.view.dom.blur()
         }
-        clearFocusTimer = setTimeout(() => {
-          suppressFocusRef.current = false
-        }, suppressProgrammaticFocus ? 600 : isTouchOnlyDevice() ? 300 : 50)
+        if (!touchNavigationGuardRef.current) {
+          clearFocusTimer = setTimeout(() => {
+            suppressFocusRef.current = false
+          }, suppressProgrammaticFocus ? 600 : isTouchOnlyDevice() ? 300 : 50)
+        }
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -417,8 +423,11 @@ export const useEditorSetup = ({
       setEditorLocked(false)
       const pending = pendingNavRef.current
       const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
+      const suppressTouchNavigationFocus =
+        isTouchOnlyDevice() && touchNavigationGuardRef.current
       const suppressProgrammaticFocus =
-        isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock
+        suppressTouchNavigationFocus ||
+        (isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock)
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
       // which causes the browser to auto-scroll to the caret.  By placing
@@ -440,9 +449,11 @@ export const useEditorSetup = ({
         }
         requestAnimationFrame(() => attemptScroll())
       }
-      clearFocusTimer = setTimeout(() => {
-        suppressFocusRef.current = false
-      }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
+      if (!touchNavigationGuardRef.current) {
+        clearFocusTimer = setTimeout(() => {
+          suppressFocusRef.current = false
+        }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
+      }
     }
     let clearFocusTimer
     setContent()
@@ -479,7 +490,8 @@ export const useEditorSetup = ({
     const isTouchDevice = isTouchOnlyDevice()
     const wasGuarded = previousDeepLinkFocusGuardRef.current
     previousDeepLinkFocusGuardRef.current = deepLinkFocusGuard
-    const suppressProgrammaticFocus = isTouchDevice && deepLinkFocusGuard
+    const suppressProgrammaticFocus =
+      isTouchDevice && (deepLinkFocusGuard || touchNavigationGuardRef.current)
     if (suppressProgrammaticFocus) {
       pendingDesktopDeepLinkRecoveryRef.current = false
       editor.setEditable(false)
@@ -572,7 +584,12 @@ export const useEditorSetup = ({
         if (!editor || editor.isDestroyed) return
         if (editorLocked) return
         if (suppressFocusRef.current) return
-        if (shouldGuardDeepLinkFocus && (deepLinkFocusGuard || deepLinkFocusGuardRef.current)) return
+        if (
+          shouldGuardDeepLinkFocus &&
+          (deepLinkFocusGuard || deepLinkFocusGuardRef.current || touchNavigationGuardRef.current)
+        ) {
+          return
+        }
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName
@@ -799,5 +816,5 @@ export const useEditorSetup = ({
     return () => editor.off('transaction', handleTransaction)
   }, [editor, getListDepthAt, getListItemTypeAt])
 
-  return { editor, editorLocked, suppressFocusRef }
+  return { editor, editorLocked, suppressFocusRef, touchNavigationGuardRef }
 }

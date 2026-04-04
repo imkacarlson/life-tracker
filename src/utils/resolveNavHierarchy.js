@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { runSupabaseQueryWithRetry } from './supabaseRetry'
 
 // Cache resolved page → hierarchy so that navigating back to a visited page
 // never requires a Supabase round-trip. On mobile, each round-trip adds
@@ -28,11 +29,13 @@ export const resolveNavHierarchy = async ({ notebookId = null, sectionId = null,
       return { ...cached, blockId: blockId ?? null }
     }
 
-    const { data, error } = await supabase
-      .from('pages')
-      .select('id, section_id, sections!inner(id, notebook_id)')
-      .eq('id', pageId)
-      .maybeSingle()
+    const { data, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('pages')
+        .select('id, section_id, sections!inner(id, notebook_id)')
+        .eq('id', pageId)
+        .maybeSingle(),
+    )
 
     if (error || !data?.section_id) {
       return null
@@ -56,11 +59,13 @@ export const resolveNavHierarchy = async ({ notebookId = null, sectionId = null,
   }
 
   if (sectionId) {
-    const { data, error } = await supabase
-      .from('sections')
-      .select('id, notebook_id')
-      .eq('id', sectionId)
-      .maybeSingle()
+    const { data, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('sections')
+        .select('id, notebook_id')
+        .eq('id', sectionId)
+        .maybeSingle(),
+    )
 
     if (error || !data?.notebook_id) {
       return null

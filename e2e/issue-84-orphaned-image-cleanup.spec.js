@@ -287,7 +287,8 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const storagePath2 = await uploadTestImage(client, userId, `t5b-${Date.now()}.png`)
 
     const nb = await createNotebook(client, userId, `T5 Notebook ${Date.now()}`)
-    const sec = await createSection(client, userId, nb.id, 'T5 Section')
+    const sectionTitle = `T5 Section ${Date.now()}`
+    const sec = await createSection(client, userId, nb.id, sectionTitle)
     await createPage(client, userId, sec.id, 'T5 Page 1', docWithImage(storagePath1, 'p1-img'))
     await createPage(client, userId, sec.id, 'T5 Page 2', docWithImage(storagePath2, 'p2-img'))
 
@@ -302,7 +303,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       page.once('dialog', (dialog) => dialog.accept())
 
       // Right-click the section node and delete it from the tree context menu
-      const sectionNode = page.locator('.tree-node-section', { hasText: 'T5 Section' })
+      const sectionNode = page.locator('.tree-node-section', { hasText: sectionTitle })
       await expect(sectionNode).toBeVisible({ timeout: 5000 })
       await sectionNode.click({ button: 'right' })
       await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
@@ -324,7 +325,8 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const storagePath = await uploadTestImage(client, userId, `t6-${Date.now()}.png`)
 
     const nb = await createNotebook(client, userId, `T6 Notebook ${Date.now()}`)
-    const sec = await createSection(client, userId, nb.id, 'T6 Section')
+    const sectionTitle = `T6 Section ${Date.now()}`
+    const sec = await createSection(client, userId, nb.id, sectionTitle)
     await createPage(client, userId, sec.id, 'T6 Page', docWithImage(storagePath))
 
     try {
@@ -333,7 +335,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // Select the notebook via the navigation tree
       const notebookNode = page.locator('.tree-node-notebook', { hasText: nb.title })
       await notebookNode.click()
-      await expect(page.locator('.tree-node-section', { hasText: 'T6 Section' })).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('.tree-node-section', { hasText: sectionTitle })).toBeVisible({ timeout: 5000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.once('dialog', (dialog) => dialog.accept())

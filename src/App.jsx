@@ -9,6 +9,7 @@ import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
+import { isTouchOnlyDevice } from './utils/device'
 import {
   saveSelection,
   readStoredSidebarCollapsed,
@@ -129,6 +130,7 @@ function App() {
 
   const {
     sections,
+    sectionsLoading,
     activeSectionId,
     setActiveSectionId,
     message: sectionMessage,
@@ -280,12 +282,19 @@ function App() {
         target.closest('a[href^="#pg="], a[href^="#sec="], a[href^="#nb="]'),
       )
       const isEditorContent = Boolean(target.closest('.ProseMirror'))
+      const hadTouchNavigationGuard = isEditorContent && touchNavigationGuardRef.current
+      if (hadTouchNavigationGuard && editor && !editor.isDestroyed) {
+        touchNavigationGuardRef.current = false
+        suppressFocusRef.current = false
+        editor.setEditable(true)
+      }
       pointerGestureRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
         isInternalLink,
         isEditorContent,
+        hadTouchNavigationGuard,
       }
     },
     [],
@@ -311,6 +320,25 @@ function App() {
         }
       } else {
         pendingEditTapRef.current = null
+      }
+      if (gesture.isEditorContent) {
+        if (gesture.hadTouchNavigationGuard && editor && !editor.isDestroyed) {
+          const nextPos = editor.view.posAtCoords({
+            left: event.clientX,
+            top: event.clientY,
+          })
+          editor.setEditable(true)
+          requestAnimationFrame(() => {
+            if (!editor.isDestroyed) {
+              if (nextPos?.pos != null) {
+                editor.commands.focus(nextPos.pos)
+              } else {
+                editor.view.focus()
+              }
+            }
+          })
+        }
+        suppressFocusRef.current = false
       }
       clearBlockAnchorIfPresent()
     },
@@ -340,7 +368,7 @@ function App() {
 
   const uploadImageRef = useRef(null)
 
-  const { editor, editorLocked, suppressFocusRef } = useEditorSetup({
+  const { editor, editorLocked, suppressFocusRef, touchNavigationGuardRef } = useEditorSetup({
     session,
     activeTrackerId,
     activeTracker,
@@ -366,9 +394,41 @@ function App() {
 
   useEffect(() => {
     if (!session || !initialNavReady) return
+    const savedSelection = savedSelectionRef.current
+    if (savedSelection?.notebookId && !activeNotebookId) return
+    if (
+      activeNotebookId &&
+      savedSelection?.notebookId === activeNotebookId &&
+      savedSelection.sectionId &&
+      !activeSectionId &&
+      (sectionsLoading || sections.length > 0)
+    ) {
+      return
+    }
+    if (
+      activeSectionId &&
+      savedSelection?.sectionId === activeSectionId &&
+      savedSelection.pageId &&
+      !activeTrackerId &&
+      (dataLoading || trackers.length > 0)
+    ) {
+      return
+    }
+    if (activeNotebookId && sectionsLoading) return
+    if (activeSectionId && dataLoading) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     savedSelectionRef.current = { notebookId: activeNotebookId, sectionId: activeSectionId, pageId: activeTrackerId }
-  }, [session, initialNavReady, activeNotebookId, activeSectionId, activeTrackerId])
+  }, [
+    session,
+    initialNavReady,
+    activeNotebookId,
+    activeSectionId,
+    activeTrackerId,
+    sectionsLoading,
+    dataLoading,
+    sections.length,
+    trackers.length,
+  ])
 
   useEffect(() => {
     if (settingsMode !== 'daily-template') return
@@ -424,6 +484,13 @@ function App() {
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     suppressFocusRef.current = true
+    touchNavigationGuardRef.current = isTouchOnlyDevice()
+    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
+      editor.view.dom.blur()
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) editor.view.dom.blur()
+      })
+    }
     setActiveNotebookId(nextNotebookId)
   }
 
@@ -436,6 +503,13 @@ function App() {
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     suppressFocusRef.current = true
+    touchNavigationGuardRef.current = isTouchOnlyDevice()
+    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
+      editor.view.dom.blur()
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) editor.view.dom.blur()
+      })
+    }
     setActiveSectionId(sectionId)
   }
 
@@ -443,11 +517,35 @@ function App() {
     if (settingsMode) {
       setSettingsMode(null)
     }
+    const wasTouchNavigationGuarded = touchNavigationGuardRef.current
     navIntentRef.current = 'push'
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     suppressFocusRef.current = true
+    touchNavigationGuardRef.current = false
+    if (
+      wasTouchNavigationGuarded &&
+      trackerId === activeTrackerId &&
+      isTouchOnlyDevice() &&
+      editor &&
+      !editor.isDestroyed
+    ) {
+      // A guarded section/notebook switch may already have opened this page.
+      // Clicking the active page again should restore normal editability even
+      // though activeTrackerId itself does not change.
+      editor.setEditable(true)
+      editor.view.dom.blur()
+      setTimeout(() => {
+        suppressFocusRef.current = false
+      }, 300)
+    }
+    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
+      editor.view.dom.blur()
+      requestAnimationFrame(() => {
+        if (!editor.isDestroyed) editor.view.dom.blur()
+      })
+    }
     setActiveTrackerId(trackerId)
     if (isMobileViewport) {
       setMobileSidebarOpen(false)

@@ -6,6 +6,7 @@ import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } 
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
+import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
@@ -30,6 +31,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const retryTimersByTrackerRef = useRef({})
   const inFlightByTrackerRef = useRef({})
   const queuedPayloadByTrackerRef = useRef({})
+  const loadRequestIdRef = useRef(0)
 
   const draftWriteTimersByTrackerRef = useRef({})
   const latestDraftKeyByTrackerRef = useRef({})
@@ -301,14 +303,19 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const loadTrackers = useCallback(
     async (sectionId) => {
       if (!userId || !sectionId) return
+      const requestId = ++loadRequestIdRef.current
       setDataLoading(true)
       setMessage('')
-      const { data, error } = await supabase
-        .from('pages')
-        .select('id, title, content, created_at, updated_at, section_id, sort_order, is_tracker_page')
-        .eq('section_id', sectionId)
-        .order('sort_order', { ascending: true, nullsLast: true })
-        .order('updated_at', { ascending: false })
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('pages')
+          .select('id, title, content, created_at, updated_at, section_id, sort_order, is_tracker_page')
+          .eq('section_id', sectionId)
+          .order('sort_order', { ascending: true, nullsLast: true })
+          .order('updated_at', { ascending: false }),
+      )
+
+      if (loadRequestIdRef.current !== requestId) return
 
       if (error) {
         setMessage(error.message)
@@ -337,8 +344,10 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
   useEffect(() => {
     if (!activeSectionId) {
+      loadRequestIdRef.current += 1
       setTrackers([])
       setActiveTrackerId(null)
+      setDataLoading(false)
       return
     }
     setTrackers([])
