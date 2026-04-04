@@ -423,7 +423,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    if (suppressFocusRef) suppressFocusRef.current = true
+    suppressFocusRef.current = true
     setActiveNotebookId(nextNotebookId)
   }
 
@@ -435,7 +435,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    if (suppressFocusRef) suppressFocusRef.current = true
+    suppressFocusRef.current = true
     setActiveSectionId(sectionId)
   }
 
@@ -447,7 +447,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    if (suppressFocusRef) suppressFocusRef.current = true
+    suppressFocusRef.current = true
     setActiveTrackerId(trackerId)
     if (isMobileViewport) {
       setMobileSidebarOpen(false)

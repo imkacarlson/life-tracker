@@ -80,8 +80,8 @@ test('tapping the editor after section switch DOES focus it', async ({ page }) =
     timeout: 10000,
   })
 
-  // Wait for suppression to clear
-  await page.waitForTimeout(500)
+  // Wait for the 300ms focus-suppression timer to clear
+  await page.waitForTimeout(600)
 
   // Tap the editor content area
   await page.locator('.ProseMirror').click()
