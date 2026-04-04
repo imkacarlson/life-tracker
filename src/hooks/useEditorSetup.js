@@ -400,7 +400,7 @@ export const useEditorSetup = ({
         }
         clearFocusTimer = setTimeout(() => {
           suppressFocusRef.current = false
-        }, suppressProgrammaticFocus ? 600 : 50)
+        }, suppressProgrammaticFocus ? 600 : isTouchOnlyDevice() ? 300 : 50)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -442,7 +442,7 @@ export const useEditorSetup = ({
       }
       clearFocusTimer = setTimeout(() => {
         suppressFocusRef.current = false
-      }, hasPendingBlock ? 600 : 50)
+      }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
     }
     let clearFocusTimer
     setContent()
@@ -459,7 +459,7 @@ export const useEditorSetup = ({
         ready: false,
       }
       clearTimeout(clearFocusTimer)
-      suppressFocusRef.current = false
+      suppressFocusRef.current = true
       if (!editor.isDestroyed) editor.setEditable(false)
     }
   }, [
@@ -799,5 +799,5 @@ export const useEditorSetup = ({
     return () => editor.off('transaction', handleTransaction)
   }, [editor, getListDepthAt, getListItemTypeAt])
 
-  return { editor, editorLocked }
+  return { editor, editorLocked, suppressFocusRef }
 }

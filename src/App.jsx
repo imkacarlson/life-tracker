@@ -340,7 +340,7 @@ function App() {
 
   const uploadImageRef = useRef(null)
 
-  const { editor, editorLocked } = useEditorSetup({
+  const { editor, editorLocked, suppressFocusRef } = useEditorSetup({
     session,
     activeTrackerId,
     activeTracker,
@@ -423,6 +423,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
+    if (suppressFocusRef) suppressFocusRef.current = true
     setActiveNotebookId(nextNotebookId)
   }
 
@@ -434,6 +435,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
+    if (suppressFocusRef) suppressFocusRef.current = true
     setActiveSectionId(sectionId)
   }
 
@@ -445,6 +447,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
+    if (suppressFocusRef) suppressFocusRef.current = true
     setActiveTrackerId(trackerId)
     if (isMobileViewport) {
       setMobileSidebarOpen(false)
