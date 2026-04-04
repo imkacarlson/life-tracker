@@ -1,4 +1,4 @@
-import { SIDEBAR_WIDTH_STORAGE_KEY, STORAGE_KEY } from './constants'
+import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_WIDTH_STORAGE_KEY, STORAGE_KEY } from './constants'
 
 export const readStoredSelection = () => {
   if (typeof window === 'undefined') return null
@@ -40,6 +40,26 @@ export const saveStoredSidebarWidth = (width) => {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, `${width}`)
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export const readStoredSidebarCollapsed = (fallbackValue) => {
+  if (typeof window === 'undefined') return fallbackValue
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (raw === null) return fallbackValue
+    return raw === 'true'
+  } catch {
+    return fallbackValue
+  }
+}
+
+export const saveStoredSidebarCollapsed = (collapsed) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, `${collapsed}`)
   } catch {
     // Ignore storage errors
   }

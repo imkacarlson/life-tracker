@@ -106,7 +106,7 @@
   right: calc(100% + 6px);
 }
 
-.section-context-menu {
+.tree-context-menu {
   position: fixed;
   z-index: 40;
   background: var(--surface);
@@ -117,7 +117,7 @@
   box-shadow: 0 16px 32px rgba(28, 25, 23, 0.18);
 }
 
-.section-context-item {
+.tree-context-item {
   width: 100%;
   text-align: left;
   background: transparent;
@@ -129,8 +129,12 @@
   cursor: pointer;
 }
 
-.section-context-item:hover {
+.tree-context-item:hover {
   background: var(--surface-raised);
+}
+
+.tree-context-item.danger {
+  color: var(--error);
 }
 
 .copy-move-modal {
