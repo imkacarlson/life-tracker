@@ -129,6 +129,7 @@ function App() {
 
   const {
     sections,
+    sectionsLoading,
     activeSectionId,
     setActiveSectionId,
     message: sectionMessage,
@@ -366,9 +367,41 @@ function App() {
 
   useEffect(() => {
     if (!session || !initialNavReady) return
+    const savedSelection = savedSelectionRef.current
+    if (savedSelection?.notebookId && !activeNotebookId) return
+    if (
+      activeNotebookId &&
+      savedSelection?.notebookId === activeNotebookId &&
+      savedSelection.sectionId &&
+      !activeSectionId &&
+      (sectionsLoading || sections.length > 0)
+    ) {
+      return
+    }
+    if (
+      activeSectionId &&
+      savedSelection?.sectionId === activeSectionId &&
+      savedSelection.pageId &&
+      !activeTrackerId &&
+      (dataLoading || trackers.length > 0)
+    ) {
+      return
+    }
+    if (activeNotebookId && sectionsLoading) return
+    if (activeSectionId && dataLoading) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     savedSelectionRef.current = { notebookId: activeNotebookId, sectionId: activeSectionId, pageId: activeTrackerId }
-  }, [session, initialNavReady, activeNotebookId, activeSectionId, activeTrackerId])
+  }, [
+    session,
+    initialNavReady,
+    activeNotebookId,
+    activeSectionId,
+    activeTrackerId,
+    sectionsLoading,
+    dataLoading,
+    sections.length,
+    trackers.length,
+  ])
 
   useEffect(() => {
     if (settingsMode !== 'daily-template') return

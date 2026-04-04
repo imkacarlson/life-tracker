@@ -2,20 +2,27 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
+import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
 export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   const [notebooks, setNotebooks] = useState([])
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
+  const loadRequestIdRef = useRef(0)
 
   const loadNotebooks = useCallback(async () => {
     if (!userId) return
+    const requestId = ++loadRequestIdRef.current
     setMessage('')
-    const { data, error } = await supabase
-      .from('notebooks')
-      .select('id, title, type, sort_order, created_at, updated_at')
-      .order('sort_order', { ascending: true, nullsFirst: true })
-      .order('created_at', { ascending: true })
+    const { data, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('notebooks')
+        .select('id, title, type, sort_order, created_at, updated_at')
+        .order('sort_order', { ascending: true, nullsFirst: true })
+        .order('created_at', { ascending: true }),
+    )
+
+    if (loadRequestIdRef.current !== requestId) return
 
     if (error) {
       setMessage(error.message)
@@ -41,6 +48,7 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!userId) {
+        loadRequestIdRef.current += 1
         setNotebooks([])
         setActiveNotebookId(null)
         setMessage('')
