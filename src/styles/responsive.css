@@ -9,55 +9,101 @@
     overflow: visible;
   }
 
+  .slim-header {
+    position: sticky;
+    top: 0;
+    z-index: 35;
+    background: var(--bg);
+    padding: 0.75rem 1rem;
+  }
+
+  .breadcrumb-full {
+    display: none;
+  }
+
+  .breadcrumb-mobile {
+    display: block;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
     gap: 0;
+    padding: 0 1rem 1rem;
     align-items: start;
     overflow: visible;
+  }
+
+  .workspace.sidebar-collapsed .nav-tree-container {
+    display: block;
   }
 
   .sidebar-resizer {
     display: none;
   }
 
-  .editor-panel {
+  .nav-tree-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(360px, calc(100vw - 2.5rem));
+    z-index: 40;
+    padding: 0.75rem;
+    transform: translateX(-100%);
+    transition: transform var(--duration-medium) var(--ease-out);
+    pointer-events: none;
+  }
+
+  .nav-tree-container.open {
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .nav-tree {
+    height: calc(100dvh - 1.5rem);
+  }
+
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    border: none;
+    padding: 0;
+    background: rgba(28, 25, 23, 0.28);
+  }
+
+  .editor-panel,
+  .settings-hub {
     overflow-y: visible;
-    min-height: calc(100vh - 140px);
-  }
-
-  .sidebar {
-    order: 2;
-    border-left: none;
-    border-top: 1px solid var(--border);
-    padding: 1rem;
-    width: 100%;
-  }
-
-  .sidebar-list {
-    overflow-y: visible;
-  }
-
-  .topbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .section-tabs {
-    padding: 0 1.5rem 0.5rem;
+    min-height: calc(100vh - 120px);
   }
 }
 
 @media (max-width: 600px) {
-  .topbar,
+  .slim-header,
   .workspace {
-    padding: 1.5rem;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
   }
 
   .title-input {
     font-size: 1.6rem;
   }
 
-  .sidebar {
-    padding: 0.75rem;
+  .nav-tree-container {
+    width: calc(100vw - 1.5rem);
+    padding: 0.5rem;
+  }
+
+  .nav-tree-header,
+  .nav-tree-footer {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .nav-tree-scroll {
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
   }
 }

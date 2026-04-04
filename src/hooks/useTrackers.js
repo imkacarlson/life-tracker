@@ -564,8 +564,15 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     [userId, activeSectionId, loadTrackers],
   )
 
-  const deleteTracker = async () => {
-    const tracker = activeTrackerRef.current
+  const deleteTracker = async (trackerToDelete = null) => {
+    const tracker =
+      trackerToDelete != null &&
+      typeof trackerToDelete === 'object' &&
+      typeof trackerToDelete.id === 'string' &&
+      typeof trackerToDelete.title === 'string' &&
+      !('nativeEvent' in trackerToDelete)
+        ? trackerToDelete
+        : activeTrackerRef.current
     if (!tracker) return
     const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
     if (!confirmDelete) return

@@ -3,6 +3,29 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.3.0.0] - 2026-04-03
+
+### Added
+- Tree-style navigation sidebar replacing the old TopBar notebook dropdown, section tabs, and pages sidebar
+- SlimHeader with breadcrumb trail (notebook / section / page) and hamburger toggle
+- NavigationTree component with collapsible notebook > section > page hierarchy, chevron indicators, section color chips, and drag-to-reorder pages
+- GearMenu dropdown (settings + sign out) replacing inline topbar buttons
+- TreeContextMenu with rename, copy, move, and delete actions for notebooks, sections, and pages (pages now deletable from context menu)
+- Sidebar collapse/expand toggle with localStorage persistence
+- Mobile navigation drawer with slide-in animation, backdrop overlay, and sticky header
+
+### Changed
+- Sidebar moved from right side to left side of the workspace
+- Sidebar resizer arrow keys corrected for left-side layout (ArrowRight now expands)
+- Mobile layout uses fixed-position drawer instead of stacked sections below editor
+- deleteTracker now accepts an optional tracker object argument with hardened type guard against React synthetic events
+
+### Removed
+- TopBar component (replaced by SlimHeader)
+- SectionTabs component (sections now shown in NavigationTree)
+- Sidebar component (replaced by NavigationTree)
+- SectionContextMenu component (replaced by TreeContextMenu)
+
 ## [0.2.0.0] - 2026-04-02
 
 ### Added

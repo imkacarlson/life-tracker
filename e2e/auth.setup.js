@@ -30,19 +30,18 @@ setup('authenticate test user', async ({ page }) => {
   await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
   // Normalize E2E baseline context so all tests start in the same notebook/section.
-  const notebookSelect = page.locator('.notebook-switcher select')
-  if ((await notebookSelect.count()) > 0) {
-    try {
-      await notebookSelect.selectOption({ label: 'Test Notebook' })
-    } catch {
-      // Keep setup resilient when seed notebook is absent.
-    }
+  const notebookNode = page.locator('.tree-node-notebook', { hasText: 'Test Notebook' }).first()
+  try {
+    await notebookNode.waitFor({ state: 'visible', timeout: 8000 })
+    await notebookNode.click()
+  } catch {
+    // Keep setup resilient when seed notebook is absent.
   }
 
-  const sectionTab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
+  const sectionNode = page.locator('.tree-node-section', { hasText: 'Test Section' }).first()
   try {
-    await sectionTab.waitFor({ state: 'visible', timeout: 8000 })
-    await sectionTab.click()
+    await sectionNode.waitFor({ state: 'visible', timeout: 8000 })
+    await sectionNode.click()
   } catch {
     // Keep setup resilient when seed section is absent.
   }

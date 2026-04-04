@@ -64,11 +64,11 @@ test.describe('Issue #70 same-notebook section copy', () => {
   test('copy section to same notebook creates suffixed duplicate', async ({ page }) => {
     await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
-    const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
-    await expect(tab).toBeVisible({ timeout: 5000 })
+    const sectionNode = page.locator('.tree-node-section', { hasText: 'Test Section' }).first()
+    await expect(sectionNode).toBeVisible({ timeout: 5000 })
 
-    // Right-click the section tab to open context menu
-    await tab.click({ button: 'right' })
+    // Right-click the section node to open context menu
+    await sectionNode.click({ button: 'right' })
     const copyBtn = page.getByRole('button', { name: 'Copy to…' })
     await expect(copyBtn).toBeVisible({ timeout: 3000 })
     await copyBtn.click()
@@ -85,23 +85,23 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await expect(modal).not.toBeVisible({ timeout: 3000 })
 
     // The copied section should appear with a suffixed name
-    const copiedTab = page.locator('.section-tab', { hasText: 'Test Section (1)' })
-    await expect(copiedTab).toBeVisible({ timeout: 15000 })
+    const copiedSectionNode = page.locator('.tree-node-section', { hasText: 'Test Section (1)' })
+    await expect(copiedSectionNode).toBeVisible({ timeout: 15000 })
 
   })
 
   test('copy section remaps internal links to copied pages', async ({ page }) => {
     await waitForApp(page, `/#pg=${targetPage.id}`, { expectedText: 'Wedding Planning' })
 
-    const tab = page.locator('.section-tab', { hasText: 'Test Section' }).first()
-    await expect(tab).toBeVisible({ timeout: 5000 })
+    const sectionNode = page.locator('.tree-node-section', { hasText: 'Test Section' }).first()
+    await expect(sectionNode).toBeVisible({ timeout: 5000 })
 
     // Navigate to Test Scratchpad and read the original internal link
-    await tab.click()
+    await sectionNode.click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    const scratchpadLink = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' })
-    await expect(scratchpadLink).toBeVisible({ timeout: 3000 })
-    await scratchpadLink.click()
+    const scratchpadPage = page.locator('.tree-node-page', { hasText: 'Test Scratchpad' })
+    await expect(scratchpadPage).toBeVisible({ timeout: 3000 })
+    await scratchpadPage.click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     // Read the original internal link href
@@ -114,7 +114,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     expect(originalPageId).toBeTruthy()
 
     // Copy the section to the same notebook
-    await tab.click({ button: 'right' })
+    await sectionNode.click({ button: 'right' })
     await page.getByRole('button', { name: 'Copy to…' }).click()
 
     const modal = page.locator('.copy-move-modal')
@@ -125,10 +125,10 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await expect(modal).not.toBeVisible({ timeout: 3000 })
 
     // Navigate to the copied section
-    const copiedTab = page.locator('.section-tab', { hasText: 'Test Section (1)' })
-    await expect(copiedTab).toBeVisible({ timeout: 10000 })
-    await copiedTab.click()
-    const copiedScratchpad = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' })
+    const copiedSectionNode = page.locator('.tree-node-section', { hasText: 'Test Section (1)' })
+    await expect(copiedSectionNode).toBeVisible({ timeout: 10000 })
+    await copiedSectionNode.click()
+    const copiedScratchpad = page.locator('.tree-node-page', { hasText: 'Test Scratchpad' })
     await expect(copiedScratchpad).toBeVisible({ timeout: 10000 })
     await copiedScratchpad.click()
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
