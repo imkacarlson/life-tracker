@@ -5,11 +5,10 @@ import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
-import { toggleLineStrike } from '../extensions/keyboard/toggleLineStrike'
 import { buildHash } from '../utils/navigationHelpers'
 import { useContentZoom } from '../hooks/useContentZoom'
 import EditorHeader from './editor/EditorHeader'
-import FindBar from './editor/FindBar'
+import Toolbar from './editor/Toolbar'
 import AiInsertModal from './editor/AiInsertModal'
 import EditorShell from './editor/EditorShell'
 import {
@@ -55,27 +54,13 @@ function EditorPanel({
   const editorPanelRef = useRef(null)
   const editorShellRef = useRef(null)
   const fileInputRef = useRef(null)
-  const tableButtonRef = useRef(null)
-  const tablePickerRef = useRef(null)
-  const highlightButtonRef = useRef(null)
-  const highlightPickerRef = useRef(null)
-  const shadingButtonRef = useRef(null)
-  const shadingPickerRef = useRef(null)
   const shadingInputRef = useRef(null)
-  const aiDailyButtonRef = useRef(null)
-  const aiDailyPickerRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
-  const moreMenuRef = useRef(null)
   const findInputRef = useRef(null)
   const aiInsertInputRef = useRef(null)
-  const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
   const [aiDailyDate, setAiDailyDate] = useState(new Date())
-  const [tablePickerOpen, setTablePickerOpen] = useState(false)
-  const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
-  const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
   const [highlightColor, setHighlightColor] = useState('#fef08a')
-  const [shadingPickerOpen, setShadingPickerOpen] = useState(false)
   const [shadingColor, setShadingColor] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiInsertOpen, setAiInsertOpen] = useState(false)
@@ -93,12 +78,10 @@ function EditorPanel({
   const [submenuOpen, setSubmenuOpen] = useState(false)
   const [submenuDirection, setSubmenuDirection] = useState('right')
   const [copyLabel, setCopyLabel] = useState('Copy')
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const [toolbarExpanded, setToolbarExpanded] = useState(true)
-  const gridSize = 5
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
@@ -142,12 +125,6 @@ function EditorPanel({
     if (!info || !info.isNested) return
     editor.chain().focus().liftListItem(info.itemTypeName).run()
   }, [editor, getListItemInfo])
-
-  useEffect(() => {
-    if (aiDailyPickerOpen) {
-      setAiDailyDate(new Date())
-    }
-  }, [aiDailyPickerOpen])
 
   useEffect(() => {
     if (!aiInsertOpen) return
@@ -423,11 +400,10 @@ function EditorPanel({
   const handleGenerateToday = async () => {
     if (!editor || aiLoading || aiInsertLoading) return
     setAiLoading(true)
-    setAiDailyPickerOpen(false)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
       const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
-      const selectedDate = aiDailyPickerOpen ? aiDailyDate : new Date()
+      const selectedDate = aiDailyDate
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
 
@@ -602,17 +578,6 @@ function EditorPanel({
     setSubmenuOpen(false)
   }, [])
 
-  const closeTablePicker = useCallback(() => {
-    setTablePickerOpen(false)
-  }, [])
-
-  const closeHighlightPicker = useCallback(() => {
-    setHighlightPickerOpen(false)
-  }, [])
-
-  const closeShadingPicker = useCallback(() => {
-    setShadingPickerOpen(false)
-  }, [])
 
   const getCellFromEvent = useCallback((event) => {
     const target = event.target
@@ -710,33 +675,6 @@ function EditorPanel({
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
-      if (tablePickerOpen) {
-        const picker = tablePickerRef.current
-        const button = tableButtonRef.current
-        if (picker?.contains(event.target) || button?.contains(event.target)) return
-        setTablePickerOpen(false)
-      }
-      if (highlightPickerOpen) {
-        const picker = highlightPickerRef.current
-        const button = highlightButtonRef.current
-        if (picker?.contains(event.target) || button?.contains(event.target)) return
-        setHighlightPickerOpen(false)
-      }
-      if (shadingPickerOpen) {
-        const picker = shadingPickerRef.current
-        const button = shadingButtonRef.current
-        if (picker?.contains(event.target) || button?.contains(event.target)) return
-        setShadingPickerOpen(false)
-      }
-      if (aiDailyPickerOpen) {
-        const picker = aiDailyPickerRef.current
-        const button = aiDailyButtonRef.current
-        if (picker?.contains(event.target) || button?.contains(event.target)) return
-        setAiDailyPickerOpen(false)
-      }
-      if (moreMenuOpen && moreMenuRef.current && !moreMenuRef.current.contains(event.target)) {
-        setMoreMenuOpen(false)
-      }
       if (contextMenu.open) {
         const menu = contextMenuRef.current
         if (menu?.contains(event.target)) return
@@ -746,11 +684,6 @@ function EditorPanel({
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        setTablePickerOpen(false)
-        setHighlightPickerOpen(false)
-        setShadingPickerOpen(false)
-        setAiDailyPickerOpen(false)
-        setMoreMenuOpen(false)
         if (!aiInsertLoading) {
           setAiInsertOpen(false)
         }
@@ -766,29 +699,14 @@ function EditorPanel({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [
-    tablePickerOpen,
-    highlightPickerOpen,
-    shadingPickerOpen,
-    aiDailyPickerOpen,
-    moreMenuOpen,
     contextMenu.open,
     aiInsertLoading,
     closeContextMenu,
   ])
 
-  const tableGrid = useMemo(() => {
-    return Array.from({ length: gridSize }, (_, rowIndex) =>
-      Array.from({ length: gridSize }, (_, colIndex) => ({
-        row: rowIndex + 1,
-        col: colIndex + 1,
-      })),
-    )
-  }, [gridSize])
-
   const handleInsertTable = (rows, cols) => {
     if (!editor) return
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: false }).run()
-    closeTablePicker()
   }
 
   const handleApplyShading = () => {
@@ -809,7 +727,6 @@ function EditorPanel({
       setShadingColor(color)
       editor.chain().focus().setCellAttribute('backgroundColor', color).run()
     }
-    closeShadingPicker()
   }
 
   const handleCustomShading = (event) => {
@@ -942,7 +859,6 @@ function EditorPanel({
       setHighlightColor(color)
       editor.chain().focus().setHighlight({ color }).run()
     }
-    closeHighlightPicker()
   }
 
   const highlightColors = useMemo(
@@ -1168,13 +1084,11 @@ function EditorPanel({
   const handleCopyLinkFromToolbar = async () => {
     if (!toolbarDeepLinkHash) return
     await navigator.clipboard.writeText(toolbarDeepLinkHash)
-    setMoreMenuOpen(false)
   }
 
   const handleSetTrackerFromToolbar = async () => {
     if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
     await onSetTrackerPage(trackerId)
-    setMoreMenuOpen(false)
   }
 
   useEffect(() => {
@@ -1243,499 +1157,65 @@ function EditorPanel({
         showDelete={showDelete}
       />
 
-      <div
-        className={`toolbar ${controlsDisabled ? 'disabled' : ''}${isTouchOnly && !toolbarExpanded ? ' toolbar-collapsed' : ''}`}
-        data-expanded={!isTouchOnly || toolbarExpanded ? 'true' : 'false'}
-        onMouseDownCapture={(event) => {
-          if (event.target instanceof HTMLElement && event.target.closest('button')) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <div className="toolbar-core">
-        <button
-          type="button"
-          className={editor?.isActive('bold') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleBold().run()}
-          disabled={!hasTracker}
-        >
-          B
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('italic') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleItalic().run()}
-          disabled={!hasTracker}
-        >
-          I
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('heading', { level: 1 }) ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-          disabled={!hasTracker}
-        >
-          H1
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('bulletList') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
-          disabled={!hasTracker}
-        >
-          • List
-        </button>
-        <button type="button" onClick={handleSetLink} disabled={!hasTracker}>
-          Link
-        </button>
-        <button type="button" onClick={() => editor?.chain().focus().undo().run()} disabled={!hasTracker}>
-          Undo
-        </button>
-        {isTouchOnly && (
-          <button
-            type="button"
-            className="toolbar-expand-toggle"
-            onClick={() => setToolbarExpanded((prev) => !prev)}
-            aria-label={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
-            data-testid="toolbar-expand-toggle"
-          >
-            {toolbarExpanded ? '▴' : '▾'}
-          </button>
-        )}
-        </div>
-        <div className="toolbar-extra">
-        <button
-          type="button"
-          className={editor?.isActive('underline') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleUnderline().run()}
-          disabled={!hasTracker}
-        >
-          U
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('strike') ? 'active' : ''}
-          onClick={() => editor && toggleLineStrike(editor)}
-          disabled={!hasTracker}
-          aria-label="Toggle strikethrough"
-          data-testid="toolbar-strikethrough"
-        >
-          S
-        </button>
-        <div className="highlight-control" ref={highlightButtonRef}>
-          <button
-            type="button"
-            className={editor?.isActive('highlight') ? 'active' : ''}
-            onClick={handleApplyHighlight}
-            disabled={!hasTracker}
-          >
-            <span className="highlight-icon">
-              HL
-              <span
-                className="highlight-indicator"
-                style={{ backgroundColor: highlightColor ?? 'transparent' }}
-              />
-            </span>
-          </button>
-          <button
-            type="button"
-            className="highlight-dropdown"
-            onClick={() => setHighlightPickerOpen((prev) => !prev)}
-            disabled={!hasTracker}
-            aria-label="Highlight colors"
-          >
-            ▾
-          </button>
-          {highlightPickerOpen && (
-            <div className="highlight-picker" ref={highlightPickerRef}>
-              <div className="highlight-grid">
-                {highlightColors.flatMap((row) =>
-                  row.map((swatch) => (
-                    <button
-                      key={swatch.label}
-                      type="button"
-                      className="highlight-swatch"
-                      style={{ backgroundColor: swatch.value }}
-                      onClick={() => handlePickHighlight(swatch.value)}
-                      aria-label={swatch.label}
-                    />
-                  )),
-                )}
-              </div>
-              <button type="button" className="highlight-none" onClick={() => handlePickHighlight(null)}>
-                No Color
-              </button>
-            </div>
-          )}
-        </div>
-        <input
-          type="color"
-          aria-label="Text color"
-          onChange={(event) => editor?.chain().focus().setColor(event.target.value).run()}
-          disabled={!hasTracker}
-        />
-
-        <div className="toolbar-divider" />
-        <button
-          type="button"
-          className={editor?.isActive('heading', { level: 2 }) ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-          disabled={!hasTracker}
-        >
-          H2
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('orderedList') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-          disabled={!hasTracker}
-        >
-          1. List
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive('taskList') ? 'active' : ''}
-          onClick={() => editor?.chain().focus().toggleTaskList().run()}
-          disabled={!hasTracker}
-        >
-          ☑ List
-        </button>
-        {isTouchOnly && (
-          <>
-            <button
-              type="button"
-              onClick={handleOutdent}
-              disabled={!hasTracker || !isInList}
-              title="Outdent"
-              aria-label="Outdent list item"
-              data-testid="toolbar-outdent"
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              onClick={handleIndent}
-              disabled={!hasTracker || !isInList}
-              title="Indent"
-              aria-label="Indent list item"
-              data-testid="toolbar-indent"
-            >
-              →
-            </button>
-          </>
-        )}
-
-        <div className="toolbar-divider" />
-
-        <button
-          type="button"
-          className={editor?.isActive({ textAlign: 'left' }) ? 'active' : ''}
-          onClick={() => handleSetTextAlign('left')}
-          disabled={!hasTracker}
-        >
-          Left
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive({ textAlign: 'center' }) ? 'active' : ''}
-          onClick={() => handleSetTextAlign('center')}
-          disabled={!hasTracker}
-        >
-          Center
-        </button>
-        <button
-          type="button"
-          className={editor?.isActive({ textAlign: 'right' }) ? 'active' : ''}
-          onClick={() => handleSetTextAlign('right')}
-          disabled={!hasTracker}
-        >
-          Right
-        </button>
-
-        <div className="toolbar-divider" />
-
-        <button type="button" onClick={() => editor?.chain().focus().unsetLink().run()} disabled={!hasTracker}>
-          Unlink
-        </button>
-        <button type="button" onClick={openFind} disabled={!hasTracker}>
-          Find
-        </button>
-        <button type="button" onClick={() => editor?.chain().focus().redo().run()} disabled={!hasTracker}>
-          Redo
-        </button>
-        <button type="button" onClick={handleExportText} disabled={!hasTracker}>
-          Export
-        </button>
-        <button type="button" onClick={handleCopyText} disabled={!hasTracker}>
-          {copyLabel}
-        </button>
-        {showAiDaily && (
-          <div className="ai-daily-control" ref={aiDailyButtonRef}>
-            <button type="button" onClick={handleGenerateToday} disabled={!hasTracker || aiLoading || aiInsertLoading}>
-              {aiLoading ? 'Generating...' : 'AI Daily'}
-            </button>
-            <button
-              type="button"
-              className="ai-daily-dropdown"
-              onClick={() => setAiDailyPickerOpen((prev) => !prev)}
-              disabled={!hasTracker || aiLoading || aiInsertLoading}
-              aria-label="Pick date for AI Daily"
-            >
-              ▾
-            </button>
-            {aiDailyPickerOpen && (
-              <div className="ai-daily-picker" ref={aiDailyPickerRef}>
-                <div className="ai-daily-date-nav">
-                  <button type="button" onClick={handleAiDailyPrevDay}>&#8249;</button>
-                  <span className="ai-daily-date-label">
-                    {aiDailyDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </span>
-                  <button type="button" onClick={handleAiDailyNextDay}>&#8250;</button>
-                </div>
-                <input
-                  type="date"
-                  value={aiDailyDate.toLocaleDateString('en-CA')}
-                  onChange={(e) => handleAiDailyDateChange(e.target.value)}
-                  className="ai-daily-date-input"
-                />
-              </div>
-            )}
-          </div>
-        )}
-        {showAiInsert && (
-          <button
-            type="button"
-            onClick={() => {
-              setAiDailyPickerOpen(false)
-              setAiInsertOpen(true)
-            }}
-            disabled={!hasTracker || aiLoading || aiInsertLoading}
-          >
-            {aiInsertLoading ? 'Inserting...' : 'AI Insert'}
-          </button>
-        )}
-
-        <div className="toolbar-divider" />
-
-        <div className="table-picker-wrap">
-          <button
-            type="button"
-            ref={tableButtonRef}
-            onClick={() => setTablePickerOpen((prev) => !prev)}
-            disabled={!hasTracker}
-          >
-            Table
-          </button>
-          {tablePickerOpen && (
-            <div
-              className="table-picker-backdrop"
-              onClick={closeTablePicker}
-              aria-hidden="true"
-            />
-          )}
-          {tablePickerOpen && (
-            <div className="table-picker" ref={tablePickerRef}>
-              <div className="table-picker-grid">
-                {tableGrid.map((row) =>
-                  row.map((cell) => {
-                    const isActive =
-                      cell.row <= tableSize.rows && cell.col <= tableSize.cols
-                    return (
-                      <div
-                        key={`${cell.row}-${cell.col}`}
-                        className={`table-picker-cell ${isActive ? 'active' : ''}`}
-                        onMouseEnter={() => setTableSize({ rows: cell.row, cols: cell.col })}
-                        onClick={() => handleInsertTable(cell.row, cell.col)}
-                      />
-                    )
-                  }),
-                )}
-              </div>
-              <div className="table-picker-label">
-                {tableSize.rows} × {tableSize.cols}
-              </div>
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => editor?.chain().focus().addRowAfter().run()}
-          disabled={!hasTracker}
-        >
-          + Row
-        </button>
-        <button
-          type="button"
-          onClick={() => editor?.chain().focus().addColumnAfter().run()}
-          disabled={!hasTracker}
-        >
-          + Col
-        </button>
-        {inTable && (
-          <div className="shading-control" ref={shadingButtonRef}>
-            <button
-              type="button"
-              className={shadingColor ? 'active' : ''}
-              onClick={handleApplyShading}
-              disabled={!hasTracker}
-            >
-              Shading
-            </button>
-            <button
-              type="button"
-              className="shading-dropdown"
-              onClick={() => setShadingPickerOpen((prev) => !prev)}
-              disabled={!hasTracker}
-              aria-label="Shading colors"
-            >
-              ▾
-            </button>
-            {shadingPickerOpen && (
-              <div className="shading-picker" ref={shadingPickerRef}>
-                <div className="shading-section">
-                  <p className="shading-header">Theme Colors</p>
-                  <div className="shading-grid">
-                    {themeRows.map((row, rowIndex) =>
-                      row.map((color, colIndex) => (
-                        <button
-                          key={`theme-${rowIndex}-${colIndex}`}
-                          type="button"
-                          className={`shading-swatch ${
-                            shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
-                          }`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => handlePickShading(color)}
-                          aria-label={`Theme color ${rowIndex + 1}-${colIndex + 1}`}
-                        />
-                      )),
-                    )}
-                  </div>
-                </div>
-                <div className="shading-section">
-                  <p className="shading-header">Standard Colors</p>
-                  <div className="shading-grid shading-grid-standard">
-                    {standardColors.map((color, index) => (
-                      <button
-                        key={`standard-${color}`}
-                        type="button"
-                        className={`shading-swatch ${
-                          shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
-                        }`}
-                        style={{ backgroundColor: color }}
-                        onClick={() => handlePickShading(color)}
-                        aria-label={`Standard color ${index + 1}`}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div className="shading-actions">
-                  <button type="button" className="shading-action" onClick={() => handlePickShading(null)}>
-                    <span className="shading-icon" aria-hidden="true" />
-                    No Color
-                  </button>
-                  <button type="button" className="shading-action" onClick={openCustomShading}>
-                    <span className="shading-icon palette" aria-hidden="true" />
-                    More Colors...
-                  </button>
-                  <input
-                    ref={shadingInputRef}
-                    type="color"
-                    className="shading-input"
-                    onChange={handleCustomShading}
-                    aria-label="Custom shading color"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={() => editor?.chain().focus().deleteTable().run()}
-          disabled={!hasTracker}
-        >
-          Delete table
-        </button>
-
-        <div className="toolbar-divider" />
-
-        <button type="button" onClick={handlePickImage} disabled={!hasTracker}>
-          Image
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-          className="file-input"
-        />
-
-        <div className="toolbar-divider" />
-        <div className="more-menu-wrap" ref={moreMenuRef}>
-          <button
-            type="button"
-            onClick={() => setMoreMenuOpen(prev => !prev)}
-            disabled={!hasTracker}
-            aria-label="More actions"
-          >
-            More
-          </button>
-          {moreMenuOpen && (
-            <>
-              <div className="more-menu-backdrop" onClick={() => setMoreMenuOpen(false)} />
-              <div className="more-menu">
-                <button
-                  type="button"
-                  className="table-context-item"
-                  onClick={handleCopyLinkFromToolbar}
-                  disabled={!toolbarDeepLinkHash}
-                >
-                  Copy link to paragraph
-                </button>
-                <button
-                  type="button"
-                  className="table-context-item"
-                  onClick={handleSetTrackerFromToolbar}
-                  disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
-                >
-                  {isCurrentPageTracker ? 'This page is the tracker page'
-                    : trackerPageSaving ? 'Setting tracker page...'
-                    : 'Set this page as tracker'}
-                </button>
-                {inTable && (
-                  <>
-                    <div className="more-menu-divider" />
-                    {contextMenuItems.map((item) => (
-                      <button
-                        key={item.label}
-                        type="button"
-                        className="table-context-item"
-                        onClick={() => { item.action(); setMoreMenuOpen(false) }}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        </div>
-
-        {findOpen && hasTracker && (
-          <FindBar
-            inputRef={findInputRef}
-            findQuery={findQuery}
-            findStatus={findStatus}
-            onFindQueryChange={handleFindQueryChange}
-            onFindPrev={handleFindPrev}
-            onFindNext={handleFindNext}
-            onClose={closeFind}
-          />
-        )}
-      </div>
+      <Toolbar
+        editor={editor}
+        hasTracker={hasTracker}
+        controlsDisabled={controlsDisabled}
+        isTouchOnly={isTouchOnly}
+        toolbarExpanded={toolbarExpanded}
+        setToolbarExpanded={setToolbarExpanded}
+        handleSetLink={handleSetLink}
+        handleSetTextAlign={handleSetTextAlign}
+        handleExportText={handleExportText}
+        handleCopyText={handleCopyText}
+        handleGenerateToday={handleGenerateToday}
+        handlePickImage={handlePickImage}
+        handleFileChange={handleFileChange}
+        handleIndent={handleIndent}
+        handleOutdent={handleOutdent}
+        handleCopyLinkFromToolbar={handleCopyLinkFromToolbar}
+        handleSetTrackerFromToolbar={handleSetTrackerFromToolbar}
+        isInList={isInList}
+        inTable={inTable}
+        copyLabel={copyLabel}
+        aiLoading={aiLoading}
+        aiInsertLoading={aiInsertLoading}
+        showAiDaily={showAiDaily}
+        showAiInsert={showAiInsert}
+        toolbarDeepLinkHash={toolbarDeepLinkHash}
+        isCurrentPageTracker={isCurrentPageTracker}
+        trackerPageSaving={trackerPageSaving}
+        onSetTrackerPage={onSetTrackerPage}
+        contextMenuItems={contextMenuItems}
+        findOpen={findOpen}
+        findQuery={findQuery}
+        findStatus={findStatus}
+        findInputRef={findInputRef}
+        openFind={openFind}
+        closeFind={closeFind}
+        handleFindQueryChange={handleFindQueryChange}
+        handleFindPrev={handleFindPrev}
+        handleFindNext={handleFindNext}
+        setAiInsertOpen={setAiInsertOpen}
+        fileInputRef={fileInputRef}
+        handleAiDailyPrevDay={handleAiDailyPrevDay}
+        handleAiDailyNextDay={handleAiDailyNextDay}
+        handleAiDailyDateChange={handleAiDailyDateChange}
+        aiDailyDate={aiDailyDate}
+        handleInsertTable={handleInsertTable}
+        shadingColor={shadingColor}
+        handleApplyShading={handleApplyShading}
+        handlePickShading={handlePickShading}
+        openCustomShading={openCustomShading}
+        handleCustomShading={handleCustomShading}
+        shadingInputRef={shadingInputRef}
+        highlightColor={highlightColor}
+        handleApplyHighlight={handleApplyHighlight}
+        handlePickHighlight={handlePickHighlight}
+        themeRows={themeRows}
+        standardColors={standardColors}
+        highlightColors={highlightColors}
+      />
 
       <AiInsertModal
         inputRef={aiInsertInputRef}

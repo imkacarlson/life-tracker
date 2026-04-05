@@ -78,6 +78,62 @@
     overflow-y: visible;
     min-height: calc(100vh - 120px);
   }
+
+  /* Mobile bottom toolbar */
+  .toolbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    z-index: 35;
+    border-top: 1px solid var(--border);
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    flex-direction: column;
+    background: var(--surface);
+  }
+
+  .toolbar-core {
+    order: 2;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .toolbar-extra {
+    order: 1;
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    justify-content: center;
+  }
+
+  .toolbar-collapsed .toolbar-core {
+    justify-content: center;
+  }
+
+  .toolbar-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .editor-panel {
+    padding-bottom: 52px;
+  }
+
+  /* Pickers open upward on mobile */
+  .highlight-picker,
+  .shading-picker,
+  .ai-daily-picker,
+  .table-picker {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
+
+  .more-menu {
+    top: auto;
+    bottom: calc(100% + 4px);
+  }
 }
 
 @media (max-width: 600px) {
