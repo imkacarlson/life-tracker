@@ -726,6 +726,7 @@ function App() {
           type="button"
           className="drawer-backdrop"
           aria-label="Close navigation drawer"
+          onPointerDown={(e) => e.preventDefault()}
           onClick={() => setMobileSidebarOpen(false)}
         />
       ) : null}
