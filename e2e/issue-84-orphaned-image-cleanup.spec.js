@@ -229,7 +229,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // Immediately undo (before the 2s debounce fires).
       // Use the toolbar Undo button rather than a keyboard shortcut — on mobile
       // the keyboard event can miss if the editor lost focus after Backspace.
-      await page.locator('button', { hasText: 'Undo' }).click()
+      await page.getByRole('button', { name: 'Undo' }).click()
 
       // Wait for the saved page content to still reference this image.
       // Use generous timeout — the undo + re-save involves two debounce cycles.

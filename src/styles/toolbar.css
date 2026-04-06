@@ -1,8 +1,8 @@
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  padding: 0.4rem 0;
+  gap: 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-raised);
   align-items: center;
@@ -20,14 +20,14 @@
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 4px;
 }
 
 .toolbar-extra {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 4px;
 }
 
 .toolbar-collapsed .toolbar-extra {
@@ -42,24 +42,126 @@
   pointer-events: auto;
 }
 
-.toolbar-expand-toggle {
-  border-color: var(--accent) !important;
-  color: var(--accent) !important;
-  font-size: 0.85rem !important;
-}
-
-.toolbar button {
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
   background: var(--surface);
-  color: var(--text);
-  padding: 0.2rem 0.45rem;
-  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
 }
 
-.toolbar button.active {
-  border-color: var(--accent);
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  position: relative;
+  transition: background-color 80ms ease, color 80ms ease;
+  padding: 0;
+}
+
+.toolbar-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.toolbar-btn.active {
   background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toolbar-btn:disabled:hover {
+  background: none;
+  color: var(--text-secondary);
+}
+
+.toolbar-btn svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toolbar-btn-label {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  line-height: 1;
+}
+
+.toolbar-btn-caret {
+  width: 18px;
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+.toolbar-btn-ai {
+  width: auto;
+  padding: 0 6px;
+  gap: 3px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.toolbar-btn-ai-label {
+  color: var(--accent);
+}
+
+.toolbar-color-bar {
+  position: absolute;
+  bottom: 3px;
+  left: 6px;
+  right: 6px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.toolbar-color-input {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toolbar-expand-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+  margin-left: auto;
 }
 
 .find-bar {
@@ -97,29 +199,6 @@
   gap: 2px;
 }
 
-.highlight-control > button {
-  padding: 0.2rem 0.45rem;
-}
-
-.highlight-dropdown {
-  width: 26px;
-  padding: 0.2rem 0;
-}
-
-.highlight-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.highlight-indicator {
-  display: inline-block;
-  width: 16px;
-  height: 4px;
-  border-radius: 0;
-}
 
 .highlight-picker {
   position: absolute;
@@ -164,14 +243,6 @@
   gap: 2px;
 }
 
-.ai-daily-control > button {
-  padding: 0.2rem 0.45rem;
-}
-
-.ai-daily-dropdown {
-  width: 26px;
-  padding: 0.2rem 0;
-}
 
 .ai-daily-picker {
   position: absolute;
@@ -231,14 +302,6 @@
   gap: 2px;
 }
 
-.shading-control > button {
-  padding: 0.2rem 0.45rem;
-}
-
-.shading-dropdown {
-  width: 26px;
-  padding: 0.2rem 0;
-}
 
 .shading-picker {
   position: absolute;
@@ -332,19 +395,6 @@
   display: none;
 }
 
-.toolbar input[type='color'] {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  padding: 0;
-}
-
-.toolbar-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--border);
-}
 
 .table-picker-wrap {
   position: relative;
