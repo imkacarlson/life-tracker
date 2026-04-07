@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TextSelection } from '@tiptap/pm/state'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
@@ -96,6 +97,37 @@ function EditorPanel({
       : editor.chain().focus()
   }, [editor, isTouchOnly])
 
+  const syncSelectionFromDom = useCallback(() => {
+    if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
+
+    const selection = window.getSelection?.()
+    const anchorNode = selection?.anchorNode
+    const focusNode = selection?.focusNode
+    if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
+
+    const root = editor.view.dom
+    const anchorElement =
+      anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+    const focusElement =
+      focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
+    const selectionInEditor =
+      (anchorElement && root.contains(anchorElement)) ||
+      (focusElement && root.contains(focusElement))
+    if (!selectionInEditor) return
+
+    try {
+      const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
+      const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+      const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
+      if (nextSelection.eq(editor.state.selection)) return
+      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+    } catch {
+      // Ignore DOM-to-state selection sync failures and fall back to the
+      // editor's current selection. Some DOM selections (e.g. around widgets)
+      // do not map cleanly back into a text selection.
+    }
+  }, [editor])
+
   const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
 
   // Find the enclosing listItem/taskItem depth and its index within the parent list
@@ -122,19 +154,24 @@ function EditorPanel({
 
   const handleIndent = useCallback(() => {
     if (!editor) return
+    syncSelectionFromDom()
     const info = getListItemInfo()
     // Can't indent the first item (no previous sibling to nest under)
     if (!info || info.index === 0) return
-    editorCmd()?.sinkListItem(info.itemTypeName).run()
-  }, [editor, isTouchOnly, getListItemInfo])
+    // List nesting relies on the editor view owning the live selection. On
+    // touch devices, syncing from the DOM is not enough for sinkListItem to
+    // resolve reliably, so restore the pre-#122 focus behavior just here.
+    editor.chain().focus().sinkListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo, syncSelectionFromDom])
 
   const handleOutdent = useCallback(() => {
     if (!editor) return
+    syncSelectionFromDom()
     const info = getListItemInfo()
     // Only outdent if nested inside another list item (prevents breaking table cells)
     if (!info || !info.isNested) return
-    editorCmd()?.liftListItem(info.itemTypeName).run()
-  }, [editor, isTouchOnly, getListItemInfo])
+    editor.chain().focus().liftListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo, syncSelectionFromDom])
 
   useEffect(() => {
     if (!aiInsertOpen) return

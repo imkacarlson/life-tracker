@@ -173,3 +173,20 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     }
   }
 }
+
+/**
+ * On touch/mobile the toolbar may start collapsed. Expand it when a test needs
+ * toolbar-only actions so the test matches the user-visible interaction.
+ */
+export const ensureToolbarExpanded = async (page) => {
+  const toolbar = page.locator('.toolbar')
+  await expect(toolbar).toBeVisible({ timeout: 10000 })
+
+  if (await toolbar.getAttribute('data-expanded') !== 'true') {
+    const expandToggle = page.getByTestId('toolbar-expand-toggle')
+    await expect(expandToggle).toBeVisible({ timeout: 5000 })
+    await expandToggle.click()
+  }
+
+  await expect(toolbar).toHaveAttribute('data-expanded', 'true', { timeout: 5000 })
+}
