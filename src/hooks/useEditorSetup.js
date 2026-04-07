@@ -575,7 +575,7 @@ export const useEditorSetup = ({
   useEffect(() => {
     if (!editor) return
 
-    const shouldGuardDeepLinkFocus = isTouchOnlyDevice()
+    const isTouchDevice = isTouchOnlyDevice()
     let raf = null
     const handleSelectionChange = () => {
       if (raf) return
@@ -584,12 +584,12 @@ export const useEditorSetup = ({
         if (!editor || editor.isDestroyed) return
         if (editorLocked) return
         if (suppressFocusRef.current) return
-        if (
-          shouldGuardDeepLinkFocus &&
-          (deepLinkFocusGuard || deepLinkFocusGuardRef.current || touchNavigationGuardRef.current)
-        ) {
-          return
-        }
+        // On touch devices the browser's native tap-to-focus handles editor
+        // focusing — programmatic recovery here would open the keyboard
+        // whenever the user taps any non-focusable element (toolbar toggle,
+        // backdrop, etc.) because focus briefly falls to <body> while the DOM
+        // selection remains inside the editor.
+        if (isTouchDevice) return
 
         const activeEl = document.activeElement
         const activeTag = activeEl?.tagName

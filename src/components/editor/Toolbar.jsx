@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { isTouchOnlyDevice } from '../../utils/device'
 import { toggleLineStrike } from '../../extensions/keyboard/toggleLineStrike'
 import FindBar from './FindBar'
 import {
@@ -83,6 +84,16 @@ function Toolbar({
   // Highlight colors
   highlightColors,
 }) {
+  // On touch devices, avoid calling .focus() when the editor isn't already
+  // focused — that would open the virtual keyboard.  Formatting commands work
+  // on the document state regardless of DOM focus.
+  const editorCmd = useCallback(() => {
+    if (!editor) return null
+    return (isTouchOnly && !editor.view.hasFocus())
+      ? editor.chain()
+      : editor.chain().focus()
+  }, [editor, isTouchOnly])
+
   const highlightButtonRef = useRef(null)
   const highlightPickerRef = useRef(null)
   const shadingButtonRef = useRef(null)
@@ -203,7 +214,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('bold') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleBold().run()}
+            onClick={() => editorCmd().toggleBold().run()}
             disabled={!hasTracker}
             title="Bold"
             aria-label="Bold"
@@ -213,7 +224,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('italic') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleItalic().run()}
+            onClick={() => editorCmd().toggleItalic().run()}
             disabled={!hasTracker}
             title="Italic"
             aria-label="Italic"
@@ -223,7 +234,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('heading', { level: 1 }) ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+            onClick={() => editorCmd().toggleHeading({ level: 1 }).run()}
             disabled={!hasTracker}
             title="Heading 1"
             aria-label="Heading 1"
@@ -233,7 +244,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('bulletList') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleBulletList().run()}
+            onClick={() => editorCmd().toggleBulletList().run()}
             disabled={!hasTracker}
             title="Bullet list"
             aria-label="Bullet list"
@@ -257,7 +268,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().undo().run()}
+            onClick={() => editorCmd().undo().run()}
             disabled={!hasTracker}
             title="Undo"
             aria-label="Undo"
@@ -272,6 +283,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-expand-toggle"
+            onPointerDown={(e) => e.preventDefault()}
             onClick={() => setToolbarExpanded((prev) => !prev)}
             aria-label={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
             data-testid="toolbar-expand-toggle"
@@ -287,7 +299,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('underline') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+            onClick={() => editorCmd().toggleUnderline().run()}
             disabled={!hasTracker}
             title="Underline"
             aria-label="Underline"
@@ -355,7 +367,7 @@ function Toolbar({
             type="color"
             aria-label="Text color"
             className="toolbar-color-input"
-            onChange={(event) => editor?.chain().focus().setColor(event.target.value).run()}
+            onChange={(event) => editorCmd().setColor(event.target.value).run()}
             disabled={!hasTracker}
           />
         </div>
@@ -365,7 +377,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('heading', { level: 2 }) ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+            onClick={() => editorCmd().toggleHeading({ level: 2 }).run()}
             disabled={!hasTracker}
             title="Heading 2"
             aria-label="Heading 2"
@@ -375,7 +387,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('orderedList') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+            onClick={() => editorCmd().toggleOrderedList().run()}
             disabled={!hasTracker}
             title="Numbered list"
             aria-label="Numbered list"
@@ -385,7 +397,7 @@ function Toolbar({
           <button
             type="button"
             className={`toolbar-btn${editor?.isActive('taskList') ? ' active' : ''}`}
-            onClick={() => editor?.chain().focus().toggleTaskList().run()}
+            onClick={() => editorCmd().toggleTaskList().run()}
             disabled={!hasTracker}
             title="Task list"
             aria-label="Task list"
@@ -461,7 +473,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().unsetLink().run()}
+            onClick={() => editorCmd().unsetLink().run()}
             disabled={!hasTracker}
             title="Unlink"
             aria-label="Remove link"
@@ -531,7 +543,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().addRowAfter().run()}
+            onClick={() => editorCmd().addRowAfter().run()}
             disabled={!hasTracker}
             title="Add row"
             aria-label="Add row"
@@ -541,7 +553,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().addColumnAfter().run()}
+            onClick={() => editorCmd().addColumnAfter().run()}
             disabled={!hasTracker}
             title="Add column"
             aria-label="Add column"
@@ -631,7 +643,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().deleteTable().run()}
+            onClick={() => editorCmd().deleteTable().run()}
             disabled={!hasTracker}
             title="Delete table"
             aria-label="Delete table"
@@ -647,7 +659,7 @@ function Toolbar({
           <button
             type="button"
             className="toolbar-btn"
-            onClick={() => editor?.chain().focus().redo().run()}
+            onClick={() => editorCmd().redo().run()}
             disabled={!hasTracker}
             title="Redo"
             aria-label="Redo"

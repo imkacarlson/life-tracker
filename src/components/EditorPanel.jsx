@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TextSelection } from '@tiptap/pm/state'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { findInDocPluginKey } from '../extensions/findInDoc'
@@ -81,10 +82,51 @@ function EditorPanel({
   const [findOpen, setFindOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
-  const [toolbarExpanded, setToolbarExpanded] = useState(true)
+  const [toolbarExpanded, setToolbarExpanded] = useState(() => !isTouchOnlyDevice())
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
+
+  // On touch devices, avoid calling .focus() when the editor isn't already
+  // focused — that would open the virtual keyboard.  Formatting commands work
+  // on the document state regardless of DOM focus.
+  const editorCmd = useCallback(() => {
+    if (!editor) return null
+    return (isTouchOnly && !editor.view.hasFocus())
+      ? editor.chain()
+      : editor.chain().focus()
+  }, [editor, isTouchOnly])
+
+  const syncSelectionFromDom = useCallback(() => {
+    if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
+
+    const selection = window.getSelection?.()
+    const anchorNode = selection?.anchorNode
+    const focusNode = selection?.focusNode
+    if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
+
+    const root = editor.view.dom
+    const anchorElement =
+      anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+    const focusElement =
+      focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
+    const selectionInEditor =
+      (anchorElement && root.contains(anchorElement)) ||
+      (focusElement && root.contains(focusElement))
+    if (!selectionInEditor) return
+
+    try {
+      const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
+      const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+      const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
+      if (nextSelection.eq(editor.state.selection)) return
+      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+    } catch {
+      // Ignore DOM-to-state selection sync failures and fall back to the
+      // editor's current selection. Some DOM selections (e.g. around widgets)
+      // do not map cleanly back into a text selection.
+    }
+  }, [editor])
 
   const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
 
@@ -112,19 +154,24 @@ function EditorPanel({
 
   const handleIndent = useCallback(() => {
     if (!editor) return
+    syncSelectionFromDom()
     const info = getListItemInfo()
     // Can't indent the first item (no previous sibling to nest under)
     if (!info || info.index === 0) return
+    // List nesting relies on the editor view owning the live selection. On
+    // touch devices, syncing from the DOM is not enough for sinkListItem to
+    // resolve reliably, so restore the pre-#122 focus behavior just here.
     editor.chain().focus().sinkListItem(info.itemTypeName).run()
-  }, [editor, getListItemInfo])
+  }, [editor, getListItemInfo, syncSelectionFromDom])
 
   const handleOutdent = useCallback(() => {
     if (!editor) return
+    syncSelectionFromDom()
     const info = getListItemInfo()
     // Only outdent if nested inside another list item (prevents breaking table cells)
     if (!info || !info.isNested) return
     editor.chain().focus().liftListItem(info.itemTypeName).run()
-  }, [editor, getListItemInfo])
+  }, [editor, getListItemInfo, syncSelectionFromDom])
 
   useEffect(() => {
     if (!aiInsertOpen) return
@@ -181,7 +228,7 @@ function EditorPanel({
   }
 
   const handleSetTextAlign = (alignment) => {
-    editor?.chain().focus().setTextAlign(alignment).run()
+    editorCmd()?.setTextAlign(alignment).run()
   }
 
   const openFind = useCallback(() => {
@@ -706,26 +753,26 @@ function EditorPanel({
 
   const handleInsertTable = (rows, cols) => {
     if (!editor) return
-    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: false }).run()
+    editorCmd()?.insertTable({ rows, cols, withHeaderRow: false }).run()
   }
 
   const handleApplyShading = () => {
     if (!editor) return
     if (!shadingColor) {
-      editor.chain().focus().setCellAttribute('backgroundColor', null).run()
+      editorCmd()?.setCellAttribute('backgroundColor', null).run()
       return
     }
-    editor.chain().focus().setCellAttribute('backgroundColor', shadingColor).run()
+    editorCmd()?.setCellAttribute('backgroundColor', shadingColor).run()
   }
 
   const handlePickShading = (color) => {
     if (!editor) return
     if (!color) {
       setShadingColor(null)
-      editor.chain().focus().setCellAttribute('backgroundColor', null).run()
+      editorCmd()?.setCellAttribute('backgroundColor', null).run()
     } else {
       setShadingColor(color)
-      editor.chain().focus().setCellAttribute('backgroundColor', color).run()
+      editorCmd()?.setCellAttribute('backgroundColor', color).run()
     }
   }
 
@@ -844,20 +891,20 @@ function EditorPanel({
   const handleApplyHighlight = () => {
     if (!editor) return
     if (!highlightColor) {
-      editor.chain().focus().unsetHighlight().run()
+      editorCmd()?.unsetHighlight().run()
       return
     }
-    editor.chain().focus().setHighlight({ color: highlightColor }).run()
+    editorCmd()?.setHighlight({ color: highlightColor }).run()
   }
 
   const handlePickHighlight = (color) => {
     if (!editor) return
     if (!color) {
       setHighlightColor(null)
-      editor.chain().focus().unsetHighlight().run()
+      editorCmd()?.unsetHighlight().run()
     } else {
       setHighlightColor(color)
-      editor.chain().focus().setHighlight({ color }).run()
+      editorCmd()?.setHighlight({ color }).run()
     }
   }
 
@@ -1015,15 +1062,15 @@ function EditorPanel({
       const tableContext = getTableContext()
       const rowIndex = tableContext ? (after ? tableContext.cellRect.bottom : tableContext.cellRect.top) : null
       if (after) {
-        editor.chain().focus().addRowAfter().run()
+        editorCmd()?.addRowAfter().run()
       } else {
-        editor.chain().focus().addRowBefore().run()
+        editorCmd()?.addRowBefore().run()
       }
       if (color && tableContext && rowIndex !== null) {
         applyColorToRow(tableContext.tablePos, rowIndex, color)
       }
     },
-    [editor, getActiveCellColor, getTableContext, applyColorToRow],
+    [editor, isTouchOnly, getActiveCellColor, getTableContext, applyColorToRow],
   )
 
   const handleInsertColumn = useCallback(
@@ -1033,15 +1080,15 @@ function EditorPanel({
       const tableContext = getTableContext()
       const colIndex = tableContext ? (after ? tableContext.cellRect.right : tableContext.cellRect.left) : null
       if (after) {
-        editor.chain().focus().addColumnAfter().run()
+        editorCmd()?.addColumnAfter().run()
       } else {
-        editor.chain().focus().addColumnBefore().run()
+        editorCmd()?.addColumnBefore().run()
       }
       if (color && tableContext && colIndex !== null) {
         applyColorToColumn(tableContext.tablePos, colIndex, color)
       }
     },
-    [editor, getActiveCellColor, getTableContext, applyColorToColumn],
+    [editor, isTouchOnly, getActiveCellColor, getTableContext, applyColorToColumn],
   )
 
   const contextMenuItems = useMemo(
@@ -1050,9 +1097,9 @@ function EditorPanel({
       { label: 'Insert row below', action: () => handleInsertRow(true) },
       { label: 'Insert column left', action: () => handleInsertColumn(false) },
       { label: 'Insert column right', action: () => handleInsertColumn(true) },
-      { label: 'Delete row', action: () => editor?.chain().focus().deleteRow().run() },
-      { label: 'Delete column', action: () => editor?.chain().focus().deleteColumn().run() },
-      { label: 'Delete table', action: () => editor?.chain().focus().deleteTable().run() },
+      { label: 'Delete row', action: () => editorCmd()?.deleteRow().run() },
+      { label: 'Delete column', action: () => editorCmd()?.deleteColumn().run() },
+      { label: 'Delete table', action: () => editorCmd()?.deleteTable().run() },
     ],
     [editor, handleInsertRow, handleInsertColumn],
   )
