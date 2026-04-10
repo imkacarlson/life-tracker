@@ -21,6 +21,7 @@ function Toolbar({
   isTouchOnly,
   toolbarExpanded,
   setToolbarExpanded,
+  toolbarRef,
   // Editor interaction handlers (stay in EditorPanel)
   handleSetLink,
   handleSetTextAlign,
@@ -200,6 +201,7 @@ function Toolbar({
 
   return (
     <div
+      ref={toolbarRef}
       className={`toolbar${controlsDisabled ? ' disabled' : ''}${isTouchOnly && !toolbarExpanded ? ' toolbar-collapsed' : ''}`}
       data-expanded={!isTouchOnly || toolbarExpanded ? 'true' : 'false'}
       onMouseDownCapture={(event) => {
