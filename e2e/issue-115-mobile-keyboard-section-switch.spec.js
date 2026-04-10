@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 const PAGE_A_CONTENT = {
   type: 'doc',
@@ -63,6 +63,11 @@ test.beforeAll(async () => {
   const pageA = await createPage(client, userId, sectionA.id, `${seedLabel} Page A`, PAGE_A_CONTENT, 0)
   const pageB = await createPage(client, userId, sectionB.id, `${seedLabel} Page B`, PAGE_B_CONTENT, 0)
   seedIds = { notebook, sectionA, sectionB, pageA, pageB }
+})
+
+test.afterAll(async () => {
+  const { client } = await getSupabase()
+  await deleteNotebookById(client, seedIds.notebook?.id)
 })
 
 test('switching sections in sidebar does NOT focus the editor', async ({ page, isMobile }) => {

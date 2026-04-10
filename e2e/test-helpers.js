@@ -11,6 +11,7 @@ config({ path: path.resolve(process.cwd(), '.env.local') })
 config({ path: path.resolve(process.cwd(), '.env.test'), override: true })
 
 let cached = null
+const TRACKER_IMAGES_BUCKET = 'tracker-images'
 
 /**
  * Returns an authenticated Supabase client and the test user's ID.
@@ -41,8 +42,93 @@ export const getSupabase = async () => {
   return cached
 }
 
-/** Create a notebook and return the inserted row. */
-export const createNotebook = async (client, userId, title, sortOrder = 0, type = 'tracker') => {
+export const countUserRows = async (client, userId, table) => {
+  const { count, error } = await client
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+
+  if (error) throw error
+  return count ?? 0
+}
+
+export const listUserStoragePaths = async (client, userId, bucket = TRACKER_IMAGES_BUCKET) => {
+  const paths = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await client.storage
+      .from(bucket)
+      .list(userId, {
+        limit: 1000,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      })
+
+    if (error) throw error
+
+    const files = (data ?? []).filter((entry) => entry.name && entry.id)
+    for (const file of files) {
+      paths.push(`${userId}/${file.name}`)
+    }
+
+    if (!data || data.length < 1000) break
+    offset += data.length
+  }
+
+  return paths
+}
+
+export const countUserStorageObjects = async (client, userId, bucket = TRACKER_IMAGES_BUCKET) => {
+  const paths = await listUserStoragePaths(client, userId, bucket)
+  return paths.length
+}
+
+export const purgeTestUserData = async (
+  client,
+  userId,
+  { purgeSettings = true, purgeStorage = true, bucket = TRACKER_IMAGES_BUCKET } = {},
+) => {
+  if (!client || !userId) {
+    throw new Error('purgeTestUserData requires an authenticated client and user id')
+  }
+
+  if (purgeStorage) {
+    const storagePaths = await listUserStoragePaths(client, userId, bucket)
+    for (let index = 0; index < storagePaths.length; index += 100) {
+      const chunk = storagePaths.slice(index, index + 100)
+      const { error } = await client.storage.from(bucket).remove(chunk)
+      if (error) throw error
+    }
+  }
+
+  if (purgeSettings) {
+    const { error } = await client.from('settings').delete().eq('user_id', userId)
+    if (error) throw error
+  }
+
+  // Delete from leaf to root so cleanup still works if cascade behavior changes.
+  const { error: pagesError } = await client.from('pages').delete().eq('user_id', userId)
+  if (pagesError) throw pagesError
+
+  const { error: sectionsError } = await client.from('sections').delete().eq('user_id', userId)
+  if (sectionsError) throw sectionsError
+
+  const { error: notebooksError } = await client.from('notebooks').delete().eq('user_id', userId)
+  if (notebooksError) throw notebooksError
+}
+
+/** Create a notebook and return the inserted row.
+ *  Use an early sort order by default so fresh E2E notebooks remain visible
+ *  even if the test account has accumulated older rows.
+ */
+export const createNotebook = async (
+  client,
+  userId,
+  title,
+  sortOrder = -Math.floor(Date.now() / 1000),
+  type = 'tracker',
+) => {
   const { data, error } = await client
     .from('notebooks')
     .insert({ user_id: userId, title, sort_order: sortOrder, type })
@@ -50,6 +136,13 @@ export const createNotebook = async (client, userId, title, sortOrder = 0, type 
     .single()
   if (error) throw error
   return data
+}
+
+/** Delete a notebook and rely on DB cascade rules to remove sections/pages. */
+export const deleteNotebookById = async (client, notebookId) => {
+  if (!client || !notebookId) return
+  const { error } = await client.from('notebooks').delete().eq('id', notebookId)
+  if (error) throw error
 }
 
 /** Create a section and return the inserted row. */

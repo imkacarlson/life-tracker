@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 // Self-contained seed data: a page with a 3x2 table (header row + 2 data rows)
 // Using multiple data rows ensures cross-cell drag works reliably
@@ -99,13 +99,20 @@ const countSelectedCells = async (page) => {
 }
 
 test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
+  let notebookId = null
   let testPage = null
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `Issue71 Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'Issue71 Section')
     testPage = await createPage(client, userId, sec.id, 'Test Scratchpad', SEED_CONTENT)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test('drag across two table cells produces CellSelection that persists', async ({ page, isMobile }) => {

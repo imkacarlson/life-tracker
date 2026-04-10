@@ -4,6 +4,7 @@ import {
   createNotebook,
   createSection,
   createPage,
+  deleteNotebookById,
   waitForApp,
   ensureToolbarExpanded,
 } from './test-helpers'
@@ -64,6 +65,7 @@ const SEED_CONTENT = {
 }
 
 test.describe('Issue #68 strikethrough toggle on entire line', () => {
+  let notebookId = null
   let testPage = null
 
   const getStrikeButton = (page) => page.getByTestId('toolbar-strikethrough')
@@ -90,8 +92,14 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `Issue68 Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'Issue68 Section')
     testPage = await createPage(client, userId, sec.id, 'Test Section', SEED_CONTENT)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test('cursor in list item: S button toggles strikethrough on entire line', async ({ page }) => {

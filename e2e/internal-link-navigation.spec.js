@@ -1,16 +1,18 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 // Block ID that will be used as the deep-link target in Page B
 const TARGET_BLOCK_ID = 'e2e-target-block-nav'
 
 test.describe('Internal link navigation', () => {
+  let notebookId = null
   let pageA = null // "Test Scratchpad" with internal link
   let pageB = null // "Test Section" with target block
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `InternalLink Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'InternalLink Section')
     const sectionId = sec.id
 
@@ -65,6 +67,11 @@ test.describe('Internal link navigation', () => {
         },
       ],
     })
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test.beforeEach(async ({ page }) => {

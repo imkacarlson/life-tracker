@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 // Block ID that will be used as the deep-link target
 const TARGET_BLOCK_ID = 'e2e-target-block-focus'
@@ -25,6 +25,7 @@ const getSelectionState = async (page) =>
   })
 
 test.describe('Issue #61 deep-link focus recovery', () => {
+  let notebookId = null
   let pageA = null // Page with internal link
   let pageB = null // Target page with block ID
   let linkHref = null
@@ -32,6 +33,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `Issue61 Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'Issue61 Section')
     const sectionId = sec.id
 
@@ -83,6 +85,11 @@ test.describe('Issue #61 deep-link focus recovery', () => {
         },
       ],
     })
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   const resolveDeepLinkTarget = async (page) => {

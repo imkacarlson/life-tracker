@@ -4,6 +4,7 @@ import {
   createNotebook,
   createSection,
   createPage,
+  deleteNotebookById,
   waitForApp,
   ensureToolbarExpanded,
 } from './test-helpers'
@@ -82,6 +83,7 @@ const SEED_CONTENT = {
 }
 
 test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
+  let notebookId = null
   let testPage = null
 
   const placeCursorInParagraph = async (page, paragraphSelector, offset = 0) => {
@@ -136,8 +138,14 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     const nb = await createNotebook(client, userId, `Issue60 Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'Issue60 Section')
     testPage = await createPage(client, userId, sec.id, 'Test Section', SEED_CONTENT)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test('mobile: indent/outdent buttons appear and work on list items', async ({ page, isMobile }) => {

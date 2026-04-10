@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 // Self-contained seed data: two pages — a source with a list and a target with text
 const SOURCE_CONTENT = {
@@ -71,6 +71,7 @@ const readSelectionText = async (page) =>
 // fixme: clipboard simulation against ProseMirror is inherently timing-sensitive;
 // these pass locally but flake in CI due to async content hydration races.
 test.describe.fixme('Issue #67 recorded Ctrl+A cascade flow', () => {
+  let notebookId = null
   let sourcePage = null
   let targetPage = null
 
@@ -78,9 +79,15 @@ test.describe.fixme('Issue #67 recorded Ctrl+A cascade flow', () => {
     const { client, userId } = await getSupabase()
     // Create an isolated notebook+section so deep-link navigation is deterministic
     const notebook = await createNotebook(client, userId, `T67 Notebook ${Date.now()}`)
+    notebookId = notebook.id
     const section = await createSection(client, userId, notebook.id, 'T67 Section')
     sourcePage = await createPage(client, userId, section.id, 'Sunday Tasks', SOURCE_CONTENT)
     targetPage = await createPage(client, userId, section.id, 'Test Scratchpad', TARGET_CONTENT)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test('Sunday Tasks list selection expands on second Ctrl+A before copy', async ({ page }) => {

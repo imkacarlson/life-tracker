@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 test.describe('Issue #114 chevron toggle expand/collapse', () => {
   let notebook = null
@@ -22,6 +22,11 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Beta content' }] }],
     })
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebook?.id)
   })
 
   const navTo = (page, pgId) =>
