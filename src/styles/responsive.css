@@ -94,7 +94,9 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-direction: column;
     background: var(--surface);
-    transition: bottom var(--duration-medium) var(--ease-out);
+    /* No transition: bottom — useVirtualKeyboard updates style.bottom imperatively
+       on every visualViewport resize/scroll frame. A CSS transition would fight
+       those updates and cause the toolbar to lag behind the keyboard animation. */
   }
 
   .toolbar-core {

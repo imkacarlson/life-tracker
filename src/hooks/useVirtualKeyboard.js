@@ -19,6 +19,29 @@ export function computeKeyboardHeight(baseline, currentHeight) {
 }
 
 /**
+ * Return an updated baseline, tracking upward when the viewport grows.
+ *
+ * The URL bar on Android Chrome typically hides when the keyboard opens,
+ * which makes visualViewport.height briefly GROW before it shrinks.
+ * If the baseline was captured while the URL bar was visible it will be
+ * smaller than the post-hide height, causing computeKeyboardHeight to
+ * undercount the true keyboard height by ~urlBarHeight (~56 px) and
+ * leaving the toolbar partially covered.
+ *
+ * Fix: any time the viewport grows, update the baseline so it always
+ * reflects the largest "no keyboard" height seen since last focus.
+ *
+ * @param {number|null} baseline — current captured baseline
+ * @param {number} currentHeight — latest visualViewport.height
+ * @returns {number|null} updated baseline
+ */
+export function updateBaseline(baseline, currentHeight) {
+  if (baseline === null || baseline === undefined) return baseline
+  if (currentHeight > baseline) return currentHeight
+  return baseline
+}
+
+/**
  * Imperative keyboard-height tracking for mobile virtual keyboards.
  *
  * Uses window.visualViewport resize events to track keyboard height in real
@@ -118,6 +141,10 @@ export function useVirtualKeyboard({ enabled, toolbarRef, zoomBadgeRef, zoomHint
       // Samsung Internet fallback: documentElement.clientHeight when no visualViewport
       const currentHeight = vv ? vv.height : document.documentElement.clientHeight
 
+      // Self-correcting baseline: if the viewport grew (URL bar hid), track the new
+      // maximum so keyboard height is computed against the true full-screen reference.
+      baselineHeightRef.current = updateBaseline(baselineHeightRef.current, currentHeight)
+
       const kbHeight = computeKeyboardHeight(baselineHeightRef.current, currentHeight)
       keyboardHeightRef.current = kbHeight
       applyPositions(kbHeight)
@@ -179,6 +206,10 @@ export function useVirtualKeyboard({ enabled, toolbarRef, zoomBadgeRef, zoomHint
     const vv = window.visualViewport
     if (vv) {
       vv.addEventListener('resize', scheduleUpdate)
+      // scroll fires when the visual viewport pans (keyboard open + user scrolls).
+      // Re-applying positions on scroll prevents Chrome Android's compositor from
+      // jank-rendering the fixed toolbar at the wrong position mid-scroll.
+      vv.addEventListener('scroll', scheduleUpdate)
     } else {
       // Samsung Internet fallback: no visualViewport, use window.resize instead
       window.addEventListener('resize', scheduleUpdate)
@@ -193,6 +224,7 @@ export function useVirtualKeyboard({ enabled, toolbarRef, zoomBadgeRef, zoomHint
       cancelAnimationFrame(orientationRafId2)
       if (vv) {
         vv.removeEventListener('resize', scheduleUpdate)
+        vv.removeEventListener('scroll', scheduleUpdate)
       } else {
         window.removeEventListener('resize', scheduleUpdate)
       }
