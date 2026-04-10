@@ -12,6 +12,9 @@ config({ path: path.resolve(process.cwd(), '.env.test'), override: true })
 
 let cached = null
 const TRACKER_IMAGES_BUCKET = 'tracker-images'
+const WORKSPACE_SELECTOR = '.workspace'
+const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
+const EDITOR_SELECTOR = '.ProseMirror[contenteditable="true"]'
 
 /**
  * Returns an authenticated Supabase client and the test user's ID.
@@ -193,6 +196,30 @@ const findFallbackPageHash = async () => {
   return `/#nb=${sectionRow.notebook_id}&sec=${sectionRow.id}&pg=${pageRow.id}`
 }
 
+const waitForWorkspaceReady = async (page) => {
+  await page.waitForSelector(WORKSPACE_SELECTOR, { timeout: 15000 })
+  await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 15000 })
+}
+
+const navigateViaHashChange = async (page, hash) => {
+  if (!hash || hash === '/') return
+  const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
+  // Clear hash first so that re-navigating to the same page ID still fires
+  // a hashchange event (empty → #pg=<id>).
+  await page.evaluate(() => { window.location.hash = '' })
+  await page.evaluate((h) => { window.location.hash = '#' + h }, hashStr)
+}
+
+const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedText = null } = {}) => {
+  await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
+  if (expectedPageTitle) {
+    await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
+  }
+  if (expectedText) {
+    await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+  }
+}
+
 /** Navigate to the app root (or a hash) and wait for auth + editor to be ready.
  *  Options:
  *    expectedText — if provided, also waits for this text to appear in the editor
@@ -218,52 +245,35 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     }
   }
 
-  // 1. Always reload the app shell for each test. The DB snapshot is restored
-  // between tests, so reusing an already-mounted SPA can leave stale notebooks,
-  // sections, or pages in memory from the previous test run.
-  await page.goto('/')
-  await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-  // 2. Navigate to the target hash via the hashchange listener.
-  if (hash && hash !== '/') {
-    const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
-    // Clear hash first so that re-navigating to the same page ID still fires
-    // a hashchange event (empty → #pg=<id>).
-    await page.evaluate(() => { window.location.hash = '' })
-    await page.evaluate((h) => { window.location.hash = '#' + h }, hashStr)
+  const loadRootWorkspace = async () => {
+    // Always reload the app root for each test. The DB snapshot is restored
+    // between tests, so reusing an already-mounted SPA can leave stale
+    // notebooks, sections, or pages in memory from the previous test run.
+    await page.goto('/')
+    await waitForWorkspaceReady(page)
+    await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
   }
 
-  // 3. Wait for the editor to show the expected content.
   try {
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    if (expectedPageTitle) {
-      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
-    }
-    if (expectedText) {
-      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
-    }
+    await loadRootWorkspace()
+    await navigateViaHashChange(page, hash)
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   } catch (error) {
     if (!hash || hash === '/') {
       const fallbackHash = await findFallbackPageHash()
       if (!fallbackHash) throw error
-      await page.goto(fallbackHash)
-      await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-      await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+      await loadRootWorkspace()
+      await navigateViaHashChange(page, fallbackHash)
+      await waitForExpectedEditor(page)
       return
     }
 
-    // Fallback: if hashchange navigation misses the target page, reload
-    // directly to the hash URL and wait again. This keeps tests deterministic
-    // without depending on a single navigation path.
-    await page.goto(hash)
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    if (expectedPageTitle) {
-      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
-    }
-    if (expectedText) {
-      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
-    }
+    // Retry the stable root → hashchange path instead of cold-loading /#...
+    // directly. Several tests seed state before navigation, and direct hash
+    // loads can still miss page resolution while notebook data is warming up.
+    await loadRootWorkspace()
+    await navigateViaHashChange(page, hash)
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   }
 }
 
