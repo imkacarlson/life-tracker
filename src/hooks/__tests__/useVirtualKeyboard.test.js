@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeKeyboardHeight } from '../useVirtualKeyboard'
+import { computeKeyboardHeight, updateBaseline } from '../useVirtualKeyboard'
 
 // ─── Pure computation tests ─────────────────────────────────────────────────
 // The hook's core keyboard-height formula is extracted as computeKeyboardHeight.
@@ -50,5 +50,45 @@ describe('computeKeyboardHeight', () => {
   it('handles large viewport values (tablet-sized baseline)', () => {
     // baseline=1024, current=724, delta=300; cap=724*0.6=434.4 (no cap)
     expect(computeKeyboardHeight(1024, 724)).toBe(300)
+  })
+})
+
+// ─── updateBaseline tests ──────────────────────────────────────────────────────
+// updateBaseline implements "self-correcting baseline": when the viewport grows
+// (URL bar hides) BEFORE the keyboard opens, the baseline must track upward so
+// that keyboard height is computed against the true full-screen height.
+//
+// Bug without this: baseline captured when URL bar is visible (H - 56px).
+// Keyboard opens after URL bar hides → delta = keyboard - 56 px instead of
+// keyboard → toolbar is lifted 56 px too low → keyboard overlaps toolbar.
+
+describe('updateBaseline', () => {
+  it('returns null unchanged when baseline has not yet been captured', () => {
+    // null = focusin has not fired yet; nothing to update
+    expect(updateBaseline(null, 800)).toBeNull()
+  })
+
+  it('returns baseline unchanged when viewport height equals baseline (no change)', () => {
+    expect(updateBaseline(800, 800)).toBe(800)
+  })
+
+  it('returns baseline unchanged when viewport height shrinks (keyboard opening)', () => {
+    // viewport shrinking means keyboard is opening — baseline must NOT follow down
+    expect(updateBaseline(800, 500)).toBe(800)
+  })
+
+  it('updates baseline when viewport grows (URL bar hides before keyboard opens)', () => {
+    // URL bar hides → vv.height grows from 744 to 800; baseline must track up
+    // so keyboard height is computed from the full-screen 800 reference
+    expect(updateBaseline(744, 800)).toBe(800)
+  })
+
+  it('updates baseline for any viewport growth, not just URL-bar-sized jumps', () => {
+    expect(updateBaseline(700, 750)).toBe(750)
+  })
+
+  it('does not update baseline when viewport shrinks by less than threshold', () => {
+    // A 40px shrink is browser chrome collapse, not a keyboard — baseline stays
+    expect(updateBaseline(800, 760)).toBe(800)
   })
 })
