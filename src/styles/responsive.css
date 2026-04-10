@@ -89,9 +89,12 @@
     z-index: 35;
     border-top: 1px solid var(--border);
     border-bottom: none;
+    /* Safe area and bottom offset managed imperatively by useVirtualKeyboard
+       when the keyboard is open; CSS env() resumes when keyboard closes. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-direction: column;
     background: var(--surface);
+    transition: bottom var(--duration-medium) var(--ease-out);
   }
 
   .toolbar-core {
@@ -117,8 +120,10 @@
     height: 32px;
   }
 
+  /* Editor bottom padding is managed dynamically via editorPaddingBottom state
+     in EditorPanel.jsx (ResizeObserver on toolbarRef tracks all height changes). */
   .editor-panel {
-    padding-bottom: 52px;
+    padding-bottom: 0;
   }
 
   /* Pickers open upward on mobile */

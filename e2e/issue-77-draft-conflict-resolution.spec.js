@@ -5,7 +5,7 @@
 // 2. Tiptap editor content was not refreshed after conflict resolution
 
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 const SERVER_CONTENT = {
   type: 'doc',
@@ -34,14 +34,21 @@ const DRAFT_CONTENT = {
 
 test.describe('Issue #77 draft conflict resolution', () => {
   let supabaseInfo = null
+  let notebookId = null
   let testPage = null
   let sectionId = null
 
   test.beforeAll(async () => {
     supabaseInfo = await getSupabase()
     const nb = await createNotebook(supabaseInfo.client, supabaseInfo.userId, `Issue77 Notebook ${Date.now()}`)
+    notebookId = nb.id
     const sec = await createSection(supabaseInfo.client, supabaseInfo.userId, nb.id, 'Issue77 Section')
     sectionId = sec.id
+  })
+
+  test.afterAll(async () => {
+    if (!supabaseInfo?.client) return
+    await deleteNotebookById(supabaseInfo.client, notebookId)
   })
 
   const setupConflict = async (page) => {

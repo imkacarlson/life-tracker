@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
 
 // Self-contained seed data: a page with a highlighted date in "Expenses due 2/22"
 const SEED_CONTENT = {
@@ -36,14 +36,21 @@ const readExpenseState = async (page) =>
 // fixme: clipboard simulation against ProseMirror is inherently timing-sensitive;
 // these pass locally but flake in CI due to async content hydration races.
 test.describe.fixme('Issue #62 highlight paste regression', () => {
+  let notebookId = null
   let testPage = null
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     // Create an isolated notebook+section so deep-link navigation is deterministic
     const notebook = await createNotebook(client, userId, `T62 Notebook ${Date.now()}`)
+    notebookId = notebook.id
     const section = await createSection(client, userId, notebook.id, 'T62 Section')
     testPage = await createPage(client, userId, section.id, 'Highlight Test', SEED_CONTENT)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
   })
 
   test('copy/paste + date edit keeps highlight on date token only', async ({ page, isMobile }) => {

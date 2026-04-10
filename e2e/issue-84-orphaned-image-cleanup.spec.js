@@ -82,25 +82,19 @@ const waitForPageDeletion = async (client, pageId, timeoutMs = 10000) => {
 }
 
 const placeCaretAtEndOfFirstParagraph = async (page) => {
-  await page.evaluate(() => {
-    const paragraph = document.querySelector('.ProseMirror p')
-    const editor = document.querySelector('.ProseMirror')
-    if (!paragraph || !editor) {
-      throw new Error('Could not find editor paragraph for caret placement')
-    }
+  const paragraph = page.locator('.ProseMirror p', { hasText: 'Some text before the image.' }).first()
+  await expect(paragraph).toBeVisible({ timeout: 10000 })
 
-    const textNode = Array.from(paragraph.childNodes).find((node) => node.nodeType === Node.TEXT_NODE)
-    if (!textNode) {
-      throw new Error('Could not find text node for caret placement')
-    }
+  const box = await paragraph.boundingBox()
+  if (!box) {
+    throw new Error('Could not find editor paragraph box for caret placement')
+  }
 
-    const selection = window.getSelection()
-    const range = document.createRange()
-    range.setStart(textNode, textNode.textContent?.length ?? 0)
-    range.collapse(true)
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-    editor.focus()
+  await paragraph.click({
+    position: {
+      x: Math.max(4, box.width - 6),
+      y: box.height / 2,
+    },
   })
 }
 

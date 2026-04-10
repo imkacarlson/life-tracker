@@ -8,6 +8,7 @@ import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
 import { useContentZoom } from '../hooks/useContentZoom'
+import { useVirtualKeyboard } from '../hooks/useVirtualKeyboard'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
 import AiInsertModal from './editor/AiInsertModal'
@@ -54,6 +55,9 @@ function EditorPanel({
 }) {
   const editorPanelRef = useRef(null)
   const editorShellRef = useRef(null)
+  const toolbarRef = useRef(null)
+  const zoomBadgeRef = useRef(null)
+  const zoomHintRef = useRef(null)
   const fileInputRef = useRef(null)
   const shadingInputRef = useRef(null)
   const contextMenuRef = useRef(null)
@@ -83,9 +87,16 @@ function EditorPanel({
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const [toolbarExpanded, setToolbarExpanded] = useState(() => !isTouchOnlyDevice())
+  const [editorPaddingBottom, setEditorPaddingBottom] = useState(() => isTouchOnlyDevice() ? 52 : 0)
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
+  const { keyboardOpen, keyboardHeightRef } = useVirtualKeyboard({
+    enabled: isTouchOnly,
+    toolbarRef,
+    zoomBadgeRef,
+    zoomHintRef,
+  })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
   // focused — that would open the virtual keyboard.  Formatting commands work
@@ -96,6 +107,38 @@ function EditorPanel({
       ? editor.chain()
       : editor.chain().focus()
   }, [editor, isTouchOnly])
+
+  // ResizeObserver on toolbarRef — fires on ALL toolbar height changes
+  // (expand/collapse, findOpen, inTable controls, AI groups, row wrapping).
+  // Keeps editorPaddingBottom in sync so content never hides behind the toolbar.
+  useEffect(() => {
+    if (!isTouchOnly || !toolbarRef.current) return
+    const ro = new ResizeObserver((entries) => {
+      const toolbarH = entries[0].contentRect.height
+      setEditorPaddingBottom(toolbarH + (keyboardHeightRef.current || 0))
+    })
+    ro.observe(toolbarRef.current)
+    return () => ro.disconnect()
+  }, [isTouchOnly])
+
+  // Sync editorPaddingBottom when the keyboard opens/closes.
+  // The ResizeObserver above only fires on toolbar HEIGHT changes (not position changes).
+  // When the keyboard opens, the toolbar moves up via style.bottom (imperative) but its
+  // height doesn't change — so this effect fills the gap.
+  useEffect(() => {
+    if (!isTouchOnly || !toolbarRef.current) return
+    const toolbarH = toolbarRef.current.getBoundingClientRect().height
+    setEditorPaddingBottom(toolbarH + (keyboardHeightRef.current || 0))
+  }, [keyboardOpen, isTouchOnly])
+
+  // Scroll cursor into view when keyboard opens (cursor may be hidden by toolbar)
+  useEffect(() => {
+    if (!keyboardOpen || !editor) return
+    const rafId = requestAnimationFrame(() => {
+      editor.commands.scrollIntoView?.()
+    })
+    return () => cancelAnimationFrame(rafId)
+  }, [keyboardOpen, editor])
 
   const syncSelectionFromDom = useCallback(() => {
     if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
@@ -1188,7 +1231,11 @@ function EditorPanel({
   const controlsDisabled = !hasTracker || editorLocked
 
   return (
-    <section className="editor-panel" ref={editorPanelRef}>
+    <section
+      className="editor-panel"
+      ref={editorPanelRef}
+      style={isTouchOnly ? { paddingBottom: editorPaddingBottom + 'px' } : undefined}
+    >
       <EditorHeader
         title={title}
         onTitleChange={onTitleChange}
@@ -1211,6 +1258,7 @@ function EditorPanel({
         isTouchOnly={isTouchOnly}
         toolbarExpanded={toolbarExpanded}
         setToolbarExpanded={setToolbarExpanded}
+        toolbarRef={toolbarRef}
         handleSetLink={handleSetLink}
         handleSetTextAlign={handleSetTextAlign}
         handleExportText={handleExportText}
@@ -1279,6 +1327,7 @@ function EditorPanel({
 
       {isZoomSupported && zoomLevel !== 1.0 && (
         <button
+          ref={zoomBadgeRef}
           type="button"
           className={`zoom-badge${gestureRecent ? ' zoom-badge--active' : ''}`}
           onMouseDown={(e) => e.preventDefault()}
@@ -1291,7 +1340,7 @@ function EditorPanel({
       )}
 
       {showHint && (
-        <div className="zoom-hint" onClick={dismissHint}>
+        <div ref={zoomHintRef} className="zoom-hint" onClick={dismissHint}>
           Pinch to zoom. Tap badge to reset.
         </div>
       )}

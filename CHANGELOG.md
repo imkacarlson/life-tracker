@@ -3,6 +3,24 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.4.0.0] - 2026-04-10
+
+### Added
+- Mobile keyboard-aware toolbar: the formatting toolbar now lifts above the Android virtual keyboard when the editor is focused, making Bold, Italic, Heading, and all formatting buttons accessible while typing (#124)
+- `useVirtualKeyboard` hook — imperative DOM-based keyboard tracking using `window.visualViewport` resize events; writes directly to toolbar and zoom badge refs for smooth per-frame animation without React re-renders
+- Global E2E test teardown that purges all test-account data after each run, preventing data accumulation across CI runs
+
+### Changed
+- Editor bottom padding now tracks toolbar height dynamically via `ResizeObserver`, so content is never hidden behind the toolbar when it expands or collapses (find bar, table controls, AI groups)
+- Toolbar position now re-syncs when the keyboard opens and closes (both via state transition and mid-session height changes)
+- E2E test helpers: self-contained seed/teardown pattern (`countUserRows`, `listUserStoragePaths`, `purgeTestUserData`) for cleaner test isolation
+- Several existing E2E specs migrated to the self-contained seeding pattern
+
+### Fixed
+- Toolbar would snap back to `bottom: 0` when the user tapped a toolbar button while the keyboard was open (focus event was re-capturing the shrunken viewport height as the baseline; now skipped when keyboard is already open)
+- `editorPaddingBottom` was not updated when the keyboard opened without a toolbar height change, leaving editor content scrollable into the hidden keyboard zone
+- Cleanup: orientation change `setTimeout`/`rAF` calls now properly cancelled on unmount; `visualViewport` and `window.resize` listeners no longer double-fire on modern Android browsers
+
 ## [0.3.0.0] - 2026-04-03
 
 ### Added

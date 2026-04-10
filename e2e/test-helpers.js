@@ -11,6 +11,10 @@ config({ path: path.resolve(process.cwd(), '.env.local') })
 config({ path: path.resolve(process.cwd(), '.env.test'), override: true })
 
 let cached = null
+const TRACKER_IMAGES_BUCKET = 'tracker-images'
+const WORKSPACE_SELECTOR = '.workspace'
+const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
+const EDITOR_SELECTOR = '.ProseMirror[contenteditable="true"]'
 
 /**
  * Returns an authenticated Supabase client and the test user's ID.
@@ -41,8 +45,93 @@ export const getSupabase = async () => {
   return cached
 }
 
-/** Create a notebook and return the inserted row. */
-export const createNotebook = async (client, userId, title, sortOrder = 0, type = 'tracker') => {
+export const countUserRows = async (client, userId, table) => {
+  const { count, error } = await client
+    .from(table)
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+
+  if (error) throw error
+  return count ?? 0
+}
+
+export const listUserStoragePaths = async (client, userId, bucket = TRACKER_IMAGES_BUCKET) => {
+  const paths = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await client.storage
+      .from(bucket)
+      .list(userId, {
+        limit: 1000,
+        offset,
+        sortBy: { column: 'name', order: 'asc' },
+      })
+
+    if (error) throw error
+
+    const files = (data ?? []).filter((entry) => entry.name && entry.id)
+    for (const file of files) {
+      paths.push(`${userId}/${file.name}`)
+    }
+
+    if (!data || data.length < 1000) break
+    offset += data.length
+  }
+
+  return paths
+}
+
+export const countUserStorageObjects = async (client, userId, bucket = TRACKER_IMAGES_BUCKET) => {
+  const paths = await listUserStoragePaths(client, userId, bucket)
+  return paths.length
+}
+
+export const purgeTestUserData = async (
+  client,
+  userId,
+  { purgeSettings = true, purgeStorage = true, bucket = TRACKER_IMAGES_BUCKET } = {},
+) => {
+  if (!client || !userId) {
+    throw new Error('purgeTestUserData requires an authenticated client and user id')
+  }
+
+  if (purgeStorage) {
+    const storagePaths = await listUserStoragePaths(client, userId, bucket)
+    for (let index = 0; index < storagePaths.length; index += 100) {
+      const chunk = storagePaths.slice(index, index + 100)
+      const { error } = await client.storage.from(bucket).remove(chunk)
+      if (error) throw error
+    }
+  }
+
+  if (purgeSettings) {
+    const { error } = await client.from('settings').delete().eq('user_id', userId)
+    if (error) throw error
+  }
+
+  // Delete from leaf to root so cleanup still works if cascade behavior changes.
+  const { error: pagesError } = await client.from('pages').delete().eq('user_id', userId)
+  if (pagesError) throw pagesError
+
+  const { error: sectionsError } = await client.from('sections').delete().eq('user_id', userId)
+  if (sectionsError) throw sectionsError
+
+  const { error: notebooksError } = await client.from('notebooks').delete().eq('user_id', userId)
+  if (notebooksError) throw notebooksError
+}
+
+/** Create a notebook and return the inserted row.
+ *  Use an early sort order by default so fresh E2E notebooks remain visible
+ *  even if the test account has accumulated older rows.
+ */
+export const createNotebook = async (
+  client,
+  userId,
+  title,
+  sortOrder = -Math.floor(Date.now() / 1000),
+  type = 'tracker',
+) => {
   const { data, error } = await client
     .from('notebooks')
     .insert({ user_id: userId, title, sort_order: sortOrder, type })
@@ -50,6 +139,13 @@ export const createNotebook = async (client, userId, title, sortOrder = 0, type 
     .single()
   if (error) throw error
   return data
+}
+
+/** Delete a notebook and rely on DB cascade rules to remove sections/pages. */
+export const deleteNotebookById = async (client, notebookId) => {
+  if (!client || !notebookId) return
+  const { error } = await client.from('notebooks').delete().eq('id', notebookId)
+  if (error) throw error
 }
 
 /** Create a section and return the inserted row. */
@@ -100,6 +196,30 @@ const findFallbackPageHash = async () => {
   return `/#nb=${sectionRow.notebook_id}&sec=${sectionRow.id}&pg=${pageRow.id}`
 }
 
+const waitForWorkspaceReady = async (page) => {
+  await page.waitForSelector(WORKSPACE_SELECTOR, { timeout: 15000 })
+  await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 15000 })
+}
+
+const navigateViaHashChange = async (page, hash) => {
+  if (!hash || hash === '/') return
+  const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
+  // Clear hash first so that re-navigating to the same page ID still fires
+  // a hashchange event (empty → #pg=<id>).
+  await page.evaluate(() => { window.location.hash = '' })
+  await page.evaluate((h) => { window.location.hash = '#' + h }, hashStr)
+}
+
+const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedText = null } = {}) => {
+  await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
+  if (expectedPageTitle) {
+    await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
+  }
+  if (expectedText) {
+    await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+  }
+}
+
 /** Navigate to the app root (or a hash) and wait for auth + editor to be ready.
  *  Options:
  *    expectedText — if provided, also waits for this text to appear in the editor
@@ -125,52 +245,35 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     }
   }
 
-  // 1. Always reload the app shell for each test. The DB snapshot is restored
-  // between tests, so reusing an already-mounted SPA can leave stale notebooks,
-  // sections, or pages in memory from the previous test run.
-  await page.goto('/')
-  await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-  // 2. Navigate to the target hash via the hashchange listener.
-  if (hash && hash !== '/') {
-    const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
-    // Clear hash first so that re-navigating to the same page ID still fires
-    // a hashchange event (empty → #pg=<id>).
-    await page.evaluate(() => { window.location.hash = '' })
-    await page.evaluate((h) => { window.location.hash = '#' + h }, hashStr)
+  const loadRootWorkspace = async () => {
+    // Always reload the app root for each test. The DB snapshot is restored
+    // between tests, so reusing an already-mounted SPA can leave stale
+    // notebooks, sections, or pages in memory from the previous test run.
+    await page.goto('/')
+    await waitForWorkspaceReady(page)
+    await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
   }
 
-  // 3. Wait for the editor to show the expected content.
   try {
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    if (expectedPageTitle) {
-      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
-    }
-    if (expectedText) {
-      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
-    }
+    await loadRootWorkspace()
+    await navigateViaHashChange(page, hash)
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   } catch (error) {
     if (!hash || hash === '/') {
       const fallbackHash = await findFallbackPageHash()
       if (!fallbackHash) throw error
-      await page.goto(fallbackHash)
-      await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-      await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+      await loadRootWorkspace()
+      await navigateViaHashChange(page, fallbackHash)
+      await waitForExpectedEditor(page)
       return
     }
 
-    // Fallback: if hashchange navigation misses the target page, reload
-    // directly to the hash URL and wait again. This keeps tests deterministic
-    // without depending on a single navigation path.
-    await page.goto(hash)
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-    if (expectedPageTitle) {
-      await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
-    }
-    if (expectedText) {
-      await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
-    }
+    // Retry the stable root → hashchange path instead of cold-loading /#...
+    // directly. Several tests seed state before navigation, and direct hash
+    // loads can still miss page resolution while notebook data is warming up.
+    await loadRootWorkspace()
+    await navigateViaHashChange(page, hash)
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   }
 }
 
