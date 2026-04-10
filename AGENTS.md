@@ -85,9 +85,9 @@ The user organizes tasks in monthly "trackers" that are rich text documents:
 - Cross-off syncs between daily list and tracker
 - Tiptap supports node IDs for anchoring links
 
-### Phase 4: Mobile Polish & Touch
-- Responsive CSS for phone browser
-- Touch-friendly toolbar
+### Phase 4: Mobile Polish & Touch (IN PROGRESS)
+- Responsive CSS for phone browser ✅
+- Touch-friendly toolbar ✅ (keyboard-aware: lifts above virtual keyboard via `useVirtualKeyboard` hook)
 - Drawing/annotation support (Tiptap has extensions for this)
 
 ### Phase 5: AI Integration
