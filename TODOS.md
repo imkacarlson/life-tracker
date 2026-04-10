@@ -50,6 +50,23 @@ Accept PDF files in the Paste Recipe modal. Requires PDF-to-image conversion bef
 Add Playwright E2E tests for attach/remove/thumbnail flows in the Paste Recipe modal (`e2e/paste-recipe-attachments.spec.js`).
 *Deferred from: recipe photo attachments plan*
 
+## Mobile UX
+
+**Haptic feedback on mobile toolbar buttons**
+**Priority:** P3
+Add `navigator.vibrate(10)` (or equivalent) on toolbar button tap for native-feeling response. Out of blast radius for issue #124 keyboard fix.
+*Deferred from: PLAN.md (issue/124-keyboard-toolbar), CEO phase*
+
+**Mobile role definition: full authoring vs capture/triage**
+**Priority:** P2
+Strategic question: should mobile be a full authoring environment (current direction) or a lightweight capture/triage tool? Codex flagged this during #124 planning as relevant to long-term UX direction. Worth a dedicated office-hours session before any large mobile-specific feature work.
+*Deferred from: PLAN.md (issue/124-keyboard-toolbar), CEO phase*
+
+**Samsung DEX / Gboard floating keyboard edge case**
+**Priority:** P3
+`useVirtualKeyboard` focus gate reduces false positives but does not fully handle Samsung DEX or Gboard floating keyboard (both can change visual viewport without a real keyboard appearing). Documented known limitation. Consider adding a user-dismissible "toolbar stuck?" nudge if it causes real-world pain.
+*Deferred from: PLAN.md (issue/124-keyboard-toolbar), Eng phase*
+
 ## Completed
 
 **Spurious conflict from two-effect draft detection split**
