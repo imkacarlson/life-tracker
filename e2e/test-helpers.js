@@ -196,6 +196,60 @@ const findFallbackPageHash = async () => {
   return `/#nb=${sectionRow.notebook_id}&sec=${sectionRow.id}&pg=${pageRow.id}`
 }
 
+const resolveTreeTitlesFromHash = async (hash) => {
+  if (!hash || hash === '/') return null
+
+  const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
+  const params = new URLSearchParams(hashStr)
+  let notebookId = params.get('nb')
+  let sectionId = params.get('sec')
+  const pageId = params.get('pg')
+
+  const { client } = await getSupabase()
+
+  let pageTitle = null
+  let sectionTitle = null
+  let notebookTitle = null
+
+  if (pageId) {
+    const { data: pageRow, error: pageError } = await client
+      .from('pages')
+      .select('title, section_id')
+      .eq('id', pageId)
+      .maybeSingle()
+
+    if (pageError) throw pageError
+    pageTitle = pageRow?.title ?? null
+    sectionId = sectionId || pageRow?.section_id || null
+  }
+
+  if (sectionId) {
+    const { data: sectionRow, error: sectionError } = await client
+      .from('sections')
+      .select('title, notebook_id')
+      .eq('id', sectionId)
+      .maybeSingle()
+
+    if (sectionError) throw sectionError
+    sectionTitle = sectionRow?.title ?? null
+    notebookId = notebookId || sectionRow?.notebook_id || null
+  }
+
+  if (notebookId) {
+    const { data: notebookRow, error: notebookError } = await client
+      .from('notebooks')
+      .select('title')
+      .eq('id', notebookId)
+      .maybeSingle()
+
+    if (notebookError) throw notebookError
+    notebookTitle = notebookRow?.title ?? null
+  }
+
+  if (!notebookTitle && !sectionTitle && !pageTitle) return null
+  return { notebookTitle, sectionTitle, pageTitle }
+}
+
 const waitForWorkspaceReady = async (page) => {
   await page.waitForSelector(WORKSPACE_SELECTOR, { timeout: 15000 })
   await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 15000 })
@@ -234,15 +288,13 @@ const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedT
  */
 export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
   let expectedPageTitle = null
+  let treeTitles = null
   if (hash && hash !== '/') {
     const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
     const params = new URLSearchParams(hashStr)
     const pageId = params.get('pg')
-    if (pageId) {
-      const { client } = await getSupabase()
-      const { data: pageRow } = await client.from('pages').select('title').eq('id', pageId).maybeSingle()
-      expectedPageTitle = pageRow?.title ?? null
-    }
+    treeTitles = await resolveTreeTitlesFromHash(hash)
+    if (pageId) expectedPageTitle = treeTitles?.pageTitle ?? null
   }
 
   const loadRootWorkspace = async () => {
@@ -251,7 +303,6 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     // notebooks, sections, or pages in memory from the previous test run.
     await page.goto('/')
     await waitForWorkspaceReady(page)
-    await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
   }
 
   try {
@@ -273,8 +324,73 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     // loads can still miss page resolution while notebook data is warming up.
     await loadRootWorkspace()
     await navigateViaHashChange(page, hash)
-    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+    try {
+      await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+    } catch {
+      if (!treeTitles) throw error
+
+      await loadRootWorkspace()
+      if (treeTitles.notebookTitle) {
+        await clickNavigationItem(
+          page,
+          page.locator('.tree-node-notebook', { hasText: treeTitles.notebookTitle }).first(),
+        )
+      }
+      if (treeTitles.sectionTitle) {
+        await clickNavigationItem(
+          page,
+          page.locator('.tree-node-section', { hasText: treeTitles.sectionTitle }).first(),
+        )
+      }
+      if (treeTitles.pageTitle) {
+        await clickNavigationItem(
+          page,
+          page.locator('.tree-node-page', { hasText: treeTitles.pageTitle }).first(),
+        )
+      }
+      await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+    }
   }
+}
+
+export const ensureNavigationVisible = async (page) => {
+  const drawer = page.locator('.nav-tree-container.open')
+  const closeButton = page.getByRole('button', { name: 'Close navigation sidebar' })
+  const openButton = page.getByRole('button', { name: 'Open navigation sidebar' })
+  if (!(await closeButton.isVisible().catch(() => false)) && await openButton.isVisible().catch(() => false)) {
+    await openButton.evaluate((el) => el.click())
+  }
+
+  if (await closeButton.isVisible().catch(() => false)) {
+    await expect(drawer).toBeVisible({ timeout: 5000 })
+  }
+  await expect(page.getByRole('tree', { name: 'Notebook navigation' })).toBeVisible({
+    timeout: 5000,
+  })
+}
+
+export const ensureNavigationHidden = async (page) => {
+  const backdrop = page.getByRole('button', { name: 'Close navigation drawer' })
+  if (await backdrop.isVisible().catch(() => false)) {
+    await backdrop.evaluate((el) => el.click())
+    await expect(backdrop).toBeHidden({ timeout: 5000 })
+    return
+  }
+
+  const closeButton = page.getByRole('button', { name: 'Close navigation sidebar' })
+  if (await closeButton.isVisible().catch(() => false)) {
+    await closeButton.evaluate((el) => el.click())
+    await expect(closeButton).toBeHidden({ timeout: 5000 })
+  }
+}
+
+export const clickNavigationItem = async (page, locator, options) => {
+  await ensureNavigationVisible(page)
+  await expect(locator).toBeVisible({ timeout: 5000 })
+  await locator.evaluate((el) => {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  })
+  await locator.click(options)
 }
 
 /**

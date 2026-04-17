@@ -1,5 +1,13 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  deleteNotebookById,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 // Block ID that will be used as the deep-link target in Page B
 const TARGET_BLOCK_ID = 'e2e-target-block-nav'
@@ -81,7 +89,7 @@ test.describe('Internal link navigation', () => {
 
   test('deep link highlights target block, clicking elsewhere unhighlights', async ({ page }) => {
     // 1. Navigate to Page A (Test Scratchpad) and read the internal link href
-    await page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).click()
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
     const internalLink = page.locator('.ProseMirror a[href*="pg="]').first()
     await expect(internalLink).toBeVisible({ timeout: 10000 })
@@ -92,7 +100,7 @@ test.describe('Internal link navigation', () => {
     expect(blockId).toBeTruthy()
 
     // 2. Navigate to the target page ("Test Section") via sidebar so content is loaded
-    await page.locator('.sidebar-title', { hasText: 'Test Section' }).click()
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
 
     // 3. Trigger the deep link by setting the hash

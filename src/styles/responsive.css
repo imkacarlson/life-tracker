@@ -79,7 +79,11 @@
     min-height: calc(100vh - 120px);
   }
 
-  /* Mobile bottom toolbar */
+  /* Mobile bottom toolbar.
+     Position is kept above the on-screen keyboard by useMobileToolbarTransform,
+     which writes `transform: translate(x, y)` on every visualViewport change.
+     `transform` is compositor-only, so a short transition smooths updates
+     without fighting imperative writes. */
   .toolbar {
     position: fixed;
     bottom: 0;
@@ -89,14 +93,11 @@
     z-index: 35;
     border-top: 1px solid var(--border);
     border-bottom: none;
-    /* Safe area and bottom offset managed imperatively by useVirtualKeyboard
-       when the keyboard is open; CSS env() resumes when keyboard closes. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-direction: column;
     background: var(--surface);
-    /* No transition: bottom — useVirtualKeyboard updates style.bottom imperatively
-       on every visualViewport resize/scroll frame. A CSS transition would fight
-       those updates and cause the toolbar to lag behind the keyboard animation. */
+    transform-origin: bottom left;
+    will-change: transform;
   }
 
   .toolbar-core {
@@ -122,10 +123,10 @@
     height: 32px;
   }
 
-  /* Editor bottom padding is managed dynamically via editorPaddingBottom state
-     in EditorPanel.jsx (ResizeObserver on toolbarRef tracks all height changes). */
+  /* Reserve space for the fixed bottom toolbar so editor content isn't hidden
+     behind it. --toolbar-height is written by a ResizeObserver in Toolbar.jsx. */
   .editor-panel {
-    padding-bottom: 0;
+    padding-bottom: calc(var(--toolbar-height, 52px) + env(safe-area-inset-bottom, 0px));
   }
 
   /* Pickers open upward on mobile */

@@ -1,5 +1,15 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  deleteNotebookById,
+  ensureNavigationHidden,
+  ensureNavigationVisible,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 const PAGE_A_CONTENT = {
   type: 'doc',
@@ -25,17 +35,6 @@ const PAGE_B_CONTENT = {
 
 let seedIds = {}
 const seedLabel = `KB-115-${Date.now()}`
-
-const ensureNavigationVisible = async (page) => {
-  const navTree = page.getByRole('tree', { name: 'Notebook navigation' })
-  try {
-    await navTree.waitFor({ state: 'visible', timeout: 1000 })
-    return
-  } catch {
-    await page.getByRole('button', { name: 'Open navigation' }).click()
-    await expect(navTree).toBeVisible()
-  }
-}
 
 const readEditorInteractionState = async (page) =>
   page.evaluate(() => {
@@ -81,7 +80,10 @@ test('switching sections in sidebar does NOT focus the editor', async ({ page, i
   await ensureNavigationVisible(page)
 
   // Tap Section B to switch
-  await page.locator('.tree-node-section .tree-label', { hasText: `${seedLabel} Section B` }).click()
+  await clickNavigationItem(
+    page,
+    page.locator('.tree-node-section', { hasText: `${seedLabel} Section B` }).first(),
+  )
 
   // Wait for content to load
   await expect(page.locator('.ProseMirror')).toContainText('Section B page content', {
@@ -107,12 +109,19 @@ test('tapping the editor after section switch DOES focus it', async ({ page, isM
 
   // Ensure navigation is visible regardless of drawer vs persistent sidebar layout.
   await ensureNavigationVisible(page)
-  await page.locator('.tree-node-section .tree-label', { hasText: `${seedLabel} Section B` }).click()
+  await clickNavigationItem(
+    page,
+    page.locator('.tree-node-section', { hasText: `${seedLabel} Section B` }).first(),
+  )
 
   // Wait for content to load
   await expect(page.locator('.ProseMirror')).toContainText('Section B page content', {
     timeout: 10000,
   })
+
+  // On true mobile width the navigation is a drawer overlay, so dismiss it
+  // before tapping the editor to test focus behavior rather than drawer state.
+  await ensureNavigationHidden(page)
 
   // Wait for the 300ms focus-suppression timer to clear
   await page.waitForTimeout(600)

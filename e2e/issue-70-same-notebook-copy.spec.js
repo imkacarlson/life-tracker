@@ -1,5 +1,12 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 // Block ID for the internal link target
 const TARGET_BLOCK_ID = 'e2e-target-block-copy'
@@ -15,27 +22,14 @@ test.describe('Issue #70 same-notebook section copy', () => {
   let notebookTitle = null
   let testSection = null
   let targetPage = null
+  let scratchpadPage = null
   let sectionTitle = null
   let scratchpadTitle = null
   let targetPageTitle = null
 
-  const openPageFromTree = async (page, pageTitle, expectedText) => {
-    await page.goto('/')
-    await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
-
-    const notebookNode = exactTreeNode(page, '.tree-node-notebook', notebookTitle)
-    await expect(notebookNode).toBeVisible({ timeout: 10000 })
-    await notebookNode.click()
-
-    const sectionNode = exactTreeNode(page, '.tree-node-section', sectionTitle)
-    await expect(sectionNode).toBeVisible({ timeout: 10000 })
-    await sectionNode.click()
-
-    const pageNode = exactTreeNode(page, '.tree-node-page', pageTitle)
-    await expect(pageNode).toBeVisible({ timeout: 10000 })
-    await pageNode.click()
-
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+  const openPageByHash = async (page, pageId, pageTitle, expectedText) => {
+    const hash = `#nb=${notebookId}&sec=${testSection.id}&pg=${pageId}`
+    await waitForApp(page, hash, { expectedText })
     await expect(page.locator('.title-input')).toHaveValue(pageTitle, { timeout: 10000 })
     if (expectedText) {
       await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
@@ -74,7 +68,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
 
     // Create scratchpad page with an internal link to the target page
     const linkHref = `#nb=${notebookId}&sec=${testSection.id}&pg=${targetPage.id}&block=${TARGET_BLOCK_ID}`
-    await createPage(client, userId, testSection.id, scratchpadTitle, {
+    scratchpadPage = await createPage(client, userId, testSection.id, scratchpadTitle, {
       type: 'doc',
       content: [
         {
@@ -99,13 +93,13 @@ test.describe('Issue #70 same-notebook section copy', () => {
   })
 
   test('copy section to same notebook creates suffixed duplicate', async ({ page }) => {
-    await openPageFromTree(page, targetPageTitle, 'Wedding Planning')
+    await openPageByHash(page, targetPage.id, targetPageTitle, 'Wedding Planning')
 
     const sectionNode = exactTreeNode(page, '.tree-node-section', sectionTitle)
     await expect(sectionNode).toBeVisible({ timeout: 5000 })
 
     // Right-click the section node to open context menu
-    await sectionNode.click({ button: 'right' })
+    await clickNavigationItem(page, sectionNode, { button: 'right' })
     const copyBtn = page.getByRole('button', { name: 'Copy to…' })
     await expect(copyBtn).toBeVisible({ timeout: 3000 })
     await copyBtn.click()
@@ -128,13 +122,13 @@ test.describe('Issue #70 same-notebook section copy', () => {
   })
 
   test('copy section remaps internal links to copied pages', async ({ page }) => {
-    await openPageFromTree(page, targetPageTitle, 'Wedding Planning')
+    await openPageByHash(page, targetPage.id, targetPageTitle, 'Wedding Planning')
 
     const sectionNode = exactTreeNode(page, '.tree-node-section', sectionTitle)
     await expect(sectionNode).toBeVisible({ timeout: 5000 })
 
     // Navigate to Test Scratchpad and read the original internal link
-    await openPageFromTree(page, scratchpadTitle)
+    await openPageByHash(page, scratchpadPage.id, scratchpadTitle)
 
     // Read the original internal link href
     const originalLink = page.locator('.ProseMirror a[href*="pg="]').first()
@@ -149,7 +143,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     expect(originalNotebookId).toBe(notebookId)
 
     // Copy the section to the same notebook
-    await sectionNode.click({ button: 'right' })
+    await clickNavigationItem(page, sectionNode, { button: 'right' })
     await page.getByRole('button', { name: 'Copy to…' }).click()
 
     const modal = page.locator('.copy-move-modal')
@@ -162,10 +156,10 @@ test.describe('Issue #70 same-notebook section copy', () => {
     // Navigate to the copied section
     const copiedSectionNode = exactTreeNode(page, '.tree-node-section', `${sectionTitle} (1)`)
     await expect(copiedSectionNode).toBeVisible({ timeout: 10000 })
-    await copiedSectionNode.click()
+    await clickNavigationItem(page, copiedSectionNode)
     const copiedScratchpad = exactTreeNode(page, '.tree-node-page', scratchpadTitle)
     await expect(copiedScratchpad).toBeVisible({ timeout: 10000 })
-    await copiedScratchpad.click()
+    await clickNavigationItem(page, copiedScratchpad)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
     const copiedLink = page.locator('.ProseMirror a[href*="pg="]').first()

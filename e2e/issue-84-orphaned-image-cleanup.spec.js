@@ -1,5 +1,12 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 const BUCKET = 'tracker-images'
 
@@ -291,7 +298,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
       // Select the notebook via the navigation tree
       const notebookNode = page.locator('.tree-node-notebook', { hasText: nb.title })
-      await notebookNode.click()
+      await clickNavigationItem(page, notebookNode)
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.once('dialog', (dialog) => dialog.accept())
@@ -299,7 +306,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // Right-click the section node and delete it from the tree context menu
       const sectionNode = page.locator('.tree-node-section', { hasText: sectionTitle })
       await expect(sectionNode).toBeVisible({ timeout: 5000 })
-      await sectionNode.click({ button: 'right' })
+      await clickNavigationItem(page, sectionNode, { button: 'right' })
       await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
 
       // Wait for section deletion + fire-and-forget storage cleanup
@@ -328,14 +335,14 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
       // Select the notebook via the navigation tree
       const notebookNode = page.locator('.tree-node-notebook', { hasText: nb.title })
-      await notebookNode.click()
+      await clickNavigationItem(page, notebookNode)
       await expect(page.locator('.tree-node-section', { hasText: sectionTitle })).toBeVisible({ timeout: 5000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
       page.once('dialog', (dialog) => dialog.accept())
 
       // Right-click the notebook node and delete it from the tree context menu
-      await notebookNode.click({ button: 'right' })
+      await clickNavigationItem(page, notebookNode, { button: 'right' })
       await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
 
       // Wait for notebook deletion + fire-and-forget storage cleanup

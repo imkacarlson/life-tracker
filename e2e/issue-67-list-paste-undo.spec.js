@@ -1,5 +1,13 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  deleteNotebookById,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 // Self-contained seed data: two pages — a source with a list and a target with text
 const SOURCE_CONTENT = {
@@ -112,8 +120,8 @@ test.describe.fixme('Issue #67 recorded Ctrl+A cascade flow', () => {
     await page.keyboard.press('ControlOrMeta+c')
 
     // Navigate to target page via sidebar
-    const targetPageLink = page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).first()
-    await targetPageLink.click()
+    const targetPageLink = page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first()
+    await clickNavigationItem(page, targetPageLink)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
     await page.getByText('Go for a run').first().click()
   })

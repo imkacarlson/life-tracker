@@ -1,5 +1,14 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  deleteNotebookById,
+  ensureNavigationVisible,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 test.describe('Issue #114 chevron toggle expand/collapse', () => {
   let notebook = null
@@ -42,6 +51,7 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
 
   test('chevron click collapses an active notebook without deselecting it', async ({ page }) => {
     await navTo(page, pageA.id)
+    await ensureNavigationVisible(page)
 
     // Notebook should be expanded (we navigated into it)
     const notebookRow = rowFor(page, notebook.title)
@@ -51,7 +61,7 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
     await expect(page.locator('.tree-node', { hasText: 'Section Alpha' })).toBeVisible()
 
     // Click the notebook chevron to collapse
-    await chevronFor(page, notebook.title).click()
+    await clickNavigationItem(page, chevronFor(page, notebook.title))
 
     // Notebook row should now be collapsed
     await expect(notebookRow).toHaveAttribute('aria-expanded', 'false')
@@ -65,6 +75,7 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
 
   test('chevron click collapses an active section without deselecting it', async ({ page }) => {
     await navTo(page, pageA.id)
+    await ensureNavigationVisible(page)
 
     const sectionRow = rowFor(page, 'Section Alpha')
     await expect(sectionRow).toHaveAttribute('aria-expanded', 'true')
@@ -73,7 +84,7 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
     await expect(page.locator('.tree-node', { hasText: 'Page Alpha' })).toBeVisible()
 
     // Click the section chevron to collapse
-    await chevronFor(page, 'Section Alpha').click()
+    await clickNavigationItem(page, chevronFor(page, 'Section Alpha'))
 
     // Section should be collapsed but still active
     await expect(sectionRow).toHaveAttribute('aria-expanded', 'false')
@@ -85,9 +96,10 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
 
   test('multiple sections can be expanded simultaneously', async ({ page }) => {
     await navTo(page, pageA.id)
+    await ensureNavigationVisible(page)
 
     // Section Alpha is expanded via navigation. Now click Section Beta row to select it.
-    await rowFor(page, 'Section Beta').click()
+    await clickNavigationItem(page, rowFor(page, 'Section Beta'))
 
     // Wait for Section Beta to expand
     await expect(rowFor(page, 'Section Beta')).toHaveAttribute('aria-expanded', 'true')
@@ -103,13 +115,14 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
 
   test('clicking row label selects and expands the item', async ({ page }) => {
     await navTo(page, pageA.id)
+    await ensureNavigationVisible(page)
 
     // Collapse Section Alpha via chevron
-    await chevronFor(page, 'Section Alpha').click()
+    await clickNavigationItem(page, chevronFor(page, 'Section Alpha'))
     await expect(rowFor(page, 'Section Alpha')).toHaveAttribute('aria-expanded', 'false')
 
     // Click the section row label to re-select — should also expand
-    await rowFor(page, 'Section Alpha').click()
+    await clickNavigationItem(page, rowFor(page, 'Section Alpha'))
     await expect(rowFor(page, 'Section Alpha')).toHaveAttribute('aria-expanded', 'true')
     await expect(page.locator('.tree-node', { hasText: 'Page Alpha' })).toBeVisible()
   })

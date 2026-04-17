@@ -8,7 +8,7 @@ import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
 import { useContentZoom } from '../hooks/useContentZoom'
-import { useVirtualKeyboard } from '../hooks/useVirtualKeyboard'
+import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
 import AiInsertModal from './editor/AiInsertModal'
@@ -87,16 +87,10 @@ function EditorPanel({
   const [findQuery, setFindQuery] = useState('')
   const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
   const [toolbarExpanded, setToolbarExpanded] = useState(() => !isTouchOnlyDevice())
-  const [editorPaddingBottom, setEditorPaddingBottom] = useState(() => isTouchOnlyDevice() ? 52 : 0)
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
-  const { keyboardOpen, keyboardHeightRef } = useVirtualKeyboard({
-    enabled: isTouchOnly,
-    toolbarRef,
-    zoomBadgeRef,
-    zoomHintRef,
-  })
+  useMobileToolbarTransform({ enabled: isTouchOnly, toolbarRef })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
   // focused — that would open the virtual keyboard.  Formatting commands work
@@ -108,37 +102,16 @@ function EditorPanel({
       : editor.chain().focus()
   }, [editor, isTouchOnly])
 
-  // ResizeObserver on toolbarRef — fires on ALL toolbar height changes
-  // (expand/collapse, findOpen, inTable controls, AI groups, row wrapping).
-  // Keeps editorPaddingBottom in sync so content never hides behind the toolbar.
+  // Scroll cursor into view whenever the editor gains focus (keyboard open).
+  // Cheap, unrelated to the transform hook, and good UX on desktop too.
   useEffect(() => {
-    if (!isTouchOnly || !toolbarRef.current) return
-    const ro = new ResizeObserver((entries) => {
-      const toolbarH = entries[0].contentRect.height
-      setEditorPaddingBottom(toolbarH + (keyboardHeightRef.current || 0))
-    })
-    ro.observe(toolbarRef.current)
-    return () => ro.disconnect()
-  }, [isTouchOnly])
-
-  // Sync editorPaddingBottom when the keyboard opens/closes.
-  // The ResizeObserver above only fires on toolbar HEIGHT changes (not position changes).
-  // When the keyboard opens, the toolbar moves up via style.bottom (imperative) but its
-  // height doesn't change — so this effect fills the gap.
-  useEffect(() => {
-    if (!isTouchOnly || !toolbarRef.current) return
-    const toolbarH = toolbarRef.current.getBoundingClientRect().height
-    setEditorPaddingBottom(toolbarH + (keyboardHeightRef.current || 0))
-  }, [keyboardOpen, isTouchOnly])
-
-  // Scroll cursor into view when keyboard opens (cursor may be hidden by toolbar)
-  useEffect(() => {
-    if (!keyboardOpen || !editor) return
-    const rafId = requestAnimationFrame(() => {
-      editor.commands.scrollIntoView?.()
-    })
-    return () => cancelAnimationFrame(rafId)
-  }, [keyboardOpen, editor])
+    if (!editor) return
+    const handleFocus = () => {
+      requestAnimationFrame(() => editor.commands.scrollIntoView?.())
+    }
+    editor.on('focus', handleFocus)
+    return () => { editor.off('focus', handleFocus) }
+  }, [editor])
 
   const syncSelectionFromDom = useCallback(() => {
     if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
@@ -1234,7 +1207,6 @@ function EditorPanel({
     <section
       className="editor-panel"
       ref={editorPanelRef}
-      style={isTouchOnly ? { paddingBottom: editorPaddingBottom + 'px' } : undefined}
     >
       <EditorHeader
         title={title}
