@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global.setup.js',
   globalTeardown: './e2e/global.teardown.js',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -32,10 +33,6 @@ export default defineConfig({
       name: 'Mobile Chrome',
       use: {
         ...devices['Pixel 7'],
-        viewport: { width: 1080, height: 2400 },
-        deviceScaleFactor: 2.625,
-        hasTouch: true,
-        isMobile: true,
         storageState: 'playwright/.auth/user.json',
       },
       dependencies: ['setup'],

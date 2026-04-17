@@ -1,5 +1,13 @@
 import { test, expect } from './fixtures'
-import { getSupabase, createNotebook, createSection, createPage, deleteNotebookById, waitForApp } from './test-helpers'
+import {
+  clickNavigationItem,
+  createNotebook,
+  createPage,
+  createSection,
+  deleteNotebookById,
+  getSupabase,
+  waitForApp,
+} from './test-helpers'
 
 // Block ID that will be used as the deep-link target
 const TARGET_BLOCK_ID = 'e2e-target-block-focus'
@@ -93,7 +101,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
   })
 
   const resolveDeepLinkTarget = async (page) => {
-    await page.locator('.sidebar-title', { hasText: 'Test Scratchpad' }).click()
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
 
     const internalLink = page.locator('.ProseMirror a[href*="pg="]').first()
@@ -102,7 +110,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
     const blockId = href ? new URL('http://x/' + href.replace('#', '?')).searchParams.get('block') : null
     expect(blockId).toBeTruthy()
 
-    await page.locator('.sidebar-title', { hasText: 'Test Section' }).click()
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
     await page.evaluate((targetHref) => {
       window.location.hash = targetHref

@@ -124,6 +124,29 @@ function Toolbar({
 
   const closeTablePicker = useCallback(() => setTablePickerOpen(false), [])
 
+  // Publish the toolbar's measured height as a CSS custom property on the root
+  // element so `.editor-panel { padding-bottom: calc(var(--toolbar-height) + ...) }`
+  // keeps editor content from hiding behind the fixed mobile bar. Touch-only —
+  // desktop toolbar is in normal flow.
+  useEffect(() => {
+    if (!isTouchOnly || !toolbarRef?.current) return
+    const el = toolbarRef.current
+    const publishHeight = () => {
+      const height = Math.ceil(el.getBoundingClientRect().height)
+      document.documentElement.style.setProperty('--toolbar-height', `${height}px`)
+    }
+    const ro = new ResizeObserver((entries) => {
+      if (!entries[0]) return
+      publishHeight()
+    })
+    publishHeight()
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      document.documentElement.style.removeProperty('--toolbar-height')
+    }
+  }, [isTouchOnly, toolbarRef])
+
   // Outside click and escape handlers for pickers
   useEffect(() => {
     const handleOutsideClick = (event) => {
