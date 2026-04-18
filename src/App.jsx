@@ -523,7 +523,7 @@ function App() {
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
     suppressFocusRef.current = true
-    touchNavigationGuardRef.current = false
+    touchNavigationGuardRef.current = isTouchOnlyDevice()
     if (
       wasTouchNavigationGuarded &&
       trackerId === activeTrackerId &&

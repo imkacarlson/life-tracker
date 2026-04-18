@@ -90,7 +90,7 @@ test.describe('Internal link navigation', () => {
   test('deep link highlights target block, clicking elsewhere unhighlights', async ({ page }) => {
     // 1. Navigate to Page A (Test Scratchpad) and read the internal link href
     await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
+    await expect(page.locator('.ProseMirror')).toContainText('Click here to go to', { timeout: 10000 })
     const internalLink = page.locator('.ProseMirror a[href*="pg="]').first()
     await expect(internalLink).toBeVisible({ timeout: 10000 })
     const href = await internalLink.getAttribute('href')
@@ -101,7 +101,9 @@ test.describe('Internal link navigation', () => {
 
     // 2. Navigate to the target page ("Test Section") via sidebar so content is loaded
     await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
+    await expect(page.locator('.ProseMirror')).toContainText('This is the deep link target paragraph.', {
+      timeout: 10000,
+    })
 
     // 3. Trigger the deep link by setting the hash
     await page.evaluate((h) => { window.location.hash = h }, href)

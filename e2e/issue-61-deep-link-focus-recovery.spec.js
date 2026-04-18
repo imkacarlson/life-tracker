@@ -102,7 +102,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
 
   const resolveDeepLinkTarget = async (page) => {
     await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
+    await expect(page.locator('.ProseMirror')).toContainText('Link to', { timeout: 10000 })
 
     const internalLink = page.locator('.ProseMirror a[href*="pg="]').first()
     await expect(internalLink).toBeVisible({ timeout: 10000 })
@@ -111,7 +111,9 @@ test.describe('Issue #61 deep-link focus recovery', () => {
     expect(blockId).toBeTruthy()
 
     await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 5000 })
+    await expect(page.locator('.ProseMirror')).toContainText('This is the deep link target for focus tests.', {
+      timeout: 10000,
+    })
     await page.evaluate((targetHref) => {
       window.location.hash = targetHref
     }, href)

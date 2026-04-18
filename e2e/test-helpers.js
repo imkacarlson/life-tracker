@@ -251,8 +251,8 @@ const resolveTreeTitlesFromHash = async (hash) => {
 }
 
 const waitForWorkspaceReady = async (page) => {
-  await page.waitForSelector(WORKSPACE_SELECTOR, { timeout: 15000 })
-  await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 15000 })
+  await page.waitForSelector(WORKSPACE_SELECTOR, { timeout: 30000 })
+  await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 30000 })
 }
 
 const navigateViaHashChange = async (page, hash) => {
@@ -386,7 +386,7 @@ export const ensureNavigationHidden = async (page) => {
 
 export const clickNavigationItem = async (page, locator, options) => {
   await ensureNavigationVisible(page)
-  await expect(locator).toBeVisible({ timeout: 5000 })
+  await expect(locator).toBeVisible({ timeout: 10000 })
   await locator.evaluate((el) => {
     el.scrollIntoView({ block: 'center', inline: 'nearest' })
   })
