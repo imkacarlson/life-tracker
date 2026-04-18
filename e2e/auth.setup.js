@@ -25,6 +25,24 @@ const BASELINE_DOC = {
     },
   ],
 }
+
+const waitForSectionVisibility = async (client, sectionId, timeoutMs = 5000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await client
+      .from('sections')
+      .select('id')
+      .eq('id', sectionId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (data?.id === sectionId) return
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+
+  throw new Error(`Timed out waiting for section ${sectionId} to become readable`)
+}
+
 setup('authenticate test user', async ({ page }) => {
   const email = process.env.TEST_USER_EMAIL
   const password = process.env.TEST_USER_PASSWORD
@@ -37,17 +55,12 @@ setup('authenticate test user', async ({ page }) => {
   }
 
   const { client, userId } = await getSupabase()
-  const { data: sessionData, error: sessionError } = await client.auth.getSession()
-  if (sessionError) throw sessionError
-  const session = sessionData?.session
-  if (!session) {
-    throw new Error('Unable to resolve Supabase auth session for Playwright setup')
-  }
 
   await purgeTestUserData(client, userId)
 
   const notebook = await createNotebook(client, userId, 'E2E Baseline Notebook', -9999)
   const section = await createSection(client, userId, notebook.id, 'E2E Baseline Section', 0)
+  await waitForSectionVisibility(client, section.id)
   const tracker = await createPage(client, userId, section.id, 'E2E Baseline Page', BASELINE_DOC, 0)
   const baselineSelection = {
     notebookId: notebook.id,
@@ -55,18 +68,15 @@ setup('authenticate test user', async ({ page }) => {
     pageId: tracker.id,
   }
   const baselineHash = `#nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
-  const authStorageKey = client.auth.storageKey
 
-  // Avoid the browser login form entirely. Seed the same localStorage keys the
-  // Supabase browser client reads on startup, then boot the app directly into a
-  // deterministic baseline workspace/page.
-  await page.addInitScript(({ authKey, sessionValue, selectionKey, selectionValue }) => {
-    window.localStorage.clear()
-    window.localStorage.setItem(authKey, JSON.stringify(sessionValue))
+  await page.goto('/')
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForSelector('.workspace', { timeout: 15000 })
+  await page.evaluate(({ selectionKey, selectionValue }) => {
     window.localStorage.setItem(selectionKey, JSON.stringify(selectionValue))
   }, {
-    authKey: authStorageKey,
-    sessionValue: session,
     selectionKey: STORAGE_KEY,
     selectionValue: baselineSelection,
   })

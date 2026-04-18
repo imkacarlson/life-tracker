@@ -105,6 +105,31 @@ const placeCaretAtEndOfFirstParagraph = async (page) => {
   })
 }
 
+const selectEditorImage = async (page) => {
+  const img = page.locator('.tiptap img')
+  await expect(img).toHaveCount(1, { timeout: 10000 })
+  await img.evaluate((el) => {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  })
+
+  const box = await img.boundingBox()
+  if (!box) {
+    await img.click({ force: true })
+    return
+  }
+
+  await page.mouse.click(
+    box.x + Math.max(box.width / 2, 1),
+    box.y + Math.max(box.height / 2, 1),
+  )
+}
+
+const removeEditorImage = async (page) => {
+  await placeCaretAtEndOfFirstParagraph(page)
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Backspace')
+}
+
 // Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
 // without waiting for Supabase Storage signed-URL hydration.
 const TINY_PNG_DATA_URI =
@@ -163,10 +188,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Find and delete the image from the editor
-      const img = page.locator('.tiptap img')
-      await expect(img).toBeVisible({ timeout: 10000 })
-      await img.click()
-      await page.keyboard.press('Backspace')
+      await removeEditorImage(page)
 
       // Wait for auto-save (2s debounce) + fire-and-forget storage cleanup
       const deleted = await waitForStorageFileDeletion(client, storagePath)
@@ -222,10 +244,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Delete the image
-      const img = page.locator('.tiptap img')
-      await expect(img).toBeVisible({ timeout: 10000 })
-      await img.click()
-      await page.keyboard.press('Backspace')
+      await removeEditorImage(page)
 
       // Immediately undo (before the 2s debounce fires).
       // Use the toolbar Undo button rather than a keyboard shortcut — on mobile

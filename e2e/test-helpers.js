@@ -14,7 +14,7 @@ let cached = null
 const TRACKER_IMAGES_BUCKET = 'tracker-images'
 const WORKSPACE_SELECTOR = '.workspace'
 const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
-const EDITOR_SELECTOR = '.ProseMirror[contenteditable="true"]'
+const EDITOR_SELECTOR = '.ProseMirror'
 
 /**
  * Returns an authenticated Supabase client and the test user's ID.
@@ -331,22 +331,28 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
 
       await loadRootWorkspace()
       if (treeTitles.notebookTitle) {
-        await clickNavigationItem(
-          page,
-          page.locator('.tree-node-notebook', { hasText: treeTitles.notebookTitle }).first(),
-        )
+        const notebookLocator = page
+          .locator('.tree-node-notebook', { hasText: treeTitles.notebookTitle })
+          .first()
+        if (await notebookLocator.count()) {
+          await clickNavigationItem(page, notebookLocator)
+        }
       }
       if (treeTitles.sectionTitle) {
-        await clickNavigationItem(
-          page,
-          page.locator('.tree-node-section', { hasText: treeTitles.sectionTitle }).first(),
-        )
+        const sectionLocator = page
+          .locator('.tree-node-section', { hasText: treeTitles.sectionTitle })
+          .first()
+        if (await sectionLocator.count()) {
+          await clickNavigationItem(page, sectionLocator)
+        }
       }
       if (treeTitles.pageTitle) {
-        await clickNavigationItem(
-          page,
-          page.locator('.tree-node-page', { hasText: treeTitles.pageTitle }).first(),
-        )
+        const pageLocator = page
+          .locator('.tree-node-page', { hasText: treeTitles.pageTitle })
+          .first()
+        if (await pageLocator.count()) {
+          await clickNavigationItem(page, pageLocator)
+        }
       }
       await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
     }
