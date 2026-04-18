@@ -88,12 +88,11 @@ test('switching pages in sidebar does NOT focus the editor', async ({ page, isMo
     timeout: 10000,
   })
 
-  // The editor should NOT be focused — keyboard should not have opened.
-  const isFocused = await page.evaluate(() => {
-    const pm = document.querySelector('.ProseMirror')
-    return pm === document.activeElement || (pm && pm.contains(document.activeElement))
-  })
-  expect(isFocused).toBe(false)
+  // Mobile Chromium can retain document.activeElement on the editor root even
+  // after navigation blur. The stronger signal for "keyboard should not have
+  // opened" is that there is no live DOM selection inside the editor.
+  const interactionState = await getEditorFocusState(page)
+  expect(interactionState.selectionInEditor).toBe(false)
 })
 
 test('tapping the editor after page switch DOES focus it', async ({ page, isMobile }) => {
@@ -118,7 +117,7 @@ test('tapping the editor after page switch DOES focus it', async ({ page, isMobi
   // Dismiss the navigation drawer before tapping the editor
   await ensureNavigationHidden(page)
 
-  // Wait for the focus-suppression guard to clear
+  // Wait for the blur + suppressFocusRef timer to clear
   await page.waitForTimeout(600)
 
   // Tap actual editor content so the guarded mobile flow restores editability.

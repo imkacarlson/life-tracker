@@ -31,9 +31,14 @@ const uploadTestImage = async (client, userId, fileName) => {
 
 // Helper: check if a file exists in storage.
 const storageFileExists = async (client, storagePath) => {
-  // createSignedUrl succeeds only if the file exists.
-  const { data, error } = await client.storage.from(BUCKET).createSignedUrl(storagePath, 60)
-  return !error && !!data?.signedUrl
+  const [folder = '', fileName = ''] = storagePath.split(/\/(.+)/)
+  if (!folder || !fileName) return false
+  const { data, error } = await client.storage.from(BUCKET).list(folder, {
+    limit: 1000,
+    sortBy: { column: 'name', order: 'asc' },
+  })
+  if (error) return false
+  return (data ?? []).some((entry) => entry.name === fileName)
 }
 
 // Helper: clean up a storage file (best-effort).
@@ -105,6 +110,57 @@ const placeCaretAtEndOfFirstParagraph = async (page) => {
   })
 }
 
+const selectEditorImage = async (page) => {
+  const img = page.locator('.tiptap img')
+  await expect(img).toHaveCount(1, { timeout: 10000 })
+  await img.evaluate((el) => {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' })
+  })
+
+  const box = await img.boundingBox()
+  if (!box) {
+    await img.click({ force: true })
+    return
+  }
+
+  await page.mouse.click(
+    box.x + Math.max(box.width / 2, 1),
+    box.y + Math.max(box.height / 2, 1),
+  )
+}
+
+const removeImageViaEditorState = async (page) => page.evaluate(() => {
+  const root = document.querySelector('.ProseMirror')
+  const view = root?.pmViewDesc?.view ?? root?.pmViewDesc?.parent?.view ?? null
+  if (!view) return false
+
+  let imagePos = null
+  let imageNodeSize = null
+  view.state.doc.descendants((node, pos) => {
+    if (node.type?.name !== 'image' || imagePos != null) return true
+    imagePos = pos
+    imageNodeSize = node.nodeSize
+    return false
+  })
+
+  if (imagePos == null || imageNodeSize == null) return false
+  view.dispatch(view.state.tr.delete(imagePos, imagePos + imageNodeSize).scrollIntoView())
+  return true
+})
+
+const removeEditorImage = async (page) => {
+  const removedViaState = await removeImageViaEditorState(page)
+  if (removedViaState) return
+
+  await placeCaretAtEndOfFirstParagraph(page)
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Delete')
+  if (await page.locator('.tiptap img').count()) {
+    await selectEditorImage(page)
+    await page.keyboard.press('Backspace')
+  }
+}
+
 // Minimal 1x1 transparent PNG as a data URI so the <img> renders immediately
 // without waiting for Supabase Storage signed-URL hydration.
 const TINY_PNG_DATA_URI =
@@ -150,7 +206,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const storagePath = await uploadTestImage(client, userId, `t1-${Date.now()}.png`)
 
     // Verify file was uploaded
-    expect(await storageFileExists(client, storagePath)).toBe(true)
+    expect(await waitForStorageFileExistence(client, storagePath)).toBe(true)
 
     // Create test data: notebook → section → page with image
     const nb = await createNotebook(client, userId, `T1 Notebook ${Date.now()}`)
@@ -159,14 +215,22 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Find and delete the image from the editor
-      const img = page.locator('.tiptap img')
-      await expect(img).toBeVisible({ timeout: 10000 })
-      await img.click()
-      await page.keyboard.press('Backspace')
+      await removeEditorImage(page)
+      await expect(page.locator('.tiptap img')).toHaveCount(0, { timeout: 10000 })
+
+      // Wait for the autosaved page content to stop referencing this image
+      // before asserting fire-and-forget storage cleanup. CI was flaking here
+      // because deletion polling could start before the image-removal save landed.
+      await waitForPageContent(
+        client,
+        pg.id,
+        (content) => !JSON.stringify(content).includes(storagePath),
+        15000,
+      )
 
       // Wait for auto-save (2s debounce) + fire-and-forget storage cleanup
       const deleted = await waitForStorageFileDeletion(client, storagePath)
@@ -187,7 +251,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Place the caret inside the existing paragraph, then type.
@@ -218,14 +282,11 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Delete the image
-      const img = page.locator('.tiptap img')
-      await expect(img).toBeVisible({ timeout: 10000 })
-      await img.click()
-      await page.keyboard.press('Backspace')
+      await removeEditorImage(page)
 
       // Immediately undo (before the 2s debounce fires).
       // Use the toolbar Undo button rather than a keyboard shortcut — on mobile
@@ -260,7 +321,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
@@ -363,7 +424,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const pg = await createPage(client, userId, sec.id, 'T7 Page', docWithoutImage())
 
     // Navigate directly to the test page via hash
-    await waitForApp(page, `/#pg=${pg.id}`)
+    await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Just text, no images.' })
     await page.waitForSelector('.tiptap', { timeout: 10000 })
 
     // Set up dialog handler
