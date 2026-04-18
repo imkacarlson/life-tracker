@@ -118,7 +118,7 @@ test('tapping the editor after page switch DOES focus it', async ({ page, isMobi
   // Dismiss the navigation drawer before tapping the editor
   await ensureNavigationHidden(page)
 
-  // Wait for the focus-suppression guard to clear
+  // Wait for the blur + suppressFocusRef timer to clear
   await page.waitForTimeout(600)
 
   // Tap actual editor content so the guarded mobile flow restores editability.

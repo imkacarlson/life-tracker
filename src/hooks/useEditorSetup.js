@@ -70,7 +70,6 @@ export const useEditorSetup = ({
   const preservedHighlightRef = useRef(null)
   const suppressSaveRef = useRef(false)
   const suppressFocusRef = useRef(false)
-  const touchNavigationGuardRef = useRef(false)
   const contentOwnerTrackerIdRef = useRef(null)
   const activeTrackerIdRef = useRef(activeTrackerId)
   // Save only after a specific load pass has fully established page ownership.
@@ -390,23 +389,19 @@ export const useEditorSetup = ({
       const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
-        const suppressTouchNavigationFocus =
-          isTouchOnlyDevice() && touchNavigationGuardRef.current
-        const suppressProgrammaticFocus =
-          isTouchOnlyDevice() && (deepLinkFocusGuard || suppressTouchNavigationFocus)
+        const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
         markLoadReady(activeTrackerId ?? null)
         suppressSaveRef.current = false
         suppressFocusRef.current = true
         setEditorLocked(false)
         if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
-        if (suppressProgrammaticFocus && !editor.isDestroyed) {
+        if (isTouchOnlyDevice() && !editor.isDestroyed) {
+          if (!suppressProgrammaticFocus) window.getSelection()?.removeAllRanges()
           editor.view.dom.blur()
         }
-        if (!touchNavigationGuardRef.current) {
-          clearFocusTimer = setTimeout(() => {
-            suppressFocusRef.current = false
-          }, suppressProgrammaticFocus ? 600 : isTouchOnlyDevice() ? 300 : 50)
-        }
+        clearFocusTimer = setTimeout(() => {
+          suppressFocusRef.current = false
+        }, suppressProgrammaticFocus ? 600 : isTouchOnlyDevice() ? 300 : 50)
         return
       }
       const hydrated = await hydrateContentWithSignedUrls(rawContent)
@@ -423,11 +418,8 @@ export const useEditorSetup = ({
       setEditorLocked(false)
       const pending = pendingNavRef.current
       const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
-      const suppressTouchNavigationFocus =
-        isTouchOnlyDevice() && touchNavigationGuardRef.current
       const suppressProgrammaticFocus =
-        suppressTouchNavigationFocus ||
-        (isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock)
+        isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
       // which causes the browser to auto-scroll to the caret.  By placing
@@ -436,7 +428,12 @@ export const useEditorSetup = ({
         editor.commands.setTextSelection(1)
       }
       if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
-      if (suppressProgrammaticFocus && !editor.isDestroyed) {
+      if (isTouchOnlyDevice() && !editor.isDestroyed) {
+        // After setEditable(true), ProseMirror syncs its selection to the DOM.
+        // On Android Chrome, a DOM selection inside a contenteditable is enough
+        // to trigger the keyboard even without an explicit focus() call. Clear
+        // the selection and blur so the keyboard only appears on a real user tap.
+        if (!suppressProgrammaticFocus) window.getSelection()?.removeAllRanges()
         editor.view.dom.blur()
       }
       if (hasPendingBlock) {
@@ -449,11 +446,9 @@ export const useEditorSetup = ({
         }
         requestAnimationFrame(() => attemptScroll())
       }
-      if (!touchNavigationGuardRef.current) {
-        clearFocusTimer = setTimeout(() => {
-          suppressFocusRef.current = false
-        }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
-      }
+      clearFocusTimer = setTimeout(() => {
+        suppressFocusRef.current = false
+      }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
     }
     let clearFocusTimer
     setContent()
@@ -491,7 +486,7 @@ export const useEditorSetup = ({
     const wasGuarded = previousDeepLinkFocusGuardRef.current
     previousDeepLinkFocusGuardRef.current = deepLinkFocusGuard
     const suppressProgrammaticFocus =
-      isTouchDevice && (deepLinkFocusGuard || touchNavigationGuardRef.current)
+      isTouchDevice && deepLinkFocusGuard
     if (suppressProgrammaticFocus) {
       pendingDesktopDeepLinkRecoveryRef.current = false
       editor.setEditable(false)
@@ -816,5 +811,5 @@ export const useEditorSetup = ({
     return () => editor.off('transaction', handleTransaction)
   }, [editor, getListDepthAt, getListItemTypeAt])
 
-  return { editor, editorLocked, suppressFocusRef, touchNavigationGuardRef }
+  return { editor, editorLocked, suppressFocusRef }
 }
