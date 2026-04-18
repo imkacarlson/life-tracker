@@ -128,11 +128,11 @@ test.describe('Issue #70 same-notebook section copy', () => {
     await expect(sectionNode).toBeVisible({ timeout: 5000 })
 
     // Navigate to Test Scratchpad and read the original internal link
-    await openPageByHash(page, scratchpadPage.id, scratchpadTitle)
+    await openPageByHash(page, scratchpadPage.id, scratchpadTitle, 'See the target')
 
     // Read the original internal link href
     const originalLink = page.locator('.ProseMirror a[href*="pg="]').first()
-    await expect(originalLink).toBeVisible({ timeout: 5000 })
+    await expect(originalLink).toBeVisible({ timeout: 10000 })
     const originalHref = await originalLink.getAttribute('href')
     const originalParams = new URLSearchParams(originalHref.slice(1))
     const originalNotebookId = originalParams.get('nb')

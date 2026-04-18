@@ -143,7 +143,7 @@ const docWithoutImage = (blockId = 'text-block') => ({
 // These tests poll Supabase Storage for fire-and-forget cleanup results,
 // so they need a generous per-test timeout.
 test.describe('Issue #84 orphaned image cleanup', () => {
-  test.describe.configure({ timeout: 60000 })
+  test.describe.configure({ timeout: 90000 })
   // ---------- T1: Save with image removed → storage file deleted ----------
   test('T1: removing an image from a page cleans up storage after save', async ({ page }) => {
     const { client, userId } = await getSupabase()
@@ -344,9 +344,10 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       // Right-click the notebook node and delete it from the tree context menu
       await clickNavigationItem(page, notebookNode, { button: 'right' })
       await page.locator('.tree-context-menu').getByRole('button', { name: 'Delete' }).click()
+      await expect(notebookNode).not.toBeVisible({ timeout: 10000 })
 
       // Wait for notebook deletion + fire-and-forget storage cleanup
-      const deleted = await waitForStorageFileDeletion(client, storagePath)
+      const deleted = await waitForStorageFileDeletion(client, storagePath, 45000)
       expect(deleted).toBe(true)
     } finally {
       await cleanupStorageFile(client, storagePath)
