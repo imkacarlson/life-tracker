@@ -73,7 +73,7 @@ setup('authenticate test user', async ({ page }) => {
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.waitForSelector('.workspace', { timeout: 15000 })
+  await page.getByRole('button', { name: 'Log out' }).waitFor({ timeout: 15000 })
   await page.evaluate(({ selectionKey, selectionValue }) => {
     window.localStorage.setItem(selectionKey, JSON.stringify(selectionValue))
   }, {
