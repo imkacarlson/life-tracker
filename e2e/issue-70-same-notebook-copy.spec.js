@@ -160,7 +160,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     const copiedScratchpad = exactTreeNode(page, '.tree-node-page', scratchpadTitle)
     await expect(copiedScratchpad).toBeVisible({ timeout: 10000 })
     await clickNavigationItem(page, copiedScratchpad)
-    await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+    await expect(page.locator('.ProseMirror')).toContainText('See the target', { timeout: 10000 })
 
     const copiedLink = page.locator('.ProseMirror a[href*="pg="]').first()
     await expect(copiedLink).toBeVisible({ timeout: 5000 })
