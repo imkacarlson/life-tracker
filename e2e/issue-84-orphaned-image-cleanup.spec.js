@@ -184,11 +184,22 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Find and delete the image from the editor
       await removeEditorImage(page)
+      await expect(page.locator('.tiptap img')).toHaveCount(0, { timeout: 10000 })
+
+      // Wait for the autosaved page content to stop referencing this image
+      // before asserting fire-and-forget storage cleanup. CI was flaking here
+      // because deletion polling could start before the image-removal save landed.
+      await waitForPageContent(
+        client,
+        pg.id,
+        (content) => !JSON.stringify(content).includes(storagePath),
+        15000,
+      )
 
       // Wait for auto-save (2s debounce) + fire-and-forget storage cleanup
       const deleted = await waitForStorageFileDeletion(client, storagePath)
@@ -209,7 +220,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Place the caret inside the existing paragraph, then type.
@@ -240,7 +251,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Delete the image
@@ -279,7 +290,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
 
     try {
       // Navigate directly to the test page via hash
-      await waitForApp(page, `/#pg=${pg.id}`)
+      await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Some text before the image.' })
       await page.waitForSelector('.tiptap', { timeout: 10000 })
 
       // Set up dialog handler to auto-accept the delete confirmation
@@ -382,7 +393,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const pg = await createPage(client, userId, sec.id, 'T7 Page', docWithoutImage())
 
     // Navigate directly to the test page via hash
-    await waitForApp(page, `/#pg=${pg.id}`)
+    await waitForApp(page, `/#pg=${pg.id}`, { expectedText: 'Just text, no images.' })
     await page.waitForSelector('.tiptap', { timeout: 10000 })
 
     // Set up dialog handler
