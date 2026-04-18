@@ -60,7 +60,9 @@ function App() {
   const savedSelectionRef = useRef(readStoredSelection())
   const pendingNavRef = useRef(null)
   const pendingEditTapRef = useRef(null)
+  const touchNavigationGuardRef = useRef(false)
   const deepLinkFocusGuardRef = useRef(false)
+  const [touchNavigationGuard, setTouchNavigationGuard] = useState(false)
   const [deepLinkFocusGuard, setDeepLinkFocusGuard] = useState(false)
   const pointerGestureRef = useRef(null)
   const workspaceRef = useRef(null)
@@ -91,6 +93,10 @@ function App() {
   const setDeepLinkFocusGuardValue = useCallback((value) => {
     deepLinkFocusGuardRef.current = value
     setDeepLinkFocusGuard(value)
+  }, [])
+  const setTouchNavigationGuardValue = useCallback((value) => {
+    touchNavigationGuardRef.current = value
+    setTouchNavigationGuard(value)
   }, [])
 
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
@@ -305,7 +311,7 @@ function App() {
         pendingEditTapRef.current = null
         return
       }
-      if (deepLinkFocusGuardRef.current) {
+      if (deepLinkFocusGuardRef.current || touchNavigationGuardRef.current) {
         pendingEditTapRef.current = {
           left: event.clientX,
           top: event.clientY,
@@ -316,10 +322,13 @@ function App() {
       }
       if (gesture.isEditorContent) {
         suppressFocusRef.current = false
+        if (touchNavigationGuardRef.current) {
+          setTouchNavigationGuardValue(false)
+        }
       }
       clearBlockAnchorIfPresent()
     },
-    [clearBlockAnchorIfPresent],
+    [clearBlockAnchorIfPresent, setTouchNavigationGuardValue],
   )
   const handleAppPointerCancelCapture = useCallback(() => {
     pointerGestureRef.current = null
@@ -357,6 +366,9 @@ function App() {
     scheduleSettingsSave,
     pendingNavRef,
     pendingEditTapRef,
+    touchNavigationGuardRef,
+    touchNavigationGuard,
+    setTouchNavigationGuard,
     onNavigateHash: handleInternalHashNavigate,
     uploadImageRef,
     deepLinkFocusGuard,
@@ -368,6 +380,21 @@ function App() {
   useEffect(() => {
     uploadImageRef.current = finalUploadImageAndInsert
   }, [finalUploadImageAndInsert])
+
+  const primeTouchNavigationGuard = useCallback(() => {
+    if (!isTouchOnlyDevice()) return
+    setTouchNavigationGuardValue(true)
+    suppressFocusRef.current = true
+    if (!editor || editor.isDestroyed) return
+    window.getSelection()?.removeAllRanges()
+    editor.view.dom.blur()
+    requestAnimationFrame(() => {
+      if (!editor.isDestroyed) {
+        window.getSelection()?.removeAllRanges()
+        editor.view.dom.blur()
+      }
+    })
+  }, [editor, suppressFocusRef, setTouchNavigationGuardValue])
 
   useEffect(() => {
     if (!session || !initialNavReady) return
@@ -448,6 +475,7 @@ function App() {
     setActiveSectionId(null)
     setActiveTrackerId(null)
     setSettingsMode(null)
+    setTouchNavigationGuardValue(false)
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
   }
@@ -460,10 +488,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    suppressFocusRef.current = true
-    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
-      editor.view.dom.blur()
-    }
+    primeTouchNavigationGuard()
     setActiveNotebookId(nextNotebookId)
   }
 
@@ -475,10 +500,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    suppressFocusRef.current = true
-    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
-      editor.view.dom.blur()
-    }
+    primeTouchNavigationGuard()
     setActiveSectionId(sectionId)
   }
 
@@ -490,10 +512,7 @@ function App() {
     hashBlockRef.current = null
     setDeepLinkFocusGuardValue(false)
     pendingNavRef.current = null
-    suppressFocusRef.current = true
-    if (isTouchOnlyDevice() && editor && !editor.isDestroyed) {
-      editor.view.dom.blur()
-    }
+    primeTouchNavigationGuard()
     setActiveTrackerId(trackerId)
     if (isMobileViewport) {
       setMobileSidebarOpen(false)

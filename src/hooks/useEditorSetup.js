@@ -58,6 +58,9 @@ export const useEditorSetup = ({
   scheduleSettingsSave,
   pendingNavRef,
   pendingEditTapRef,
+  touchNavigationGuardRef,
+  touchNavigationGuard,
+  setTouchNavigationGuard,
   onNavigateHash,
   uploadImageRef,
   deepLinkFocusGuard,
@@ -94,6 +97,7 @@ export const useEditorSetup = ({
   })
   const pendingPasteFixRef = useRef(false)
   const previousDeepLinkFocusGuardRef = useRef(deepLinkFocusGuard)
+  const previousTouchNavigationGuardRef = useRef(touchNavigationGuard)
   const pendingDesktopDeepLinkRecoveryRef = useRef(false)
 
   // getListDepthAt and getListItemTypeAt are imported from utils/listHelpers.js
@@ -389,15 +393,25 @@ export const useEditorSetup = ({
       const rawContent = normalizeContent(activeTrackerRef.current?.content)
       const currentContent = sanitizeContentForSave(editor.getJSON())
       if (JSON.stringify(currentContent) === JSON.stringify(rawContent)) {
+        const touchNavigationGuard = isTouchOnlyDevice() && touchNavigationGuardRef?.current
         const suppressProgrammaticFocus = isTouchOnlyDevice() && deepLinkFocusGuard
         markLoadReady(activeTrackerId ?? null)
         suppressSaveRef.current = false
         suppressFocusRef.current = true
         setEditorLocked(false)
-        if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
+        if (!editor.isDestroyed) editor.setEditable(!(suppressProgrammaticFocus || touchNavigationGuard))
         if (isTouchOnlyDevice() && !editor.isDestroyed) {
           if (!suppressProgrammaticFocus) window.getSelection()?.removeAllRanges()
+          // Android Chrome can restore focus immediately after ProseMirror
+          // re-enables editing during navigation. Blur twice across frames so
+          // sidebar/page switches don't reopen the keyboard.
           editor.view.dom.blur()
+          requestAnimationFrame(() => {
+            if (!editor.isDestroyed) editor.view.dom.blur()
+          })
+        }
+        if (touchNavigationGuard) {
+          return
         }
         clearFocusTimer = setTimeout(() => {
           suppressFocusRef.current = false
@@ -418,25 +432,32 @@ export const useEditorSetup = ({
       setEditorLocked(false)
       const pending = pendingNavRef.current
       const hasPendingBlock = pending?.blockId && pending.pageId === activeTrackerId
+      const touchNavigationGuard = isTouchOnlyDevice() && touchNavigationGuardRef?.current
       const suppressProgrammaticFocus =
         isTouchOnlyDevice() && deepLinkFocusGuard && hasPendingBlock
       // Move selection to the start of the document before re-enabling
       // editable.  setEditable(true) triggers ProseMirror's selectionToDOM()
       // which causes the browser to auto-scroll to the caret.  By placing
       // the caret at position 1 (start), that native scroll targets the top.
-      if (!editor.isDestroyed && !suppressProgrammaticFocus) {
+      if (!editor.isDestroyed && !suppressProgrammaticFocus && !touchNavigationGuard) {
         editor.commands.setTextSelection(1)
       }
-      if (!editor.isDestroyed) editor.setEditable(!suppressProgrammaticFocus)
+      if (!editor.isDestroyed) editor.setEditable(!(suppressProgrammaticFocus || touchNavigationGuard))
       if (isTouchOnlyDevice() && !editor.isDestroyed) {
         // After setEditable(true), ProseMirror syncs its selection to the DOM.
         // On Android Chrome, a DOM selection inside a contenteditable is enough
         // to trigger the keyboard even without an explicit focus() call. Clear
-        // the selection and blur so the keyboard only appears on a real user tap.
+        // the selection and blur across two frames so the keyboard only appears
+        // after a deliberate tap back into the editor.
         if (!suppressProgrammaticFocus) window.getSelection()?.removeAllRanges()
         editor.view.dom.blur()
+        requestAnimationFrame(() => {
+          if (!editor.isDestroyed) editor.view.dom.blur()
+        })
       }
-      if (hasPendingBlock) {
+      if (touchNavigationGuard) {
+        return
+      } else if (hasPendingBlock) {
         const attemptScroll = (attempts = 0) => {
           if (!mounted) return
           const success = scrollToBlock(pending.blockId, attempts)
@@ -446,9 +467,11 @@ export const useEditorSetup = ({
         }
         requestAnimationFrame(() => attemptScroll())
       }
-      clearFocusTimer = setTimeout(() => {
-        suppressFocusRef.current = false
-      }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
+      if (!touchNavigationGuard) {
+        clearFocusTimer = setTimeout(() => {
+          suppressFocusRef.current = false
+        }, hasPendingBlock ? 600 : isTouchOnlyDevice() ? 300 : 50)
+      }
     }
     let clearFocusTimer
     setContent()
@@ -483,10 +506,12 @@ export const useEditorSetup = ({
     if (!editor || editor.isDestroyed) return
     if (editorLocked || settingsMode) return
     const isTouchDevice = isTouchOnlyDevice()
-    const wasGuarded = previousDeepLinkFocusGuardRef.current
+    const wasGuarded =
+      previousDeepLinkFocusGuardRef.current || previousTouchNavigationGuardRef.current
     previousDeepLinkFocusGuardRef.current = deepLinkFocusGuard
+    previousTouchNavigationGuardRef.current = touchNavigationGuard
     const suppressProgrammaticFocus =
-      isTouchDevice && deepLinkFocusGuard
+      isTouchDevice && (deepLinkFocusGuard || touchNavigationGuard)
     if (suppressProgrammaticFocus) {
       pendingDesktopDeepLinkRecoveryRef.current = false
       editor.setEditable(false)
@@ -522,7 +547,7 @@ export const useEditorSetup = ({
       return
     }
     editor.setEditable(true)
-  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard, pendingEditTapRef])
+  }, [editor, editorLocked, settingsMode, deepLinkFocusGuard, touchNavigationGuard, pendingEditTapRef])
 
   // Desktop fallback for issue #61: when a deep-link highlight is cleared by a click
   // outside the editor, recover focus/caret on the next in-editor click.

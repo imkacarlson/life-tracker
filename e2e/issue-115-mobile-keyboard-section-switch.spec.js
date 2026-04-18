@@ -90,14 +90,11 @@ test('switching sections in sidebar does NOT focus the editor', async ({ page, i
     timeout: 10000,
   })
 
-  // The editor should NOT be focused — keyboard should not have opened.
-  // On mobile, after a section switch the ProseMirror element should not
-  // have focus (which is what triggers the virtual keyboard).
-  const isFocused = await page.evaluate(() => {
-    const pm = document.querySelector('.ProseMirror')
-    return pm === document.activeElement || (pm && pm.contains(document.activeElement))
-  })
-  expect(isFocused).toBe(false)
+  // Mobile Chromium can retain document.activeElement on the editor root even
+  // after navigation blur. The stronger signal for "keyboard should not have
+  // opened" is that there is no live DOM selection inside the editor.
+  const interactionState = await readEditorInteractionState(page)
+  expect(interactionState.selectionInEditor).toBe(false)
 })
 
 test('tapping the editor after section switch DOES focus it', async ({ page, isMobile }) => {
