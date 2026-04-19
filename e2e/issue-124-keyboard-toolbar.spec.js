@@ -91,6 +91,20 @@ test('bold button works from the mobile toolbar', async ({ page, isMobile }) => 
   expect(hasBold).toBe(true)
 })
 
+test('indent and outdent buttons are visible in collapsed mobile toolbar without expanding', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'Mobile-only test')
+
+  const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
+  await waitForApp(page, hash, { expectedText: 'Keyboard toolbar test content' })
+
+  // Do NOT click expand toggle — buttons must be reachable in collapsed state
+  const indentBtn = page.getByTestId('toolbar-indent')
+  const outdentBtn = page.getByTestId('toolbar-outdent')
+
+  await expect(indentBtn).toBeVisible()
+  await expect(outdentBtn).toBeVisible()
+})
+
 test('editor-panel reserves space so content is not hidden behind the toolbar', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
