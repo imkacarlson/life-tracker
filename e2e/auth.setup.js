@@ -73,7 +73,16 @@ setup('authenticate test user', async ({ page }) => {
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.getByRole('button', { name: 'Log out' }).waitFor({ timeout: 15000 })
+
+  const logoutButton = page.getByRole('button', { name: 'Log out' })
+  const accountMenuButton = page.getByRole('button', { name: 'Open account and settings menu' })
+  const signInTimeout = 15000
+
+  await Promise.any([
+    logoutButton.waitFor({ state: 'visible', timeout: signInTimeout }),
+    accountMenuButton.waitFor({ state: 'visible', timeout: signInTimeout }),
+  ])
+
   await page.evaluate(({ selectionKey, selectionValue }) => {
     window.localStorage.setItem(selectionKey, JSON.stringify(selectionValue))
   }, {

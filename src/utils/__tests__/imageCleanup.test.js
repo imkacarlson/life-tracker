@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { findRemovedImagePaths, collectAllImagePaths } from '../imageCleanup'
+import {
+  findRemovedImagePaths,
+  collectAllImagePaths,
+  collectImagePathsForCleanup,
+} from '../imageCleanup'
 
 // Helper to build a minimal Tiptap doc with image nodes
 const makeDoc = (...imagePaths) => ({
@@ -89,5 +93,54 @@ describe('collectAllImagePaths', () => {
     ]
     const paths = collectAllImagePaths(pages)
     expect(paths).toEqual(['images/shared.png'])
+  })
+})
+
+describe('collectImagePathsForCleanup', () => {
+  it('merges pages observed across settling reads', async () => {
+    const responses = [
+      { data: [], error: null },
+      { data: [{ id: '1', content: makeDoc('images/a.png') }], error: null },
+      {
+        data: [
+          { id: '1', content: makeDoc('images/a.png') },
+          { id: '2', content: makeDoc('images/b.png') },
+        ],
+        error: null,
+      },
+      {
+        data: [
+          { id: '1', content: makeDoc('images/a.png') },
+          { id: '2', content: makeDoc('images/b.png') },
+        ],
+        error: null,
+      },
+    ]
+    let index = 0
+
+    const result = await collectImagePathsForCleanup(
+      async () => responses[index++] ?? responses.at(-1),
+      { attempts: 4, delayMs: 0 },
+    )
+
+    expect(result.error).toBeNull()
+    expect(result.imagePaths).toEqual(['images/a.png', 'images/b.png'])
+  })
+
+  it('returns partial image paths with the query error when a later read fails', async () => {
+    const responses = [
+      { data: [{ id: '1', content: makeDoc('images/a.png') }], error: null },
+      { data: null, error: new Error('Bad Gateway') },
+    ]
+    let index = 0
+
+    const result = await collectImagePathsForCleanup(
+      async () => responses[index++] ?? responses.at(-1),
+      { attempts: 2, delayMs: 0 },
+    )
+
+    expect(result.imagePaths).toEqual(['images/a.png'])
+    expect(result.error).toBeInstanceOf(Error)
+    expect(result.error.message).toContain('Bad Gateway')
   })
 })

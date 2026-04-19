@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
-import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
+import {
+  deleteImagesFromStorage,
+  collectImagePathsForCleanup,
+} from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
@@ -224,18 +227,20 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     if (!confirmDelete) return
 
     // Collect image paths from all pages in this section before cascade delete.
-    const { data: pages, error: pagesError } = await supabase
-      .from('pages')
-      .select('id, content')
-      .eq('section_id', section.id)
-      .order('id')
+    const { imagePaths, error: pagesError } = await collectImagePathsForCleanup(() =>
+      runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('pages')
+          .select('id, content')
+          .eq('section_id', section.id)
+          .order('id'),
+      ),
+    )
 
     if (pagesError) {
       setMessage(pagesError.message)
       return
     }
-
-    const imagePaths = collectAllImagePaths(pages ?? [])
 
     const { error } = await supabase.from('sections').delete().eq('id', section.id)
 

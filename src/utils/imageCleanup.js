@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
 import { collectStoragePaths } from './contentHelpers'
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Delete image files from Supabase Storage, but ONLY if no other page or
@@ -103,4 +104,49 @@ export const collectAllImagePaths = (pages) => {
     }
   }
   return [...paths]
+}
+
+/**
+ * Collect image paths from pages returned by a query function that may observe
+ * read-after-write lag. We merge pages seen across repeated reads so deleting a
+ * freshly created section/notebook does not orphan images if the first read is incomplete.
+ */
+export const collectImagePathsForCleanup = async (
+  loadPages,
+  { attempts = 4, delayMs = 250 } = {},
+) => {
+  const pagesById = new Map()
+  let stableNonEmptyReads = 0
+  let previousPageCount = -1
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const { data, error } = await loadPages()
+    if (error) {
+      return { imagePaths: collectAllImagePaths([...pagesById.values()]), error }
+    }
+
+    for (const page of data ?? []) {
+      if (page?.id) {
+        pagesById.set(page.id, page)
+      }
+    }
+
+    const pageCount = pagesById.size
+    if (pageCount > 0 && pageCount === previousPageCount) {
+      stableNonEmptyReads += 1
+    } else {
+      stableNonEmptyReads = pageCount > 0 ? 1 : 0
+    }
+    previousPageCount = pageCount
+
+    if (pageCount > 0 && stableNonEmptyReads >= 2) {
+      break
+    }
+
+    if (attempt < attempts - 1) {
+      await wait(delayMs)
+    }
+  }
+
+  return { imagePaths: collectAllImagePaths([...pagesById.values()]), error: null }
 }
