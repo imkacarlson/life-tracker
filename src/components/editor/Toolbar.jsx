@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTouchOnlyDevice } from '../../utils/device'
 import { toggleLineStrike } from '../../extensions/keyboard/toggleLineStrike'
+import { useKeepCursorVisible } from '../../hooks/useKeepCursorVisible'
 import FindBar from './FindBar'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
@@ -146,6 +147,9 @@ function Toolbar({
       document.documentElement.style.removeProperty('--toolbar-height')
     }
   }, [isTouchOnly, toolbarRef])
+
+  // When the toolbar expands on mobile, scroll so the cursor stays visible above it.
+  useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef })
 
   // Outside click and escape handlers for pickers
   useEffect(() => {
