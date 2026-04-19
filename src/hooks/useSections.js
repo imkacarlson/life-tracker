@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { COLOR_PALETTE } from '../utils/constants'
-import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
+import {
+  deleteImagesFromStorage,
+  collectImagePathsForCleanup,
+} from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
@@ -224,18 +227,20 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     if (!confirmDelete) return
 
     // Collect image paths from all pages in this section before cascade delete.
-    const { data: pages, error: pagesError } = await supabase
-      .from('pages')
-      .select('id, content')
-      .eq('section_id', section.id)
-      .order('id')
+    const { imagePaths, error: pagesError } = await collectImagePathsForCleanup(() =>
+      runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('pages')
+          .select('id, content')
+          .eq('section_id', section.id)
+          .order('id'),
+      ),
+    )
 
     if (pagesError) {
       setMessage(pagesError.message)
       return
     }
-
-    const imagePaths = collectAllImagePaths(pages ?? [])
 
     const { error } = await supabase.from('sections').delete().eq('id', section.id)
 
@@ -272,13 +277,54 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     return true
   }
 
-  const getUniqueSectionTitle = async (title, destNotebookId) => {
-    const { data: existing } = await supabase
-      .from('sections')
-      .select('title')
-      .eq('notebook_id', destNotebookId)
+  const waitForSectionVisibility = useCallback(async (sectionId, timeoutMs = 5000) => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('sections')
+          .select('id')
+          .eq('id', sectionId)
+          .maybeSingle(),
+      )
 
-    const titles = new Set((existing ?? []).map((s) => s.title))
+      if (error) {
+        throw error
+      }
+
+      if (data?.id === sectionId) {
+        return
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    throw new Error(`Timed out waiting for section ${sectionId} to become readable`)
+  }, [])
+
+  const getUniqueSectionTitle = async (title, destNotebookId) => {
+    const localTitles =
+      destNotebookId === activeNotebookId
+        ? sections
+            .filter((section) => section?.title)
+            .map((section) => section.title)
+        : []
+
+    const { data: existing, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('sections')
+        .select('title')
+        .eq('notebook_id', destNotebookId),
+    )
+
+    if (error) {
+      throw error
+    }
+
+    const titles = new Set([
+      ...localTitles,
+      ...(existing ?? []).map((section) => section.title).filter(Boolean),
+    ])
     if (!titles.has(title)) return title
 
     let counter = 1
@@ -290,7 +336,14 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
   const copySection = async (section, destNotebookId, session) => {
     if (!section || !destNotebookId || !session) return
-    const uniqueTitle = await getUniqueSectionTitle(section.title, destNotebookId)
+    let uniqueTitle = null
+    try {
+      uniqueTitle = await getUniqueSectionTitle(section.title, destNotebookId)
+    } catch (error) {
+      setMessage(error.message)
+      return
+    }
+
     const { data: newSection, error: sectionError } = await supabase
       .from('sections')
       .insert({
@@ -304,6 +357,13 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
     if (sectionError) {
       setMessage(sectionError.message)
+      return
+    }
+
+    try {
+      await waitForSectionVisibility(newSection.id)
+    } catch (error) {
+      setMessage(error.message)
       return
     }
 

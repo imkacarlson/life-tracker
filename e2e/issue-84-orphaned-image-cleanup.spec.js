@@ -9,6 +9,7 @@ import {
 } from './test-helpers'
 
 const BUCKET = 'tracker-images'
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // Helper: upload a tiny 1x1 PNG to storage and return the storage path.
 const uploadTestImage = async (client, userId, fileName) => {
@@ -33,12 +34,23 @@ const uploadTestImage = async (client, userId, fileName) => {
 const storageFileExists = async (client, storagePath) => {
   const [folder = '', fileName = ''] = storagePath.split(/\/(.+)/)
   if (!folder || !fileName) return false
-  const { data, error } = await client.storage.from(BUCKET).list(folder, {
-    limit: 1000,
-    sortBy: { column: 'name', order: 'asc' },
-  })
-  if (error) return false
-  return (data ?? []).some((entry) => entry.name === fileName)
+  let lastError = null
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await client.storage.from(BUCKET).list(folder, {
+      limit: 1000,
+      sortBy: { column: 'name', order: 'asc' },
+    })
+
+    if (!error) {
+      return (data ?? []).some((entry) => entry.name === fileName)
+    }
+
+    lastError = error
+    await sleep(250 * (attempt + 1))
+  }
+
+  throw new Error(`Unable to check storage file existence for ${storagePath}: ${lastError?.message ?? 'unknown error'}`)
 }
 
 // Helper: clean up a storage file (best-effort).
@@ -51,19 +63,33 @@ const cleanupStorageFile = async (client, storagePath) => {
 // the async deletion to propagate through Supabase.
 const waitForStorageFileDeletion = async (client, storagePath, timeoutMs = 30000) => {
   const start = Date.now()
+  let lastError = null
   while (Date.now() - start < timeoutMs) {
-    if (!(await storageFileExists(client, storagePath))) return true
-    await new Promise((r) => setTimeout(r, 500))
+    try {
+      if (!(await storageFileExists(client, storagePath))) return true
+      lastError = null
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(500)
   }
+  if (lastError) throw lastError
   return false
 }
 
 const waitForStorageFileExistence = async (client, storagePath, timeoutMs = 10000) => {
   const start = Date.now()
+  let lastError = null
   while (Date.now() - start < timeoutMs) {
-    if (await storageFileExists(client, storagePath)) return true
-    await new Promise((r) => setTimeout(r, 500))
+    try {
+      if (await storageFileExists(client, storagePath)) return true
+      lastError = null
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(500)
   }
+  if (lastError) throw lastError
   return false
 }
 
@@ -261,7 +287,13 @@ test.describe('Issue #84 orphaned image cleanup', () => {
       await expect(page.locator('.ProseMirror')).toContainText('Some text before the image. extra text')
 
       // Wait for auto-save to persist the typed text before checking storage
-      await waitForPageContent(client, pg.id, (content) => JSON.stringify(content).includes('extra text'))
+      await waitForPageContent(
+        client,
+        pg.id,
+        (content) =>
+          JSON.stringify(content).includes('extra text') &&
+          JSON.stringify(content).includes(storagePath),
+      )
 
       // Image should still exist after the text-only save finishes propagating.
       const exists = await waitForStorageFileExistence(client, storagePath, 10000)

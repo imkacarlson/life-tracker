@@ -15,6 +15,7 @@ const TRACKER_IMAGES_BUCKET = 'tracker-images'
 const WORKSPACE_SELECTOR = '.workspace'
 const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
 const EDITOR_SELECTOR = '.ProseMirror'
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Returns an authenticated Supabase client and the test user's ID.
@@ -60,15 +61,30 @@ export const listUserStoragePaths = async (client, userId, bucket = TRACKER_IMAG
   let offset = 0
 
   while (true) {
-    const { data, error } = await client.storage
-      .from(bucket)
-      .list(userId, {
-        limit: 1000,
-        offset,
-        sortBy: { column: 'name', order: 'asc' },
-      })
+    let response = null
+    let lastError = null
 
-    if (error) throw error
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      response = await client.storage
+        .from(bucket)
+        .list(userId, {
+          limit: 1000,
+          offset,
+          sortBy: { column: 'name', order: 'asc' },
+        })
+
+      if (!response.error) {
+        lastError = null
+        break
+      }
+
+      lastError = response.error
+      await sleep(250 * (attempt + 1))
+    }
+
+    if (lastError) throw lastError
+
+    const { data } = response
 
     const files = (data ?? []).filter((entry) => entry.name && entry.id)
     for (const file of files) {
@@ -100,8 +116,17 @@ export const purgeTestUserData = async (
     const storagePaths = await listUserStoragePaths(client, userId, bucket)
     for (let index = 0; index < storagePaths.length; index += 100) {
       const chunk = storagePaths.slice(index, index + 100)
-      const { error } = await client.storage.from(bucket).remove(chunk)
-      if (error) throw error
+      let lastError = null
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const { error } = await client.storage.from(bucket).remove(chunk)
+        if (!error) {
+          lastError = null
+          break
+        }
+        lastError = error
+        await sleep(250 * (attempt + 1))
+      }
+      if (lastError) throw lastError
     }
   }
 

@@ -6,7 +6,6 @@ import {
   createPage,
   createSection,
   getSupabase,
-  purgeTestUserData,
   waitForApp,
 } from './test-helpers'
 
@@ -44,6 +43,8 @@ const waitForSectionVisibility = async (client, sectionId, timeoutMs = 5000) => 
 }
 
 setup('authenticate test user', async ({ page }) => {
+  setup.setTimeout(90000)
+
   const email = process.env.TEST_USER_EMAIL
   const password = process.env.TEST_USER_PASSWORD
 
@@ -55,8 +56,6 @@ setup('authenticate test user', async ({ page }) => {
   }
 
   const { client, userId } = await getSupabase()
-
-  await purgeTestUserData(client, userId)
 
   const notebook = await createNotebook(client, userId, 'E2E Baseline Notebook', -9999)
   const section = await createSection(client, userId, notebook.id, 'E2E Baseline Section', 0)
@@ -73,7 +72,16 @@ setup('authenticate test user', async ({ page }) => {
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.getByRole('button', { name: 'Log out' }).waitFor({ timeout: 15000 })
+
+  const logoutButton = page.getByRole('button', { name: 'Log out' })
+  const accountMenuButton = page.getByRole('button', { name: 'Open account and settings menu' })
+  const signInTimeout = 15000
+
+  await Promise.any([
+    logoutButton.waitFor({ state: 'visible', timeout: signInTimeout }),
+    accountMenuButton.waitFor({ state: 'visible', timeout: signInTimeout }),
+  ])
+
   await page.evaluate(({ selectionKey, selectionValue }) => {
     window.localStorage.setItem(selectionKey, JSON.stringify(selectionValue))
   }, {

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { deleteImagesFromStorage, collectAllImagePaths } from '../utils/imageCleanup'
+import {
+  deleteImagesFromStorage,
+  collectImagePathsForCleanup,
+} from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
@@ -111,31 +114,35 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
 
     // Collect image paths from all pages in this notebook before cascade delete.
     // Join through sections to find all pages belonging to this notebook.
-    const { data: sectionRows, error: sectionsError } = await supabase
-      .from('sections')
-      .select('id')
-      .eq('notebook_id', notebook.id)
+    const { imagePaths, error: pagesError } = await collectImagePathsForCleanup(async () => {
+      const { data: sectionRows, error: sectionsError } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('sections')
+          .select('id')
+          .eq('notebook_id', notebook.id),
+      )
 
-    if (sectionsError) {
-      setMessage(sectionsError.message)
-      return
-    }
-
-    let imagePaths = []
-    const sectionIds = (sectionRows ?? []).map((s) => s.id)
-    if (sectionIds.length > 0) {
-      const { data: pages, error: pagesError } = await supabase
-        .from('pages')
-        .select('id, content')
-        .in('section_id', sectionIds)
-        .order('id')
-
-      if (pagesError) {
-        setMessage(pagesError.message)
-        return
+      if (sectionsError) {
+        return { data: null, error: sectionsError }
       }
 
-      imagePaths = collectAllImagePaths(pages ?? [])
+      const sectionIds = (sectionRows ?? []).map((sectionRow) => sectionRow.id)
+      if (sectionIds.length === 0) {
+        return { data: [], error: null }
+      }
+
+      return runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('pages')
+          .select('id, content')
+          .in('section_id', sectionIds)
+          .order('id'),
+      )
+    })
+
+    if (pagesError) {
+      setMessage(pagesError.message)
+      return
     }
 
     const { error } = await supabase.from('notebooks').delete().eq('id', notebook.id)
