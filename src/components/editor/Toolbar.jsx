@@ -276,6 +276,32 @@ function Toolbar({
           >
             <BulletListIcon />
           </button>
+          {isTouchOnly && (
+            <>
+              <button
+                type="button"
+                className="toolbar-btn"
+                onClick={handleOutdent}
+                disabled={!hasTracker || !isInList}
+                title="Outdent"
+                aria-label="Outdent list item"
+                data-testid="toolbar-outdent"
+              >
+                <OutdentIcon />
+              </button>
+              <button
+                type="button"
+                className="toolbar-btn"
+                onClick={handleIndent}
+                disabled={!hasTracker || !isInList}
+                title="Indent"
+                aria-label="Indent list item"
+                data-testid="toolbar-indent"
+              >
+                <IndentIcon />
+              </button>
+            </>
+          )}
         </div>
 
         {/* Link + Undo group */}
@@ -429,32 +455,6 @@ function Toolbar({
           >
             <TaskListIcon />
           </button>
-          {isTouchOnly && (
-            <>
-              <button
-                type="button"
-                className="toolbar-btn"
-                onClick={handleOutdent}
-                disabled={!hasTracker || !isInList}
-                title="Outdent"
-                aria-label="Outdent list item"
-                data-testid="toolbar-outdent"
-              >
-                <OutdentIcon />
-              </button>
-              <button
-                type="button"
-                className="toolbar-btn"
-                onClick={handleIndent}
-                disabled={!hasTracker || !isInList}
-                title="Indent"
-                aria-label="Indent list item"
-                data-testid="toolbar-indent"
-              >
-                <IndentIcon />
-              </button>
-            </>
-          )}
         </div>
 
         {/* Alignment */}
