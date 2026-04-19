@@ -6,7 +6,6 @@ import {
   createPage,
   createSection,
   getSupabase,
-  purgeTestUserData,
   waitForApp,
 } from './test-helpers'
 
@@ -44,6 +43,8 @@ const waitForSectionVisibility = async (client, sectionId, timeoutMs = 5000) => 
 }
 
 setup('authenticate test user', async ({ page }) => {
+  setup.setTimeout(90000)
+
   const email = process.env.TEST_USER_EMAIL
   const password = process.env.TEST_USER_PASSWORD
 
@@ -55,8 +56,6 @@ setup('authenticate test user', async ({ page }) => {
   }
 
   const { client, userId } = await getSupabase()
-
-  await purgeTestUserData(client, userId)
 
   const notebook = await createNotebook(client, userId, 'E2E Baseline Notebook', -9999)
   const section = await createSection(client, userId, notebook.id, 'E2E Baseline Section', 0)

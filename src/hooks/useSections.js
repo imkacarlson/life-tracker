@@ -277,13 +277,54 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     return true
   }
 
-  const getUniqueSectionTitle = async (title, destNotebookId) => {
-    const { data: existing } = await supabase
-      .from('sections')
-      .select('title')
-      .eq('notebook_id', destNotebookId)
+  const waitForSectionVisibility = useCallback(async (sectionId, timeoutMs = 5000) => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('sections')
+          .select('id')
+          .eq('id', sectionId)
+          .maybeSingle(),
+      )
 
-    const titles = new Set((existing ?? []).map((s) => s.title))
+      if (error) {
+        throw error
+      }
+
+      if (data?.id === sectionId) {
+        return
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    throw new Error(`Timed out waiting for section ${sectionId} to become readable`)
+  }, [])
+
+  const getUniqueSectionTitle = async (title, destNotebookId) => {
+    const localTitles =
+      destNotebookId === activeNotebookId
+        ? sections
+            .filter((section) => section?.title)
+            .map((section) => section.title)
+        : []
+
+    const { data: existing, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('sections')
+        .select('title')
+        .eq('notebook_id', destNotebookId),
+    )
+
+    if (error) {
+      throw error
+    }
+
+    const titles = new Set([
+      ...localTitles,
+      ...(existing ?? []).map((section) => section.title).filter(Boolean),
+    ])
     if (!titles.has(title)) return title
 
     let counter = 1
@@ -295,7 +336,14 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
   const copySection = async (section, destNotebookId, session) => {
     if (!section || !destNotebookId || !session) return
-    const uniqueTitle = await getUniqueSectionTitle(section.title, destNotebookId)
+    let uniqueTitle = null
+    try {
+      uniqueTitle = await getUniqueSectionTitle(section.title, destNotebookId)
+    } catch (error) {
+      setMessage(error.message)
+      return
+    }
+
     const { data: newSection, error: sectionError } = await supabase
       .from('sections')
       .insert({
@@ -309,6 +357,13 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
 
     if (sectionError) {
       setMessage(sectionError.message)
+      return
+    }
+
+    try {
+      await waitForSectionVisibility(newSection.id)
+    } catch (error) {
+      setMessage(error.message)
       return
     }
 
