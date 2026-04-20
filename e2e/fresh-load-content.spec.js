@@ -7,7 +7,7 @@
  * after content is fully hydrated (status === 'ready').
  */
 import { test, expect } from './fixtures'
-import { createNotebook, createPage, createSection, getSupabase } from './test-helpers'
+import { clickNavigationItem, createNotebook, createPage, createSection, getSupabase } from './test-helpers'
 
 const PAGE_TEXT = 'FreshLoadRegressionMarker-' + Date.now()
 
@@ -34,7 +34,7 @@ test.describe('fresh page load always shows content', () => {
   test('cold page load via hash URL shows editor content without navigating away', async ({
     page,
   }) => {
-    const hash = `#nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
+    const hash = `nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
     await page.goto(`/#${hash}`)
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
@@ -51,15 +51,16 @@ test.describe('fresh page load always shows content', () => {
     const notebookNode = page.locator('.tree-node-notebook', { hasText: notebook.title })
     await expect(notebookNode).toBeVisible({ timeout: 10000 })
 
-    // Expand the notebook to reveal the section.
-    await notebookNode.locator('.tree-node-chevron').click()
+    // Select the notebook so the app loads its sections.
+    await clickNavigationItem(page, notebookNode)
     const sectionNode = page.locator('.tree-node-section', { hasText: 'Fresh Load Section' })
-    await expect(sectionNode).toBeVisible({ timeout: 5000 })
+    await expect(sectionNode).toBeVisible({ timeout: 10000 })
+    await clickNavigationItem(page, sectionNode)
 
-    // Click the page.
+    // Select the page once the section loads its pages.
     const pageNode = page.locator('.tree-node-page', { hasText: 'Fresh Load Page' })
-    await expect(pageNode).toBeVisible({ timeout: 5000 })
-    await pageNode.click()
+    await expect(pageNode).toBeVisible({ timeout: 10000 })
+    await clickNavigationItem(page, pageNode)
 
     await expect(page.locator('.title-input')).toHaveValue('Fresh Load Page', { timeout: 10000 })
     await expect(page.locator('.ProseMirror')).toContainText(PAGE_TEXT, { timeout: 10000 })

@@ -674,7 +674,7 @@ function EditorPanel({
   }, [editor])
 
   useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed || !editor.view?.dom) return
     const dom = editor.view.dom
 
     const isTouchContextMenuEvent = (event) => {

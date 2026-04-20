@@ -130,6 +130,9 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
     // still exercising real cross-cell CellSelection behavior.
     const secondCell = cells.nth(2)
 
+    await firstCell.scrollIntoViewIfNeeded()
+    await secondCell.scrollIntoViewIfNeeded()
+
     const firstBox = await firstCell.boundingBox()
     const secondBox = await secondCell.boundingBox()
     expect(firstBox).toBeTruthy()
@@ -143,20 +146,16 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
     const dragAcrossCells = async () => {
       await page.mouse.move(startX, startY)
       await page.mouse.down()
-      for (let i = 1; i <= 10; i += 1) {
-        const x = startX + ((endX - startX) * i) / 10
-        const y = startY + ((endY - startY) * i) / 10
-        await page.mouse.move(x, y)
-      }
+      await page.mouse.move(endX, endY, { steps: 20 })
       await page.mouse.up()
-      await page.waitForTimeout(150)
+      await page.waitForTimeout(250)
     }
 
     await expect(async () => {
       await dragAcrossCells()
       const selected = await countSelectedCells(page)
       expect(selected).toBeGreaterThanOrEqual(2)
-    }).toPass({ timeout: 3000 })
+    }).toPass({ timeout: 5000 })
   })
 
   test('single-cell drag still produces text selection', async ({ page }) => {

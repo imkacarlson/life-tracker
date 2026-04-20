@@ -125,8 +125,8 @@ export function useTrackerSession({
     templateContentRef,
   ])
 
-  const mode = computeSessionMode(settingsMode, activeTrackerId)
-  const sessionKey = computeSessionKey(mode, activeTrackerId, nonce, activeTracker, settingsContentVersion)
-
-  return { session, sessionKey, bumpSessionNonce }
+  // Key the editor off the committed session state, not the optimistic derived
+  // inputs. Otherwise the editor can mount with EMPTY_DOC while hydration is
+  // still in flight and then miss the later ready-state content.
+  return { session, sessionKey: session.id, bumpSessionNonce }
 }

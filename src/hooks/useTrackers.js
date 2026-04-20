@@ -612,6 +612,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   const resolveConflictWithServer = useCallback(() => {
     if (!draftConflict) return
     clearPageDraft(draftConflict.trackerId)
+    setActiveDraft(null)
     setDraftConflict(null)
     setDraftInvalidation((n) => n + 1)
   }, [draftConflict])
