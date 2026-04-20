@@ -674,7 +674,7 @@ function EditorPanel({
   }, [editor])
 
   useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed || !editor.view?.dom) return
     const dom = editor.view.dom
 
     const isTouchContextMenuEvent = (event) => {
@@ -1295,7 +1295,11 @@ function EditorPanel({
         onSubmit={handleAiInsertSubmit}
       />
 
-      <EditorShell ref={editorShellRef} hasTracker={hasTracker} editor={editor} />
+      {editorLocked && hasTracker ? (
+        <div className="editor-loading-skeleton" aria-hidden="true" />
+      ) : (
+        <EditorShell ref={editorShellRef} hasTracker={hasTracker} editor={editor} />
+      )}
 
       {isZoomSupported && zoomLevel !== 1.0 && (
         <button

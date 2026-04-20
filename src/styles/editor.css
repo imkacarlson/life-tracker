@@ -66,6 +66,11 @@
   flex: 1;
 }
 
+.editor-loading-skeleton {
+  flex: 1;
+  min-height: 0;
+}
+
 .editor-content,
 .ProseMirror {
   min-height: 0;

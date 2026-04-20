@@ -280,6 +280,29 @@ const waitForWorkspaceReady = async (page) => {
   await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 30000 })
 }
 
+const isTreeItemActive = async (locator) => {
+  try {
+    return await locator.evaluate((el) =>
+      el.classList.contains('active') || el.getAttribute('aria-current') === 'page',
+    )
+  } catch {
+    return false
+  }
+}
+
+const clickTreeItemByTitle = async (page, selector, title, options) => {
+  const locator = page.locator(selector, { hasText: title }).first()
+  if (!(await locator.count())) return false
+
+  if (await isTreeItemActive(locator)) {
+    await expect(locator).toBeVisible({ timeout: 10000 })
+    return true
+  }
+
+  await clickNavigationItem(page, locator, options)
+  return true
+}
+
 const navigateViaHashChange = async (page, hash) => {
   if (!hash || hash === '/') return
   const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
@@ -356,28 +379,13 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
 
       await loadRootWorkspace()
       if (treeTitles.notebookTitle) {
-        const notebookLocator = page
-          .locator('.tree-node-notebook', { hasText: treeTitles.notebookTitle })
-          .first()
-        if (await notebookLocator.count()) {
-          await clickNavigationItem(page, notebookLocator)
-        }
+        await clickTreeItemByTitle(page, '.tree-node-notebook', treeTitles.notebookTitle)
       }
       if (treeTitles.sectionTitle) {
-        const sectionLocator = page
-          .locator('.tree-node-section', { hasText: treeTitles.sectionTitle })
-          .first()
-        if (await sectionLocator.count()) {
-          await clickNavigationItem(page, sectionLocator)
-        }
+        await clickTreeItemByTitle(page, '.tree-node-section', treeTitles.sectionTitle)
       }
       if (treeTitles.pageTitle) {
-        const pageLocator = page
-          .locator('.tree-node-page', { hasText: treeTitles.pageTitle })
-          .first()
-        if (await pageLocator.count()) {
-          await clickNavigationItem(page, pageLocator)
-        }
+        await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
       }
       await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
     }
@@ -417,11 +425,25 @@ export const ensureNavigationHidden = async (page) => {
 
 export const clickNavigationItem = async (page, locator, options) => {
   await ensureNavigationVisible(page)
-  await expect(locator).toBeVisible({ timeout: 10000 })
-  await locator.evaluate((el) => {
-    el.scrollIntoView({ block: 'center', inline: 'nearest' })
-  })
-  await locator.click(options)
+  let lastError = null
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await expect(locator).toBeVisible({ timeout: 10000 })
+      await locator.evaluate((el) => {
+        el.scrollIntoView({ block: 'center', inline: 'nearest' })
+      })
+      await locator.click(options)
+      return
+    } catch (error) {
+      lastError = error
+      if (!/detached from the DOM/i.test(String(error))) {
+        throw error
+      }
+    }
+  }
+
+  throw lastError
 }
 
 /**

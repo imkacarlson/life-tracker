@@ -8,6 +8,7 @@ import { useNavigation } from './hooks/useNavigation'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
+import { useTrackerSession } from './hooks/useTrackerSession'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
 import {
@@ -354,14 +355,20 @@ function App() {
 
   const uploadImageRef = useRef(null)
 
-  const { editor, editorLocked, suppressFocusRef } = useEditorSetup({
-    session,
+  const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
     activeTrackerId,
     activeTracker,
+    dataLoading,
     settingsMode,
     settingsContentVersion,
     templateContentRef,
     hydrateContentWithSignedUrls,
+  })
+
+  const { editor, suppressFocusRef } = useEditorSetup({
+    authSession: session,
+    trackerSession,
+    sessionKey,
     scheduleSave,
     scheduleSettingsSave,
     pendingNavRef,
@@ -741,8 +748,9 @@ function App() {
         )}
         {isTemplateEditing && (
           <EditorPanel
+            key={sessionKey}
             editor={editor}
-            editorLocked={editorLocked}
+            editorLocked={trackerSession.status !== 'ready'}
             title="Daily Template"
             onTitleChange={() => {}}
             onDelete={() => {}}
@@ -770,8 +778,9 @@ function App() {
         {!settingsMode && (
           <>
             <EditorPanel
+              key={sessionKey}
               editor={editor}
-              editorLocked={editorLocked}
+              editorLocked={trackerSession.status !== 'ready'}
               title={titleDraft}
               onTitleChange={(value) => handleTitleChange(value, editor)}
               onDelete={deleteTracker}
@@ -832,20 +841,14 @@ function App() {
       <ConflictModal
         conflict={draftConflict}
         onUseServer={() => {
-          // Read from ref so the handler always sees the live conflict value,
-          // not a stale closure from a prior render.
-          const serverContent = draftConflictRef.current?.serverContent
+          // resolveConflictWithServer updates activeTracker content in state;
+          // bumpSessionNonce forces a session remount so the editor mounts with that content.
           resolveConflictWithServer()
-          if (editor && serverContent) {
-            editor.commands.setContent(serverContent, { emitUpdate: false })
-          }
+          bumpSessionNonce()
         }}
         onUseDraft={() => {
-          const draftContent = draftConflictRef.current?.draftContent
           resolveConflictWithDraft()
-          if (editor && draftContent) {
-            editor.commands.setContent(draftContent, { emitUpdate: false })
-          }
+          bumpSessionNonce()
         }}
       />
     </div>
