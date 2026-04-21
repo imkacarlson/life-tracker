@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TextSelection } from '@tiptap/pm/state'
 import { isTouchOnlyDevice } from '../../utils/device'
+import { mixColors } from '../../utils/colorUtils'
+import { serializeDocForExport } from '../../lib/serializeDocForExport'
+import { findInDocPluginKey } from '../../extensions/findInDoc'
 import { toggleLineStrike } from '../../extensions/keyboard/toggleLineStrike'
 import { useKeepCursorVisible } from '../../hooks/useKeepCursorVisible'
+import { useEditorUIStore } from '../../stores/editorUIStore'
 import FindBar from './FindBar'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
@@ -17,85 +22,42 @@ import {
 
 function Toolbar({
   editor,
-  hasTracker,
   controlsDisabled,
+  hasTracker,
   isTouchOnly,
-  toolbarExpanded,
-  setToolbarExpanded,
   toolbarRef,
-  // Editor interaction handlers (stay in EditorPanel)
-  handleSetLink,
-  handleSetTextAlign,
-  handleExportText,
-  handleCopyText,
-  handleGenerateToday,
-  handlePickImage,
-  handleFileChange,
-  handleIndent,
-  handleOutdent,
-  handleCopyLinkFromToolbar,
-  handleSetTrackerFromToolbar,
-  // Derived state
-  isInList,
-  inTable,
-  copyLabel,
-  aiLoading,
-  aiInsertLoading,
+  editorPanelRef,
+  onImageUpload,
+  onAiDailyGenerate,
   showAiDaily,
   showAiInsert,
+  title,
   toolbarDeepLinkHash,
   isCurrentPageTracker,
   trackerPageSaving,
   onSetTrackerPage,
+  handleSetTrackerFromToolbar,
   contextMenuItems,
-  // Find
-  findOpen,
-  findQuery,
-  findStatus,
-  findInputRef,
-  openFind,
-  closeFind,
-  handleFindQueryChange,
-  handleFindPrev,
-  handleFindNext,
-  // AI insert opener
-  setAiInsertOpen,
-  // File input ref
-  fileInputRef,
-  // AI daily date handlers
-  handleAiDailyPrevDay,
-  handleAiDailyNextDay,
-  handleAiDailyDateChange,
-  aiDailyDate,
-  // Table insert
-  handleInsertTable,
-  // Shading
-  shadingColor,
-  handleApplyShading,
-  handlePickShading,
-  openCustomShading,
-  handleCustomShading,
-  shadingInputRef,
-  // Highlight
-  highlightColor,
-  handleApplyHighlight,
-  handlePickHighlight,
-  // Theme/standard colors for shading picker
-  themeRows,
-  standardColors,
-  // Highlight colors
-  highlightColors,
 }) {
-  // On touch devices, avoid calling .focus() when the editor isn't already
-  // focused — that would open the virtual keyboard.  Formatting commands work
-  // on the document state regardless of DOM focus.
-  const editorCmd = useCallback(() => {
-    if (!editor) return null
-    return (isTouchOnly && !editor.view.hasFocus())
-      ? editor.chain()
-      : editor.chain().focus()
-  }, [editor, isTouchOnly])
+  const {
+    toolbarExpanded, setToolbarExpanded,
+    findOpen, setFindOpen,
+    findQuery, setFindQuery,
+    findStatus, setFindStatus,
+    aiInsertOpen, setAiInsertOpen,
+    aiInsertLoading,
+    aiLoading,
+    aiDailyDate, setAiDailyDate,
+    inTable,
+    highlightColor, setHighlightColor,
+    shadingColor, setShadingColor,
+    copyLabel, setCopyLabel,
+  } = useEditorUIStore()
 
+  // Refs local to Toolbar
+  const fileInputRef = useRef(null)
+  const shadingInputRef = useRef(null)
+  const findInputRef = useRef(null)
   const highlightButtonRef = useRef(null)
   const highlightPickerRef = useRef(null)
   const shadingButtonRef = useRef(null)
@@ -106,6 +68,7 @@ function Toolbar({
   const aiDailyPickerRef = useRef(null)
   const moreMenuRef = useRef(null)
 
+  // Purely local UI state (not shared, no need for store)
   const [highlightPickerOpen, setHighlightPickerOpen] = useState(false)
   const [shadingPickerOpen, setShadingPickerOpen] = useState(false)
   const [tablePickerOpen, setTablePickerOpen] = useState(false)
@@ -114,21 +77,417 @@ function Toolbar({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const gridSize = 5
 
-  const tableGrid = useMemo(() => {
-    return Array.from({ length: gridSize }, (_, rowIndex) =>
-      Array.from({ length: gridSize }, (_, colIndex) => ({
-        row: rowIndex + 1,
-        col: colIndex + 1,
-      })),
-    )
-  }, [gridSize])
+  // On touch devices, avoid calling .focus() when the editor isn't already
+  // focused — that would open the virtual keyboard.
+  const editorCmd = useCallback(() => {
+    if (!editor) return null
+    return (isTouchOnly && !editor.view.hasFocus())
+      ? editor.chain()
+      : editor.chain().focus()
+  }, [editor, isTouchOnly])
 
-  const closeTablePicker = useCallback(() => setTablePickerOpen(false), [])
+  const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
 
-  // Publish the toolbar's measured height as a CSS custom property on the root
-  // element so `.editor-panel { padding-bottom: calc(var(--toolbar-height) + ...) }`
-  // keeps editor content from hiding behind the fixed mobile bar. Touch-only —
-  // desktop toolbar is in normal flow.
+  // --- Find handlers ---
+
+  const openFind = useCallback(() => {
+    if (!editor || !hasTracker) return
+    setFindOpen(true)
+    requestAnimationFrame(() => {
+      findInputRef.current?.focus()
+      findInputRef.current?.select()
+    })
+  }, [editor, hasTracker, setFindOpen])
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false)
+    setFindQuery('')
+    editor?.commands?.clearFind?.()
+    if (!editor || controlsDisabled) return
+    requestAnimationFrame(() => {
+      editor.chain().focus().run()
+    })
+  }, [editor, controlsDisabled, setFindOpen, setFindQuery])
+
+  const handleFindQueryChange = (value) => {
+    setFindQuery(value)
+    editor?.commands?.setFindQuery?.(value)
+  }
+
+  const scrollMatchIntoView = useCallback(() => {
+    if (!editor) return
+    requestAnimationFrame(() => {
+      const container = editorPanelRef?.current
+      if (!container) return
+      const { view } = editor
+      const { from } = view.state.selection
+      const coords = view.coordsAtPos(from)
+      const containerRect = container.getBoundingClientRect()
+      const toolbarEl = container.querySelector('.toolbar')
+      const bottomPadding = 50
+
+      const isScrollContainer =
+        container.scrollHeight > container.clientHeight &&
+        getComputedStyle(container).overflowY !== 'visible'
+
+      if (isScrollContainer) {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
+        if (coords.top < toolbarBottom) {
+          container.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > containerRect.bottom - bottomPadding) {
+          container.scrollBy({ top: coords.bottom - containerRect.bottom + bottomPadding + 20, behavior: 'instant' })
+        }
+      } else {
+        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : 0
+        if (coords.top < toolbarBottom) {
+          window.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
+        } else if (coords.bottom > window.innerHeight - bottomPadding) {
+          window.scrollBy({ top: coords.bottom - window.innerHeight + bottomPadding + 20, behavior: 'instant' })
+        }
+      }
+    })
+  }, [editor, editorPanelRef])
+
+  const handleFindNext = () => {
+    editor?.commands?.findNext?.()
+    scrollMatchIntoView()
+  }
+
+  const handleFindPrev = () => {
+    editor?.commands?.findPrev?.()
+    scrollMatchIntoView()
+  }
+
+  // Wire openFind/closeFind into editor storage so the extension can trigger them
+  useEffect(() => {
+    if (!editor) return undefined
+    const findStorage = editor.storage.findInDoc
+    if (!findStorage) return undefined
+    findStorage.open = openFind
+    findStorage.close = closeFind
+    return () => {
+      if (editor.storage?.findInDoc) {
+        editor.storage.findInDoc.open = null
+        editor.storage.findInDoc.close = null
+      }
+    }
+  }, [editor, openFind, closeFind])
+
+  // Sync find plugin state → store
+  useEffect(() => {
+    if (!editor) return undefined
+    const syncFindState = () => {
+      const pluginState = findInDocPluginKey.getState(editor.state)
+      if (!pluginState) return
+      setFindStatus(pluginState)
+      setFindQuery(pluginState.query || '')
+    }
+    syncFindState()
+    editor.on('transaction', syncFindState)
+    return () => editor.off('transaction', syncFindState)
+  }, [editor, setFindStatus, setFindQuery])
+
+  // --- Selection sync helpers for indent/outdent ---
+
+  const syncSelectionFromDom = useCallback(() => {
+    if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
+    const selection = window.getSelection?.()
+    const anchorNode = selection?.anchorNode
+    const focusNode = selection?.focusNode
+    if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
+    const root = editor.view.dom
+    const anchorElement =
+      anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+    const focusElement =
+      focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
+    const selectionInEditor =
+      (anchorElement && root.contains(anchorElement)) ||
+      (focusElement && root.contains(focusElement))
+    if (!selectionInEditor) return
+    try {
+      const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
+      const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+      const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
+      if (nextSelection.eq(editor.state.selection)) return
+      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+    } catch {
+      // Ignore DOM-to-state selection sync failures
+    }
+  }, [editor])
+
+  const getListItemInfo = useCallback(() => {
+    if (!editor) return null
+    const { $from } = editor.state.selection
+    const itemTypeName = editor.isActive('taskList') || editor.isActive('taskItem') ? 'taskItem' : 'listItem'
+    let itemDepth = null
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth)
+      if (node.type?.name === 'listItem' || node.type?.name === 'taskItem') {
+        itemDepth = depth
+        break
+      }
+    }
+    if (!itemDepth) return null
+    const listDepth = itemDepth - 1
+    const index = $from.index(listDepth)
+    const listParentDepth = listDepth - 1
+    const listParent = listParentDepth > 0 ? $from.node(listParentDepth) : null
+    const isNested = listParent?.type?.name === 'listItem' || listParent?.type?.name === 'taskItem'
+    return { itemTypeName, itemDepth, listDepth, index, isNested }
+  }, [editor])
+
+  const handleIndent = useCallback(() => {
+    if (!editor) return
+    syncSelectionFromDom()
+    const info = getListItemInfo()
+    if (!info || info.index === 0) return
+    editor.chain().focus().sinkListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo, syncSelectionFromDom])
+
+  const handleOutdent = useCallback(() => {
+    if (!editor) return
+    syncSelectionFromDom()
+    const info = getListItemInfo()
+    if (!info || !info.isNested) return
+    editor.chain().focus().liftListItem(info.itemTypeName).run()
+  }, [editor, getListItemInfo, syncSelectionFromDom])
+
+  // --- Editor command handlers (moved from EditorPanel) ---
+
+  const handleSetLink = () => {
+    if (!editor) return
+    const previousUrl = editor.getAttributes('link').href
+    const url = window.prompt('Paste a link URL', previousUrl || '')
+    if (url === null) return
+    if (url === '') {
+      editor.chain().focus().unsetLink().run()
+      return
+    }
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+  }
+
+  const handleSetTextAlign = (alignment) => {
+    editorCmd()?.setTextAlign(alignment).run()
+  }
+
+  const handleExportText = () => {
+    if (!editor || !hasTracker) return
+    const rawTitle = title?.trim() || 'Untitled'
+    const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
+    const doc = editor.getJSON()
+    const text = serializeDocForExport(doc, rawTitle)
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${safeTitle}.txt`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCopyText = async () => {
+    if (!editor || !hasTracker) return
+    const rawTitle = title?.trim() || 'Untitled'
+    const doc = editor.getJSON()
+    const text = serializeDocForExport(doc, rawTitle)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyLabel('Copied!')
+      setTimeout(() => setCopyLabel('Copy'), 2000)
+    } catch {
+      window.alert('Failed to copy to clipboard.')
+    }
+  }
+
+  const handlePickImage = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      onImageUpload?.(file)
+    }
+    event.target.value = ''
+  }
+
+  const handleInsertTable = (rows, cols) => {
+    if (!editor) return
+    editorCmd()?.insertTable({ rows, cols, withHeaderRow: false }).run()
+  }
+
+  const handleApplyHighlight = () => {
+    if (!editor) return
+    if (!highlightColor) {
+      editorCmd()?.unsetHighlight().run()
+      return
+    }
+    editorCmd()?.setHighlight({ color: highlightColor }).run()
+  }
+
+  const handlePickHighlight = (color) => {
+    if (!editor) return
+    if (!color) {
+      setHighlightColor(null)
+      editorCmd()?.unsetHighlight().run()
+    } else {
+      setHighlightColor(color)
+      editorCmd()?.setHighlight({ color }).run()
+    }
+  }
+
+  const handleApplyShading = () => {
+    if (!editor) return
+    if (!shadingColor) {
+      editorCmd()?.setCellAttribute('backgroundColor', null).run()
+      return
+    }
+    editorCmd()?.setCellAttribute('backgroundColor', shadingColor).run()
+  }
+
+  const handlePickShading = (color) => {
+    if (!editor) return
+    if (!color) {
+      setShadingColor(null)
+      editorCmd()?.setCellAttribute('backgroundColor', null).run()
+    } else {
+      setShadingColor(color)
+      editorCmd()?.setCellAttribute('backgroundColor', color).run()
+    }
+  }
+
+  const openCustomShading = () => {
+    shadingInputRef.current?.click()
+  }
+
+  const handleCustomShading = (event) => {
+    const color = event.target.value
+    if (!color) return
+    handlePickShading(color)
+  }
+
+  // AI Daily date navigation
+  const handleAiDailyPrevDay = () => {
+    setAiDailyDate((prev) => {
+      const next = new Date(prev)
+      next.setDate(next.getDate() - 1)
+      return next
+    })
+  }
+
+  const handleAiDailyNextDay = () => {
+    setAiDailyDate((prev) => {
+      const next = new Date(prev)
+      next.setDate(next.getDate() + 1)
+      return next
+    })
+  }
+
+  const handleAiDailyDateChange = (dateString) => {
+    const parsed = new Date(dateString + 'T00:00:00')
+    if (!isNaN(parsed.getTime())) {
+      setAiDailyDate(parsed)
+    }
+  }
+
+  const handleCopyLinkFromToolbar = async () => {
+    if (!toolbarDeepLinkHash) return
+    await navigator.clipboard.writeText(toolbarDeepLinkHash)
+  }
+
+  // --- Color data (theme palette for shading/highlight pickers) ---
+
+  const themeBaseColors = useMemo(
+    () => [
+      { label: 'White', value: '#ffffff' },
+      { label: 'Black', value: '#000000' },
+      { label: 'Dark Blue-Gray', value: '#1f2937' },
+      { label: 'Dark Blue', value: '#1e3a8a' },
+      { label: 'Medium Blue', value: '#2563eb' },
+      { label: 'Red', value: '#ef4444' },
+      { label: 'Dark Red', value: '#7f1d1d' },
+      { label: 'Orange', value: '#f97316' },
+      { label: 'Gold/Yellow', value: '#f59e0b' },
+      { label: 'Green', value: '#16a34a' },
+    ],
+    [],
+  )
+
+  const themeRows = useMemo(() => {
+    const lightSteps = [0.2, 0.4, 0.6, 0.8]
+    return [
+      themeBaseColors.map((color) => color.value),
+      ...lightSteps.map((amount) =>
+        themeBaseColors.map((color) => {
+          const base = color.value.toLowerCase()
+          if (base === '#ffffff') return mixColors(base, '#000000', amount)
+          return mixColors(base, '#ffffff', amount)
+        }),
+      ),
+    ]
+  }, [themeBaseColors])
+
+  const standardColors = useMemo(
+    () => [
+      '#7f1d1d', '#ef4444', '#f97316', '#f59e0b', '#22c55e',
+      '#0f766e', '#3b82f6', '#1e3a8a', '#0f172a', '#7c3aed',
+    ],
+    [],
+  )
+
+  const highlightColors = useMemo(
+    () => [
+      [
+        { label: 'Yellow', value: '#fef08a' },
+        { label: 'Green', value: '#86efac' },
+        { label: 'Cyan', value: '#67e8f9' },
+        { label: 'Magenta', value: '#f0abfc' },
+        { label: 'Blue', value: '#93c5fd' },
+      ],
+      [
+        { label: 'Red', value: '#fca5a5' },
+        { label: 'Dark Navy', value: '#0f172a' },
+        { label: 'Teal', value: '#0d9488' },
+        { label: 'Dark Green', value: '#166534' },
+        { label: 'Purple', value: '#7c3aed' },
+      ],
+      [
+        { label: 'Dark Maroon', value: '#7f1d1d' },
+        { label: 'Olive', value: '#a16207' },
+        { label: 'Gray', value: '#6b7280' },
+        { label: 'Light Gray', value: '#d1d5db' },
+        { label: 'Black', value: '#000000' },
+      ],
+      [
+        { label: 'Light Yellow', value: '#fef9c3' },
+        { label: 'Light Green', value: '#dcfce7' },
+        { label: 'Light Cyan', value: '#cffafe' },
+        { label: 'Pink', value: '#fbcfe8' },
+        { label: 'Light Blue', value: '#dbeafe' },
+      ],
+      [
+        { label: 'Orange', value: '#fdba74' },
+        { label: 'Medium Light Green', value: '#bbf7d0' },
+        { label: 'Medium Cyan', value: '#99f6e4' },
+        { label: 'Lavender', value: '#e9d5ff' },
+        { label: 'Bright Cyan', value: '#22d3ee' },
+      ],
+      [
+        { label: 'Light Orange', value: '#fed7aa' },
+        { label: 'Pale Green', value: '#ecfccb' },
+        { label: 'Pale Teal', value: '#ccfbf1' },
+        { label: 'Pale Lavender', value: '#f3e8ff' },
+        { label: 'Pale Blue', value: '#e0f2fe' },
+      ],
+    ],
+    [],
+  )
+
+  // --- Lifecycle effects ---
+
+  // Publish toolbar height as CSS custom property for mobile padding
   useEffect(() => {
     if (!isTouchOnly || !toolbarRef?.current) return
     const el = toolbarRef.current
@@ -200,6 +559,17 @@ function Toolbar({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, aiDailyPickerOpen, moreMenuOpen])
+
+  const tableGrid = useMemo(() => {
+    return Array.from({ length: gridSize }, (_, rowIndex) =>
+      Array.from({ length: gridSize }, (_, colIndex) => ({
+        row: rowIndex + 1,
+        col: colIndex + 1,
+      })),
+    )
+  }, [gridSize])
+
+  const closeTablePicker = useCallback(() => setTablePickerOpen(false), [])
 
   const onInsertTable = (rows, cols) => {
     handleInsertTable(rows, cols)
@@ -724,7 +1094,7 @@ function Toolbar({
               <button
                 type="button"
                 className="toolbar-btn toolbar-btn-ai"
-                onClick={handleGenerateToday}
+                onClick={onAiDailyGenerate}
                 disabled={!hasTracker || aiLoading || aiInsertLoading}
                 title={aiLoading ? 'Generating...' : 'AI Daily'}
                 aria-label="AI Daily"

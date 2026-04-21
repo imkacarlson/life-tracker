@@ -126,8 +126,9 @@ test.describe('Issue #77 draft conflict resolution', () => {
     await expect(page.locator('.ProseMirror')).not.toContainText('STALE DRAFT CONTENT')
 
     // Status should show "Saved" (not "Unsaved (local)")
-    await expect(page.locator('text=Saved')).toBeVisible({ timeout: 5000 })
-    await expect(page.locator('text=Unsaved')).not.toBeVisible()
+    const statusRow = page.locator('.status-row')
+    await expect(statusRow).toContainText('Saved', { timeout: 5000 })
+    await expect(statusRow).not.toContainText('Unsaved')
 
     // Draft should be cleared from localStorage
     const draft = await page.evaluate((pageId) => {
@@ -152,7 +153,7 @@ test.describe('Issue #77 draft conflict resolution', () => {
     })
 
     // Wait for autosave
-    await expect(page.locator('text=Saved')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('.status-row')).toContainText('Saved', { timeout: 10000 })
 
     // Verify the draft content was saved to the server
     await expect(async () => {

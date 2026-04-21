@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { TextSelection } from '@tiptap/pm/state'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
-import { findInDocPluginKey } from '../extensions/findInDoc'
 import { serializeDocToText } from '../lib/serializeDoc'
-import { serializeDocForExport } from '../lib/serializeDocForExport'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
 import { useContentZoom } from '../hooks/useContentZoom'
 import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
+import { useEditorUIStore } from '../stores/editorUIStore'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
 import AiInsertModal from './editor/AiInsertModal'
@@ -58,43 +56,32 @@ function EditorPanel({
   const toolbarRef = useRef(null)
   const zoomBadgeRef = useRef(null)
   const zoomHintRef = useRef(null)
-  const fileInputRef = useRef(null)
-  const shadingInputRef = useRef(null)
   const contextMenuRef = useRef(null)
   const submenuRef = useRef(null)
-  const findInputRef = useRef(null)
   const aiInsertInputRef = useRef(null)
-  const [aiDailyDate, setAiDailyDate] = useState(new Date())
-  const [highlightColor, setHighlightColor] = useState('#fef08a')
-  const [shadingColor, setShadingColor] = useState(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiInsertOpen, setAiInsertOpen] = useState(false)
-  const [aiInsertLoading, setAiInsertLoading] = useState(false)
-  const [aiInsertText, setAiInsertText] = useState('')
-  const [inTable, setInTable] = useState(false)
-  const [currentBlockId, setCurrentBlockId] = useState(null)
-  const [contextMenu, setContextMenu] = useState({
-    open: false,
-    x: 0,
-    y: 0,
-    blockId: null,
-    inTable: false,
-  })
-  const [submenuOpen, setSubmenuOpen] = useState(false)
-  const [submenuDirection, setSubmenuDirection] = useState('right')
-  const [copyLabel, setCopyLabel] = useState('Copy')
-  const [findOpen, setFindOpen] = useState(false)
-  const [findQuery, setFindQuery] = useState('')
-  const [findStatus, setFindStatus] = useState({ query: '', matches: [], index: -1 })
-  const [toolbarExpanded, setToolbarExpanded] = useState(() => !isTouchOnlyDevice())
+
+  const {
+    aiLoading, setAiLoading,
+    aiInsertOpen, setAiInsertOpen,
+    aiInsertLoading, setAiInsertLoading,
+    aiInsertText, setAiInsertText,
+    inTable, setInTable,
+    currentBlockId, setCurrentBlockId,
+    contextMenu, setContextMenu,
+    submenuOpen, setSubmenuOpen,
+    submenuDirection, setSubmenuDirection,
+    highlightColor, setHighlightColor,
+    shadingColor, setShadingColor,
+    resetOnTrackerChange,
+  } = useEditorUIStore()
+
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
   useMobileToolbarTransform({ enabled: isTouchOnly, toolbarRef })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
-  // focused — that would open the virtual keyboard.  Formatting commands work
-  // on the document state regardless of DOM focus.
+  // focused — that would open the virtual keyboard.
   const editorCmd = useCallback(() => {
     if (!editor) return null
     return (isTouchOnly && !editor.view.hasFocus())
@@ -103,7 +90,6 @@ function EditorPanel({
   }, [editor, isTouchOnly])
 
   // Scroll cursor into view whenever the editor gains focus (keyboard open).
-  // Cheap, unrelated to the transform hook, and good UX on desktop too.
   useEffect(() => {
     if (!editor) return
     const handleFocus = () => {
@@ -113,246 +99,12 @@ function EditorPanel({
     return () => { editor.off('focus', handleFocus) }
   }, [editor])
 
-  const syncSelectionFromDom = useCallback(() => {
-    if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
-
-    const selection = window.getSelection?.()
-    const anchorNode = selection?.anchorNode
-    const focusNode = selection?.focusNode
-    if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
-
-    const root = editor.view.dom
-    const anchorElement =
-      anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
-    const focusElement =
-      focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
-    const selectionInEditor =
-      (anchorElement && root.contains(anchorElement)) ||
-      (focusElement && root.contains(focusElement))
-    if (!selectionInEditor) return
-
-    try {
-      const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
-      const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
-      const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
-      if (nextSelection.eq(editor.state.selection)) return
-      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
-    } catch {
-      // Ignore DOM-to-state selection sync failures and fall back to the
-      // editor's current selection. Some DOM selections (e.g. around widgets)
-      // do not map cleanly back into a text selection.
-    }
-  }, [editor])
-
-  const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
-
-  // Find the enclosing listItem/taskItem depth and its index within the parent list
-  const getListItemInfo = useCallback(() => {
-    if (!editor) return null
-    const { $from } = editor.state.selection
-    const itemTypeName = editor.isActive('taskList') || editor.isActive('taskItem') ? 'taskItem' : 'listItem'
-    let itemDepth = null
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const node = $from.node(depth)
-      if (node.type?.name === 'listItem' || node.type?.name === 'taskItem') {
-        itemDepth = depth
-        break
-      }
-    }
-    if (!itemDepth) return null
-    const listDepth = itemDepth - 1
-    const index = $from.index(listDepth)
-    const listParentDepth = listDepth - 1
-    const listParent = listParentDepth > 0 ? $from.node(listParentDepth) : null
-    const isNested = listParent?.type?.name === 'listItem' || listParent?.type?.name === 'taskItem'
-    return { itemTypeName, itemDepth, listDepth, index, isNested }
-  }, [editor])
-
-  const handleIndent = useCallback(() => {
-    if (!editor) return
-    syncSelectionFromDom()
-    const info = getListItemInfo()
-    // Can't indent the first item (no previous sibling to nest under)
-    if (!info || info.index === 0) return
-    // List nesting relies on the editor view owning the live selection. On
-    // touch devices, syncing from the DOM is not enough for sinkListItem to
-    // resolve reliably, so restore the pre-#122 focus behavior just here.
-    editor.chain().focus().sinkListItem(info.itemTypeName).run()
-  }, [editor, getListItemInfo, syncSelectionFromDom])
-
-  const handleOutdent = useCallback(() => {
-    if (!editor) return
-    syncSelectionFromDom()
-    const info = getListItemInfo()
-    // Only outdent if nested inside another list item (prevents breaking table cells)
-    if (!info || !info.isNested) return
-    editor.chain().focus().liftListItem(info.itemTypeName).run()
-  }, [editor, getListItemInfo, syncSelectionFromDom])
-
   useEffect(() => {
     if (!aiInsertOpen) return
     requestAnimationFrame(() => {
       aiInsertInputRef.current?.focus()
     })
   }, [aiInsertOpen])
-
-  const handleAiDailyPrevDay = () => {
-    setAiDailyDate((prev) => {
-      const next = new Date(prev)
-      next.setDate(next.getDate() - 1)
-      return next
-    })
-  }
-
-  const handleAiDailyNextDay = () => {
-    setAiDailyDate((prev) => {
-      const next = new Date(prev)
-      next.setDate(next.getDate() + 1)
-      return next
-    })
-  }
-
-  const handleAiDailyDateChange = (dateString) => {
-    const parsed = new Date(dateString + 'T00:00:00')
-    if (!isNaN(parsed.getTime())) {
-      setAiDailyDate(parsed)
-    }
-  }
-
-  const handlePickImage = () => {
-    fileInputRef.current?.click()
-  }
-
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      onImageUpload?.(file)
-    }
-    event.target.value = ''
-  }
-
-  const handleSetLink = () => {
-    if (!editor) return
-    const previousUrl = editor.getAttributes('link').href
-    const url = window.prompt('Paste a link URL', previousUrl || '')
-    if (url === null) return
-    if (url === '') {
-      editor.chain().focus().unsetLink().run()
-      return
-    }
-    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-  }
-
-  const handleSetTextAlign = (alignment) => {
-    editorCmd()?.setTextAlign(alignment).run()
-  }
-
-  const openFind = useCallback(() => {
-    if (!editor || !hasTracker) return
-    setFindOpen(true)
-    requestAnimationFrame(() => {
-      findInputRef.current?.focus()
-      findInputRef.current?.select()
-    })
-  }, [editor, hasTracker])
-
-  const closeFind = useCallback(() => {
-    setFindOpen(false)
-    setFindQuery('')
-    editor?.commands?.clearFind?.()
-
-    // Closing the find bar unmounts the focused input. If we don't restore focus to the
-    // editor, users can end up with highlighted text but no keyboard input (Backspace/typing
-    // does nothing because focus falls back to <body>).
-    if (!editor || editorLocked) return
-    requestAnimationFrame(() => {
-      editor.chain().focus().run()
-    })
-  }, [editor, editorLocked])
-
-  const handleFindQueryChange = (value) => {
-    setFindQuery(value)
-    editor?.commands?.setFindQuery?.(value)
-    // Don't focus editor here - it steals focus from the search input
-  }
-
-  const scrollMatchIntoView = useCallback(() => {
-    if (!editor) return
-    requestAnimationFrame(() => {
-      const container = editorPanelRef.current
-      if (!container) return
-      const { view } = editor
-      const { from } = view.state.selection
-      const coords = view.coordsAtPos(from)
-      const containerRect = container.getBoundingClientRect()
-      const toolbarEl = container.querySelector('.toolbar')
-      const bottomPadding = 50
-
-      // On mobile, .editor-panel is overflow-y: visible and not a scroll container —
-      // fall back to window scrolling in that case.
-      const isScrollContainer =
-        container.scrollHeight > container.clientHeight &&
-        getComputedStyle(container).overflowY !== 'visible'
-
-      if (isScrollContainer) {
-        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
-        if (coords.top < toolbarBottom) {
-          container.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
-        } else if (coords.bottom > containerRect.bottom - bottomPadding) {
-          container.scrollBy({ top: coords.bottom - containerRect.bottom + bottomPadding + 20, behavior: 'instant' })
-        }
-      } else {
-        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : 0
-        if (coords.top < toolbarBottom) {
-          window.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
-        } else if (coords.bottom > window.innerHeight - bottomPadding) {
-          window.scrollBy({ top: coords.bottom - window.innerHeight + bottomPadding + 20, behavior: 'instant' })
-        }
-      }
-    })
-  }, [editor])
-
-  const handleFindNext = () => {
-    editor?.commands?.findNext?.()
-    scrollMatchIntoView()
-  }
-
-  const handleFindPrev = () => {
-    editor?.commands?.findPrev?.()
-    scrollMatchIntoView()
-  }
-
-  const handleExportText = () => {
-    if (!editor || !hasTracker) return
-    const rawTitle = title?.trim() || 'Untitled'
-    const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
-    const doc = editor.getJSON()
-    const text = serializeDocForExport(doc, rawTitle)
-
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `${safeTitle}.txt`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  }
-
-  const handleCopyText = async () => {
-    if (!editor || !hasTracker) return
-    const rawTitle = title?.trim() || 'Untitled'
-    const doc = editor.getJSON()
-    const text = serializeDocForExport(doc, rawTitle)
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopyLabel('Copied!')
-      setTimeout(() => setCopyLabel('Copy'), 2000)
-    } catch {
-      window.alert('Failed to copy to clipboard.')
-    }
-  }
 
   const loadDailyTemplateNodes = async () => {
     if (!userId) return []
@@ -466,7 +218,7 @@ function EditorPanel({
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
       const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
-      const selectedDate = aiDailyDate
+      const selectedDate = useEditorUIStore.getState().aiDailyDate
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
 
@@ -625,7 +377,6 @@ function EditorPanel({
   }
 
   const openContextMenu = useCallback((next) => {
-    setTablePickerOpen(false)
     setContextMenu({
       open: true,
       x: next.x,
@@ -634,13 +385,12 @@ function EditorPanel({
       inTable: next.inTable ?? false,
     })
     setSubmenuOpen(false)
-  }, [])
+  }, [setContextMenu, setSubmenuOpen])
 
   const closeContextMenu = useCallback(() => {
     setContextMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
     setSubmenuOpen(false)
-  }, [])
-
+  }, [setContextMenu, setSubmenuOpen])
 
   const getCellFromEvent = useCallback((event) => {
     const target = event.target
@@ -696,18 +446,8 @@ function EditorPanel({
     }
 
     dom.addEventListener('contextmenu', handleContextMenu)
-
-    return () => {
-      dom.removeEventListener('contextmenu', handleContextMenu)
-    }
-  }, [
-    editor,
-    editorLocked,
-    focusFromCoords,
-    getActiveBlockId,
-    getCellFromEvent,
-    openContextMenu,
-  ])
+    return () => { dom.removeEventListener('contextmenu', handleContextMenu) }
+  }, [editor, editorLocked, focusFromCoords, getActiveBlockId, getCellFromEvent, openContextMenu])
 
   useEffect(() => {
     if (!contextMenu.open) return
@@ -722,7 +462,7 @@ function EditorPanel({
     if (nextX !== contextMenu.x || nextY !== contextMenu.y) {
       setContextMenu((prev) => ({ ...prev, x: nextX, y: nextY }))
     }
-  }, [contextMenu.open, contextMenu.x, contextMenu.y])
+  }, [contextMenu.open, contextMenu.x, contextMenu.y, setContextMenu])
 
   useEffect(() => {
     if (!submenuOpen) return
@@ -734,7 +474,7 @@ function EditorPanel({
     const submenuRect = submenu.getBoundingClientRect()
     const openRight = menuRect.right + submenuRect.width + padding < window.innerWidth
     setSubmenuDirection(openRight ? 'right' : 'left')
-  }, [submenuOpen])
+  }, [submenuOpen, setSubmenuDirection])
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -756,240 +496,11 @@ function EditorPanel({
 
     document.addEventListener('mousedown', handleOutsideClick)
     document.addEventListener('keydown', handleKeyDown)
-
     return () => {
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [
-    contextMenu.open,
-    aiInsertLoading,
-    closeContextMenu,
-  ])
-
-  const handleInsertTable = (rows, cols) => {
-    if (!editor) return
-    editorCmd()?.insertTable({ rows, cols, withHeaderRow: false }).run()
-  }
-
-  const handleApplyShading = () => {
-    if (!editor) return
-    if (!shadingColor) {
-      editorCmd()?.setCellAttribute('backgroundColor', null).run()
-      return
-    }
-    editorCmd()?.setCellAttribute('backgroundColor', shadingColor).run()
-  }
-
-  const handlePickShading = (color) => {
-    if (!editor) return
-    if (!color) {
-      setShadingColor(null)
-      editorCmd()?.setCellAttribute('backgroundColor', null).run()
-    } else {
-      setShadingColor(color)
-      editorCmd()?.setCellAttribute('backgroundColor', color).run()
-    }
-  }
-
-  const handleCustomShading = (event) => {
-    const color = event.target.value
-    if (!color) return
-    handlePickShading(color)
-  }
-
-  const openCustomShading = () => {
-    shadingInputRef.current?.click()
-  }
-
-  const hexToRgb = useCallback((hex) => {
-    const normalized = hex.replace('#', '')
-    const value =
-      normalized.length === 3
-        ? normalized
-            .split('')
-            .map((char) => char + char)
-            .join('')
-        : normalized
-    const intValue = parseInt(value, 16)
-    return {
-      r: (intValue >> 16) & 255,
-      g: (intValue >> 8) & 255,
-      b: intValue & 255,
-    }
-  }, [])
-
-  const toHex = useCallback((value) => value.toString(16).padStart(2, '0'), [])
-
-  const mixColors = useCallback((base, mixWith, amount) => {
-    const a = hexToRgb(base)
-    const b = hexToRgb(mixWith)
-    const mix = (start, end) => Math.round(start * (1 - amount) + end * amount)
-    return `#${toHex(mix(a.r, b.r))}${toHex(mix(a.g, b.g))}${toHex(mix(a.b, b.b))}`
-  }, [hexToRgb, toHex])
-
-  const themeBaseColors = useMemo(
-    () => [
-      { label: 'White', value: '#ffffff' },
-      { label: 'Black', value: '#000000' },
-      { label: 'Dark Blue-Gray', value: '#1f2937' },
-      { label: 'Dark Blue', value: '#1e3a8a' },
-      { label: 'Medium Blue', value: '#2563eb' },
-      { label: 'Red', value: '#ef4444' },
-      { label: 'Dark Red', value: '#7f1d1d' },
-      { label: 'Orange', value: '#f97316' },
-      { label: 'Gold/Yellow', value: '#f59e0b' },
-      { label: 'Green', value: '#16a34a' },
-    ],
-    [],
-  )
-
-  const themeRows = useMemo(() => {
-    const lightSteps = [0.2, 0.4, 0.6, 0.8]
-    return [
-      themeBaseColors.map((color) => color.value),
-      ...lightSteps.map((amount) =>
-        themeBaseColors.map((color) => {
-          const base = color.value.toLowerCase()
-          if (base === '#ffffff') {
-            return mixColors(base, '#000000', amount)
-          }
-          if (base === '#000000') {
-            return mixColors(base, '#ffffff', amount)
-          }
-          return mixColors(base, '#ffffff', amount)
-        }),
-      ),
-    ]
-  }, [mixColors, themeBaseColors])
-
-  const standardColors = useMemo(
-    () => [
-      '#7f1d1d',
-      '#ef4444',
-      '#f97316',
-      '#f59e0b',
-      '#22c55e',
-      '#0f766e',
-      '#3b82f6',
-      '#1e3a8a',
-      '#0f172a',
-      '#7c3aed',
-    ],
-    [],
-  )
-
-  useEffect(() => {
-    if (!editor) return
-    const syncEditorState = () => {
-      const nextInTable =
-        editor.isActive('table') || editor.isActive('tableCell') || editor.isActive('tableHeader')
-      setInTable(nextInTable)
-
-      // Track current block ID for toolbar deep link
-      const blockId = getActiveBlockId()
-      setCurrentBlockId(blockId)
-
-      if (!nextInTable) return
-      const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
-      const cellColor = editor.getAttributes('tableCell')?.backgroundColor
-      setShadingColor(headerColor || cellColor || null)
-    }
-    syncEditorState()
-    editor.on('selectionUpdate', syncEditorState)
-    editor.on('transaction', syncEditorState)
-    return () => {
-      editor.off('selectionUpdate', syncEditorState)
-      editor.off('transaction', syncEditorState)
-    }
-  }, [editor, getActiveBlockId])
-
-  const handleApplyHighlight = () => {
-    if (!editor) return
-    if (!highlightColor) {
-      editorCmd()?.unsetHighlight().run()
-      return
-    }
-    editorCmd()?.setHighlight({ color: highlightColor }).run()
-  }
-
-  const handlePickHighlight = (color) => {
-    if (!editor) return
-    if (!color) {
-      setHighlightColor(null)
-      editorCmd()?.unsetHighlight().run()
-    } else {
-      setHighlightColor(color)
-      editorCmd()?.setHighlight({ color }).run()
-    }
-  }
-
-  const highlightColors = useMemo(
-    () => [
-      [
-        { label: 'Yellow', value: '#fef08a' },
-        { label: 'Green', value: '#86efac' },
-        { label: 'Cyan', value: '#67e8f9' },
-        { label: 'Magenta', value: '#f0abfc' },
-        { label: 'Blue', value: '#93c5fd' },
-      ],
-      [
-        { label: 'Red', value: '#fca5a5' },
-        { label: 'Dark Navy', value: '#0f172a' },
-        { label: 'Teal', value: '#0d9488' },
-        { label: 'Dark Green', value: '#166534' },
-        { label: 'Purple', value: '#7c3aed' },
-      ],
-      [
-        { label: 'Dark Maroon', value: '#7f1d1d' },
-        { label: 'Olive', value: '#a16207' },
-        { label: 'Gray', value: '#6b7280' },
-        { label: 'Light Gray', value: '#d1d5db' },
-        { label: 'Black', value: '#000000' },
-      ],
-      [
-        { label: 'Light Yellow', value: '#fef9c3' },
-        { label: 'Light Green', value: '#dcfce7' },
-        { label: 'Light Cyan', value: '#cffafe' },
-        { label: 'Pink', value: '#fbcfe8' },
-        { label: 'Light Blue', value: '#dbeafe' },
-      ],
-      [
-        { label: 'Orange', value: '#fdba74' },
-        { label: 'Medium Light Green', value: '#bbf7d0' },
-        { label: 'Medium Cyan', value: '#99f6e4' },
-        { label: 'Lavender', value: '#e9d5ff' },
-        { label: 'Bright Cyan', value: '#22d3ee' },
-      ],
-      [
-        { label: 'Light Orange', value: '#fed7aa' },
-        { label: 'Pale Green', value: '#ecfccb' },
-        { label: 'Pale Teal', value: '#ccfbf1' },
-        { label: 'Pale Lavender', value: '#f3e8ff' },
-        { label: 'Pale Blue', value: '#e0f2fe' },
-      ],
-    ],
-    [],
-  )
-
-  useEffect(() => {
-    if (!editor) return
-    const syncHighlight = () => {
-      const color = editor.getAttributes('highlight')?.color
-      if (color) setHighlightColor(color)
-    }
-    editor.on('selectionUpdate', syncHighlight)
-    editor.on('transaction', syncHighlight)
-    return () => {
-      editor.off('selectionUpdate', syncHighlight)
-      editor.off('transaction', syncHighlight)
-    }
-  }, [editor])
-
-  useEffect(() => {
-    if (!editor) return
-    editor.storage.highlightColor = highlightColor ?? null
-  }, [editor, highlightColor])
+  }, [contextMenu.open, aiInsertLoading, closeContextMenu, setAiInsertOpen])
 
   const getActiveCellColor = useCallback(() => {
     if (!editor) return null
@@ -1086,7 +597,7 @@ function EditorPanel({
         applyColorToRow(tableContext.tablePos, rowIndex, color)
       }
     },
-    [editor, isTouchOnly, getActiveCellColor, getTableContext, applyColorToRow],
+    [editor, editorCmd, getActiveCellColor, getTableContext, applyColorToRow],
   )
 
   const handleInsertColumn = useCallback(
@@ -1104,7 +615,7 @@ function EditorPanel({
         applyColorToColumn(tableContext.tablePos, colIndex, color)
       }
     },
-    [editor, isTouchOnly, getActiveCellColor, getTableContext, applyColorToColumn],
+    [editor, editorCmd, getActiveCellColor, getTableContext, applyColorToColumn],
   )
 
   const contextMenuItems = useMemo(
@@ -1117,7 +628,7 @@ function EditorPanel({
       { label: 'Delete column', action: () => editorCmd()?.deleteColumn().run() },
       { label: 'Delete table', action: () => editorCmd()?.deleteTable().run() },
     ],
-    [editor, handleInsertRow, handleInsertColumn],
+    [editorCmd, handleInsertRow, handleInsertColumn],
   )
 
   const deepLinkHash = useMemo(() => {
@@ -1144,15 +655,67 @@ function EditorPanel({
     closeContextMenu()
   }
 
-  const handleCopyLinkFromToolbar = async () => {
-    if (!toolbarDeepLinkHash) return
-    await navigator.clipboard.writeText(toolbarDeepLinkHash)
-  }
-
   const handleSetTrackerFromToolbar = async () => {
     if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
     await onSetTrackerPage(trackerId)
   }
+
+  // Sync editor selection state → store
+  useEffect(() => {
+    if (!editor) return
+    const syncEditorState = () => {
+      const nextInTable =
+        editor.isActive('table') || editor.isActive('tableCell') || editor.isActive('tableHeader')
+      setInTable(nextInTable)
+
+      const blockId = getActiveBlockId()
+      setCurrentBlockId(blockId)
+
+      if (!nextInTable) return
+      const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
+      const cellColor = editor.getAttributes('tableCell')?.backgroundColor
+      setShadingColor(headerColor || cellColor || null)
+    }
+    syncEditorState()
+    editor.on('selectionUpdate', syncEditorState)
+    editor.on('transaction', syncEditorState)
+    return () => {
+      editor.off('selectionUpdate', syncEditorState)
+      editor.off('transaction', syncEditorState)
+    }
+  }, [editor, getActiveBlockId, setInTable, setCurrentBlockId, setShadingColor])
+
+  // Sync highlight color from editor selection → store
+  useEffect(() => {
+    if (!editor) return
+    const syncHighlight = () => {
+      const color = editor.getAttributes('highlight')?.color
+      if (color) setHighlightColor(color)
+    }
+    editor.on('selectionUpdate', syncHighlight)
+    editor.on('transaction', syncHighlight)
+    return () => {
+      editor.off('selectionUpdate', syncHighlight)
+      editor.off('transaction', syncHighlight)
+    }
+  }, [editor, setHighlightColor])
+
+  useEffect(() => {
+    if (!editor) return
+    editor.storage.highlightColor = highlightColor ?? null
+  }, [editor, highlightColor])
+
+  // Reset state on tracker/page change, and pre-focus the editor so that
+  // DOM-manipulation-based cursor placement in tests (and user interactions
+  // that call editorRoot.focus()) doesn't trigger ProseMirror's focus handler
+  // to restore its saved selection before the placement takes effect.
+  useEffect(() => {
+    resetOnTrackerChange()
+    if (!editor || editorLocked) return
+    requestAnimationFrame(() => {
+      editor.chain().focus().run()
+    })
+  }, [trackerId, editor, editorLocked, resetOnTrackerChange])
 
   useEffect(() => {
     if (!editor) return
@@ -1160,45 +723,6 @@ function EditorPanel({
       // no-op: handled by Link extension plugin
     }
   }, [editor, onNavigateHash])
-
-  useEffect(() => {
-    if (!editor) return undefined
-    const findStorage = editor.storage.findInDoc
-    if (!findStorage) return undefined
-    findStorage.open = openFind
-    findStorage.close = closeFind
-    return () => {
-      if (editor.storage?.findInDoc) {
-        editor.storage.findInDoc.open = null
-        editor.storage.findInDoc.close = null
-      }
-    }
-  }, [editor, openFind, closeFind])
-
-  useEffect(() => {
-    if (!editor) return undefined
-    const syncFindState = () => {
-      const pluginState = findInDocPluginKey.getState(editor.state)
-      if (!pluginState) return
-      setFindStatus(pluginState)
-      setFindQuery((prev) => (prev === pluginState.query ? prev : pluginState.query || ''))
-    }
-    syncFindState()
-    editor.on('transaction', syncFindState)
-    return () => editor.off('transaction', syncFindState)
-  }, [editor])
-
-  useEffect(() => {
-    if (!hasTracker) {
-      closeFind()
-      setAiInsertOpen(false)
-      setAiInsertText('')
-      return
-    }
-    closeFind()
-    setAiInsertOpen(false)
-    setAiInsertText('')
-  }, [hasTracker, trackerId, closeFind])
 
   const hasHeaderActions = Boolean(headerActions) || showDelete
   const controlsDisabled = !hasTracker || editorLocked
@@ -1225,63 +749,22 @@ function EditorPanel({
 
       <Toolbar
         editor={editor}
-        hasTracker={hasTracker}
         controlsDisabled={controlsDisabled}
+        hasTracker={hasTracker}
         isTouchOnly={isTouchOnly}
-        toolbarExpanded={toolbarExpanded}
-        setToolbarExpanded={setToolbarExpanded}
         toolbarRef={toolbarRef}
-        handleSetLink={handleSetLink}
-        handleSetTextAlign={handleSetTextAlign}
-        handleExportText={handleExportText}
-        handleCopyText={handleCopyText}
-        handleGenerateToday={handleGenerateToday}
-        handlePickImage={handlePickImage}
-        handleFileChange={handleFileChange}
-        handleIndent={handleIndent}
-        handleOutdent={handleOutdent}
-        handleCopyLinkFromToolbar={handleCopyLinkFromToolbar}
-        handleSetTrackerFromToolbar={handleSetTrackerFromToolbar}
-        isInList={isInList}
-        inTable={inTable}
-        copyLabel={copyLabel}
-        aiLoading={aiLoading}
-        aiInsertLoading={aiInsertLoading}
+        editorPanelRef={editorPanelRef}
+        onImageUpload={onImageUpload}
+        onAiDailyGenerate={handleGenerateToday}
         showAiDaily={showAiDaily}
         showAiInsert={showAiInsert}
+        title={title}
         toolbarDeepLinkHash={toolbarDeepLinkHash}
         isCurrentPageTracker={isCurrentPageTracker}
         trackerPageSaving={trackerPageSaving}
         onSetTrackerPage={onSetTrackerPage}
+        handleSetTrackerFromToolbar={handleSetTrackerFromToolbar}
         contextMenuItems={contextMenuItems}
-        findOpen={findOpen}
-        findQuery={findQuery}
-        findStatus={findStatus}
-        findInputRef={findInputRef}
-        openFind={openFind}
-        closeFind={closeFind}
-        handleFindQueryChange={handleFindQueryChange}
-        handleFindPrev={handleFindPrev}
-        handleFindNext={handleFindNext}
-        setAiInsertOpen={setAiInsertOpen}
-        fileInputRef={fileInputRef}
-        handleAiDailyPrevDay={handleAiDailyPrevDay}
-        handleAiDailyNextDay={handleAiDailyNextDay}
-        handleAiDailyDateChange={handleAiDailyDateChange}
-        aiDailyDate={aiDailyDate}
-        handleInsertTable={handleInsertTable}
-        shadingColor={shadingColor}
-        handleApplyShading={handleApplyShading}
-        handlePickShading={handlePickShading}
-        openCustomShading={openCustomShading}
-        handleCustomShading={handleCustomShading}
-        shadingInputRef={shadingInputRef}
-        highlightColor={highlightColor}
-        handleApplyHighlight={handleApplyHighlight}
-        handlePickHighlight={handlePickHighlight}
-        themeRows={themeRows}
-        standardColors={standardColors}
-        highlightColors={highlightColors}
       />
 
       <AiInsertModal

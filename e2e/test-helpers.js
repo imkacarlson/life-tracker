@@ -17,6 +17,23 @@ const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
 const EDITOR_SELECTOR = '.ProseMirror'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+const waitForReadableRow = async (client, table, id, timeoutMs = 5000) => {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const { data, error } = await client
+      .from(table)
+      .select('id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (error) throw error
+    if (data?.id === id) return
+    await sleep(100)
+  }
+
+  throw new Error(`Timed out waiting for ${table} row ${id} to become readable`)
+}
+
 /**
  * Returns an authenticated Supabase client and the test user's ID.
  * Caches the result so multiple test files don't re-authenticate.
@@ -163,6 +180,7 @@ export const createNotebook = async (
     .select()
     .single()
   if (error) throw error
+  await waitForReadableRow(client, 'notebooks', data.id)
   return data
 }
 
@@ -181,6 +199,7 @@ export const createSection = async (client, userId, notebookId, title, sortOrder
     .select()
     .single()
   if (error) throw error
+  await waitForReadableRow(client, 'sections', data.id)
   return data
 }
 
@@ -192,6 +211,7 @@ export const createPage = async (client, userId, sectionId, title, content, sort
     .select()
     .single()
   if (error) throw error
+  await waitForReadableRow(client, 'pages', data.id)
   return data
 }
 
