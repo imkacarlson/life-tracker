@@ -116,64 +116,65 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
   const [message, setMessage] = useState('')
   const loadRequestIdRef = useRef(0)
 
-  const loadSections = useCallback(
-    async (notebookId) => {
-      if (!userId || !notebookId) return
-      const requestId = ++loadRequestIdRef.current
-      setSectionsLoading(true)
-      setMessage('')
-      const { data, error } = await runSupabaseQueryWithRetry(() =>
-        supabase
-          .from('sections')
-          .select('id, title, color, sort_order, created_at, updated_at')
-          .eq('notebook_id', notebookId)
-          .order('sort_order', { ascending: true, nullsFirst: true })
-          .order('created_at', { ascending: true }),
-      )
+  const loadSections = useCallback(async () => {
+    if (!userId) return
+    const requestId = ++loadRequestIdRef.current
+    setSectionsLoading(true)
+    setMessage('')
+    const { data, error } = await runSupabaseQueryWithRetry(() =>
+      supabase
+        .from('sections')
+        .select('id, title, color, sort_order, notebook_id, created_at, updated_at')
+        .order('sort_order', { ascending: true, nullsFirst: true })
+        .order('created_at', { ascending: true }),
+    )
 
-      if (loadRequestIdRef.current !== requestId) return
+    if (loadRequestIdRef.current !== requestId) return
 
-      if (error) {
-        setMessage(error.message)
-        setSectionsLoading(false)
-        return
-      }
-
-      setSections(data ?? [])
-      const pending = pendingNavRef?.current
-      const saved = savedSelectionRef?.current
-      if (pending?.sectionId && data?.some((item) => item.id === pending.sectionId)) {
-        setActiveSectionId(pending.sectionId)
-      } else {
-        setActiveSectionId((prev) => {
-          if (prev && data?.some((item) => item.id === prev)) return prev
-          if (saved?.sectionId && data?.some((item) => item.id === saved.sectionId)) {
-            return saved.sectionId
-          }
-          return data?.[0]?.id ?? null
-        })
-      }
+    if (error) {
+      setMessage(error.message)
       setSectionsLoading(false)
-    },
-    [userId, pendingNavRef, savedSelectionRef],
-  )
+      return
+    }
 
+    setSections(data ?? [])
+    setSectionsLoading(false)
+  }, [userId])
+
+  // Load all sections once on login; clear on logout
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (!userId || !activeNotebookId) {
-        loadRequestIdRef.current += 1
-        setSections([])
-        setActiveSectionId(null)
-        setSectionsLoading(false)
-        setMessage('')
-        return
-      }
+    if (!userId) {
+      loadRequestIdRef.current += 1
       setSections([])
       setActiveSectionId(null)
-      void loadSections(activeNotebookId)
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [userId, activeNotebookId, loadSections])
+      setSectionsLoading(false)
+      setMessage('')
+      return
+    }
+    void loadSections()
+  }, [userId, loadSections])
+
+  // When the active notebook changes, pick the right section from already-loaded data
+  useEffect(() => {
+    if (!activeNotebookId) {
+      setActiveSectionId(null)
+      return
+    }
+    const notebookSections = sections.filter((s) => s.notebook_id === activeNotebookId)
+    const pending = pendingNavRef?.current
+    const saved = savedSelectionRef?.current
+    if (pending?.sectionId && notebookSections.some((s) => s.id === pending.sectionId)) {
+      setActiveSectionId(pending.sectionId)
+    } else {
+      setActiveSectionId((prev) => {
+        if (prev && notebookSections.some((s) => s.id === prev)) return prev
+        if (saved?.sectionId && notebookSections.some((s) => s.id === saved.sectionId)) {
+          return saved.sectionId
+        }
+        return notebookSections[0]?.id ?? null
+      })
+    }
+  }, [activeNotebookId, sections, pendingNavRef, savedSelectionRef])
 
   const createSection = async (session, notebookId) => {
     if (!session || !notebookId) return
@@ -257,7 +258,8 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     clearNavHierarchyCache()
     const nextSections = sections.filter((item) => item.id !== section.id)
     setSections(nextSections)
-    setActiveSectionId((prev) => (prev === section.id ? nextSections[0]?.id ?? null : prev))
+    const notebookSections = nextSections.filter((s) => s.notebook_id === activeNotebookId)
+    setActiveSectionId((prev) => (prev === section.id ? notebookSections[0]?.id ?? null : prev))
   }
 
   const moveSection = async (section, destNotebookId) => {
@@ -273,7 +275,11 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
     }
 
     clearNavHierarchyCache()
-    setSections((prev) => prev.filter((item) => item.id !== section.id))
+    setSections((prev) =>
+      prev.map((item) =>
+        item.id === section.id ? { ...item, notebook_id: destNotebookId } : item,
+      ),
+    )
     return true
   }
 
@@ -440,10 +446,8 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
       }
     }
 
-    // Show the new section only after all pages and content are fully copied
-    if (destNotebookId === activeNotebookId) {
-      setSections((prev) => [...prev, newSection])
-    }
+    // Add the new section after all pages and content are fully copied
+    setSections((prev) => [...prev, newSection])
   }
 
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null

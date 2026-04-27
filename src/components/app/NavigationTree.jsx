@@ -239,6 +239,7 @@ function NavigationTree({
           {notebooks.map((notebook) => {
             const notebookActive = notebook.id === activeNotebookId
             const notebookExpanded = expandedNotebooks.has(notebook.id)
+            const notebookSections = sections.filter((s) => s.notebook_id === notebook.id)
 
             return (
               <div key={notebook.id} className="tree-branch">
@@ -266,12 +267,10 @@ function NavigationTree({
 
                 {notebookExpanded ? (
                   <div className="tree-children tree-children-sections" role="group">
-                    {!notebookActive ? (
-                      <p className="subtle tree-empty">Select notebook to load sections.</p>
-                    ) : sections.length === 0 ? (
+                    {notebookSections.length === 0 ? (
                       <p className="subtle tree-empty">No sections yet.</p>
                     ) : (
-                      sections.map((section) => {
+                      notebookSections.map((section) => {
                         const sectionActive = section.id === activeSectionId
                         const sectionExpanded = expandedSections.has(section.id)
 
