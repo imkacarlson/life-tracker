@@ -281,6 +281,11 @@ function NavigationTree({
                       notebookSections.map((section) => {
                         const sectionActive = section.id === activeSectionId
                         const sectionExpanded = expandedSections.has(section.id)
+                        const sectionPages = sectionActive
+                          ? trackers
+                          : getSectionPages(pagesBySection, section.id)
+                        const pagesLoading = (sectionActive && loading) ||
+                          (!sectionActive && pagesBySection[section.id] === null)
 
                         return (
                           <div key={section.id} className="tree-branch">
@@ -311,14 +316,9 @@ function NavigationTree({
                               <span className="tree-label sidebar-title">{section.title}</span>
                             </button>
 
-                            {sectionExpanded ? (() => {
-                              const sectionPages = sectionActive
-                                ? trackers
-                                : getSectionPages(pagesBySection, section.id)
-                              const metaLoading = !sectionActive && pagesBySection[section.id] === null
-                              return (
+                            {sectionExpanded ? (
                               <div className="tree-children tree-children-pages" role="group">
-                                {sectionActive && loading || metaLoading ? (
+                                {pagesLoading ? (
                                   <p className="subtle tree-empty">Loading pages...</p>
                                 ) : sectionPages.length === 0 ? (
                                   <p className="subtle tree-empty">No pages yet.</p>
@@ -362,8 +362,7 @@ function NavigationTree({
                                   ))
                                 )}
                               </div>
-                              )
-                            })() : null}
+                            ) : null}
                           </div>
                         )
                       })
