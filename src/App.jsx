@@ -12,7 +12,6 @@ import { useTrackerSession } from './hooks/useTrackerSession'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
 import {
-  saveSelection,
   readStoredSidebarCollapsed,
   readStoredSelection,
   readStoredSidebarWidth,
@@ -133,7 +132,7 @@ function App() {
     createNotebook,
     renameNotebook,
     deleteNotebook,
-  } = useNotebooks(userId, pendingNavRef, savedSelectionRef)
+  } = useNotebooks(userId)
 
   const {
     sections,
@@ -147,7 +146,7 @@ function App() {
     deleteSection,
     moveSection,
     copySection,
-  } = useSections(userId, activeNotebookId, pendingNavRef, savedSelectionRef)
+  } = useSections(userId, activeNotebookId)
 
   const {
     trackers,
@@ -176,17 +175,22 @@ function App() {
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
-  } = useTrackers(userId, activeSectionId, pendingNavRef, savedSelectionRef)
+  } = useTrackers(userId, activeSectionId)
 
   const {
     navIntentRef,
     hashBlockRef,
-    initialNavReady,
+    isNavigating,
+    selectNavigationTarget,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
   } = useNavigation({
     session,
     notebooks,
+    sections,
+    trackers,
+    sectionsLoading,
+    dataLoading,
     activeNotebookId,
     activeSectionId,
     activeTrackerId,
@@ -195,6 +199,7 @@ function App() {
     setActiveTrackerId,
     getPendingNav,
     setPendingNav,
+    savedSelectionRef,
     setDeepLinkFocusGuard: setDeepLinkFocusGuardValue,
   })
 
@@ -373,7 +378,6 @@ function App() {
     sessionKey,
     scheduleSave,
     scheduleSettingsSave,
-    pendingNavRef,
     pendingEditTapRef,
     touchNavigationGuardRef,
     touchNavigationGuard,
@@ -404,44 +408,6 @@ function App() {
       }
     })
   }, [editor, suppressFocusRef, setTouchNavigationGuardValue])
-
-  useEffect(() => {
-    if (!session || !initialNavReady) return
-    const savedSelection = savedSelectionRef.current
-    if (savedSelection?.notebookId && !activeNotebookId) return
-    if (
-      activeNotebookId &&
-      savedSelection?.notebookId === activeNotebookId &&
-      savedSelection.sectionId &&
-      !activeSectionId &&
-      (sectionsLoading || sections.length > 0)
-    ) {
-      return
-    }
-    if (
-      activeSectionId &&
-      savedSelection?.sectionId === activeSectionId &&
-      savedSelection.pageId &&
-      !activeTrackerId &&
-      (dataLoading || trackers.length > 0)
-    ) {
-      return
-    }
-    if (activeNotebookId && sectionsLoading) return
-    if (activeSectionId && dataLoading) return
-    saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
-    savedSelectionRef.current = { notebookId: activeNotebookId, sectionId: activeSectionId, pageId: activeTrackerId }
-  }, [
-    session,
-    initialNavReady,
-    activeNotebookId,
-    activeSectionId,
-    activeTrackerId,
-    sectionsLoading,
-    dataLoading,
-    sections.length,
-    trackers.length,
-  ])
 
   useEffect(() => {
     if (settingsMode !== 'daily-template') return
@@ -493,36 +459,24 @@ function App() {
     if (settingsMode) {
       setSettingsMode(null)
     }
-    navIntentRef.current = 'push'
-    hashBlockRef.current = null
-    setDeepLinkFocusGuardValue(false)
-    pendingNavRef.current = null
     primeTouchNavigationGuard()
-    setActiveNotebookId(nextNotebookId)
+    selectNavigationTarget({ notebookId: nextNotebookId })
   }
 
-  const handleSectionSelect = (sectionId) => {
+  const handleSectionSelect = (target) => {
     if (settingsMode) {
       setSettingsMode(null)
     }
-    navIntentRef.current = 'push'
-    hashBlockRef.current = null
-    setDeepLinkFocusGuardValue(false)
-    pendingNavRef.current = null
     primeTouchNavigationGuard()
-    setActiveSectionId(sectionId)
+    selectNavigationTarget(target)
   }
 
-  const handlePageSelect = (trackerId) => {
+  const handlePageSelect = (target) => {
     if (settingsMode) {
       setSettingsMode(null)
     }
-    navIntentRef.current = 'push'
-    hashBlockRef.current = null
-    setDeepLinkFocusGuardValue(false)
-    pendingNavRef.current = null
     primeTouchNavigationGuard()
-    setActiveTrackerId(trackerId)
+    selectNavigationTarget(target)
     if (isMobileViewport) {
       setMobileSidebarOpen(false)
     }
@@ -620,6 +574,7 @@ function App() {
 
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
+  const hasEditorTarget = Boolean(activeTracker) || isNavigating
   const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
   const isSidebarOpen = isMobileViewport ? mobileSidebarOpen : !sidebarCollapsed
   const workspaceClassName = [
@@ -790,7 +745,7 @@ function App() {
               onDelete={deleteTracker}
               saveStatus={saveStatus}
               onImageUpload={finalUploadImageAndInsert}
-              hasTracker={!!activeTracker}
+              hasTracker={hasEditorTarget}
               message={message}
               notebookId={activeNotebookId}
               sectionId={activeSectionId}

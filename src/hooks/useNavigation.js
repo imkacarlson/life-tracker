@@ -7,26 +7,20 @@ import {
   clearDeepLinkHighlight,
 } from '../utils/navigationHelpers'
 import { resolveNavHierarchy } from '../utils/resolveNavHierarchy'
-
-const getNavSpecificity = (value) => {
-  if (!value) return 0
-  if (value.pageId) return 3
-  if (value.sectionId) return 2
-  if (value.notebookId) return 1
-  return 0
-}
-
-const isWeakerDescendantTarget = (current, next) => {
-  if (!current || !next) return false
-  if (getNavSpecificity(next) >= getNavSpecificity(current)) return false
-  if (current.notebookId && next.notebookId && current.notebookId !== next.notebookId) return false
-  if (current.sectionId && next.sectionId && current.sectionId !== next.sectionId) return false
-  return true
-}
+import { saveSelection } from '../utils/storage'
+import {
+  getNavigationApplyStep,
+  isWeakerDescendantTarget,
+  normalizeNavigationTarget,
+} from '../utils/navigationTarget'
 
 export const useNavigation = ({
   session,
   notebooks,
+  sections,
+  trackers,
+  sectionsLoading,
+  dataLoading,
   activeNotebookId,
   activeSectionId,
   activeTrackerId,
@@ -35,6 +29,7 @@ export const useNavigation = ({
   setActiveTrackerId,
   getPendingNav,
   setPendingNav,
+  savedSelectionRef,
   setDeepLinkFocusGuard,
 }) => {
   const navIntentRef = useRef(null)
@@ -42,27 +37,45 @@ export const useNavigation = ({
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
-  const initialResolvedTargetRef = useRef(undefined)
   const [initialNavReady, setInitialNavReady] = useState(false)
-  // Incremented when syncInitialHash resolves to force the correction effect
-  // to re-run — initialResolvedTargetRef is a ref (no re-render on write),
-  // so without this the effect can miss the resolved target if loadNotebooks
-  // settled first.
-  const [initialResolveGeneration, setInitialResolveGeneration] = useState(0)
+  const [pendingTarget, setPendingTarget] = useState(null)
 
-  const setPendingNavSafely = useCallback(
+  const clearPendingTarget = useCallback(() => {
+    setPendingTarget(null)
+    setPendingNav(null)
+  }, [setPendingNav])
+
+  const setPendingTargetSafely = useCallback(
     (nextValue) => {
       if (!nextValue) {
-        setPendingNav(null)
+        clearPendingTarget()
         return
       }
+      const normalized = normalizeNavigationTarget(nextValue)
       const pending = getPendingNav()
-      if (isWeakerDescendantTarget(pending, nextValue)) {
+      if (isWeakerDescendantTarget(pending, normalized)) {
         return
       }
-      setPendingNav(nextValue)
+      setPendingTarget(normalized)
+      setPendingNav(normalized)
     },
-    [getPendingNav, setPendingNav],
+    [clearPendingTarget, getPendingNav, setPendingNav],
+  )
+
+  const queueResolvedTarget = useCallback(
+    (target, { hashMode = null } = {}) => {
+      if (!target?.notebookId) return
+      const normalized = normalizeNavigationTarget(target)
+      if (hashMode) navIntentRef.current = hashMode
+      if (normalized.pageId && normalized.blockId) {
+        hashBlockRef.current = { pageId: normalized.pageId, blockId: normalized.blockId }
+      } else {
+        hashBlockRef.current = null
+        clearDeepLinkHighlight()
+      }
+      setPendingTargetSafely(normalized)
+    },
+    [setPendingTargetSafely],
   )
 
   const navigateToHash = useCallback(
@@ -78,63 +91,22 @@ export const useNavigation = ({
       if (navVersionRef.current !== version) return
       if (!resolved?.notebookId) {
         console.warn('[nav] resolveNavHierarchy returned null for hash=%s — navigation dropped', hash)
+        clearPendingTarget()
+        setInitialNavReady(true)
         return
       }
 
-      if (resolved.pageId && resolved.blockId) {
-        hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
-      } else {
-        hashBlockRef.current = null
-        clearDeepLinkHighlight()
-      }
-
-      setPendingNavSafely(resolved)
-      if (resolved.pageId && resolved.pageId === activeTrackerId) {
-        requestAnimationFrame(() => {
-          if (!resolved.blockId) {
-            setPendingNav(null)
-            return
-          }
-          const found = scrollToBlock(resolved.blockId)
-          // Only clear pending when the block is actually present right now.
-          // If it isn't yet (content still settling), keep pending so the
-          // editor-setup pass can apply the deep-link highlight when ready.
-          if (found) {
-            setPendingNav(null)
-          }
-        })
-        return
-      }
-
-      if (resolved.notebookId === activeNotebookId) {
-        if (resolved.sectionId && resolved.sectionId !== activeSectionId) {
-          setActiveSectionId(resolved.sectionId)
-          return
-        }
-        if (resolved.pageId && resolved.pageId !== activeTrackerId) {
-          setActiveTrackerId(resolved.pageId)
-          return
-        }
-        setPendingNav(null)
-        return
-      }
-
-      if (notebooks.some((item) => item.id === resolved.notebookId)) {
-        setActiveNotebookId(resolved.notebookId)
-      }
+      queueResolvedTarget(resolved)
     },
-    [
-      notebooks,
-      activeTrackerId,
-      activeNotebookId,
-      activeSectionId,
-      setActiveNotebookId,
-      setActiveSectionId,
-      setActiveTrackerId,
-      setPendingNav,
-      setPendingNavSafely,
-      setDeepLinkFocusGuard,
-    ],
+    [clearPendingTarget, queueResolvedTarget, setDeepLinkFocusGuard],
+  )
+
+  const selectNavigationTarget = useCallback(
+    (target) => {
+      setDeepLinkFocusGuard(false)
+      queueResolvedTarget(target, { hashMode: 'push' })
+    },
+    [queueResolvedTarget, setDeepLinkFocusGuard],
   )
 
   const handleInternalHashNavigate = useCallback((href) => {
@@ -172,12 +144,114 @@ export const useNavigation = ({
   }, [navigateToHash])
 
   useEffect(() => {
+    if (!session) {
+      clearPendingTarget()
+      setInitialNavReady(false)
+      return
+    }
+
+    let cancelled = false
+
+    const syncInitialTarget = async () => {
+      const hashTarget = typeof window === 'undefined' ? null : parseDeepLink(window.location.hash)
+      const savedTarget = savedSelectionRef?.current ?? null
+      const initialTarget = hashTarget ?? savedTarget
+
+      if (!initialTarget) {
+        setInitialNavReady(true)
+        return
+      }
+
+      const version = ++navVersionRef.current
+      const resolved = await resolveNavHierarchy(initialTarget)
+      if (cancelled || navVersionRef.current !== version) return
+      if (!resolved?.notebookId) {
+        setInitialNavReady(true)
+        return
+      }
+
+      queueResolvedTarget(resolved)
+    }
+
+    syncInitialTarget()
+
+    return () => {
+      cancelled = true
+    }
+  }, [session, clearPendingTarget, queueResolvedTarget, savedSelectionRef])
+
+  useEffect(() => {
+    if (!session || !pendingTarget) return
+
+    const step = getNavigationApplyStep({
+      target: pendingTarget,
+      notebooks,
+      sections,
+      trackers,
+      activeNotebookId,
+      activeSectionId,
+      activeTrackerId,
+      sectionsLoading,
+      dataLoading,
+    })
+
+    if (step.type === 'wait') return
+
+    if (step.type === 'missing') {
+      clearPendingTarget()
+      setInitialNavReady(true)
+      return
+    }
+
+    if (step.type === 'notebook') {
+      setActiveNotebookId(step.id)
+      return
+    }
+
+    if (step.type === 'section') {
+      setActiveSectionId(step.id)
+      return
+    }
+
+    if (step.type === 'page') {
+      setActiveTrackerId(step.id)
+      return
+    }
+
+    setInitialNavReady(true)
+    if (!pendingTarget.blockId) {
+      clearPendingTarget()
+      return
+    }
+
+    requestAnimationFrame(() => {
+      const found = scrollToBlock(pendingTarget.blockId)
+      if (found) clearPendingTarget()
+    })
+  }, [
+    session,
+    pendingTarget,
+    notebooks,
+    sections,
+    trackers,
+    activeNotebookId,
+    activeSectionId,
+    activeTrackerId,
+    sectionsLoading,
+    dataLoading,
+    setActiveNotebookId,
+    setActiveSectionId,
+    setActiveTrackerId,
+    clearPendingTarget,
+  ])
+
+  useEffect(() => {
     if (!initialNavReady) return
     if (!activeNotebookId) return
+    if (pendingTarget) return
+
     const blockInfo = hashBlockRef.current
     if (blockInfo && blockInfo.pageId !== activeTrackerId) {
-      const pending = getPendingNav()
-      if (pending?.pageId === blockInfo.pageId) return
       hashBlockRef.current = null
     }
     const blockId =
@@ -200,107 +274,52 @@ export const useNavigation = ({
         scrollToBlock(blockId)
       })
     }
-  }, [activeNotebookId, activeSectionId, activeTrackerId, getPendingNav, initialNavReady])
+  }, [activeNotebookId, activeSectionId, activeTrackerId, initialNavReady, pendingTarget])
 
   useEffect(() => {
-    if (!session) {
-      initialResolvedTargetRef.current = undefined
-      setInitialNavReady(false)
+    if (!session || !initialNavReady || pendingTarget) return
+    const savedSelection = savedSelectionRef?.current
+    if (savedSelection?.notebookId && !activeNotebookId) return
+    if (
+      activeNotebookId &&
+      savedSelection?.notebookId === activeNotebookId &&
+      savedSelection.sectionId &&
+      !activeSectionId &&
+      (sectionsLoading || sections.length > 0)
+    ) {
       return
     }
-    let cancelled = false
-
-    const syncInitialHash = async () => {
-      const initial = typeof window === 'undefined' ? null : parseDeepLink(window.location.hash)
-      if (!initial) {
-        initialResolvedTargetRef.current = null
-        setInitialNavReady(true)
-        return
-      }
-
-      const resolved = await resolveNavHierarchy(initial)
-      if (cancelled) return
-      if (!resolved?.notebookId) {
-        initialResolvedTargetRef.current = null
-        setInitialNavReady(true)
-        return
-      }
-
-      initialResolvedTargetRef.current = resolved
-      setPendingNavSafely(resolved)
-      setInitialResolveGeneration((g) => g + 1)
-      if (resolved.pageId && resolved.blockId) {
-        hashBlockRef.current = { pageId: resolved.pageId, blockId: resolved.blockId }
-      } else {
-        hashBlockRef.current = null
-      }
-    }
-
-    syncInitialHash()
-
-    return () => {
-      cancelled = true
-    }
-  }, [session, setPendingNavSafely])
-
-  useEffect(() => {
-    if (!session || initialNavReady) return
-
-    const target = initialResolvedTargetRef.current
-    if (target === undefined) return
-    if (!target) {
-      setInitialNavReady(true)
+    if (
+      activeSectionId &&
+      savedSelection?.sectionId === activeSectionId &&
+      savedSelection.pageId &&
+      !activeTrackerId &&
+      (dataLoading || trackers.length > 0)
+    ) {
       return
     }
-
-    if (target.pageId && activeTrackerId === target.pageId) {
-      setInitialNavReady(true)
-      return
-    }
-    if (!target.pageId && target.sectionId && activeSectionId === target.sectionId) {
-      setInitialNavReady(true)
-      return
-    }
-    if (!target.pageId && !target.sectionId && activeNotebookId === target.notebookId) {
-      setInitialNavReady(true)
-      return
-    }
-
-    const hasTargetNotebook = notebooks.some((item) => item.id === target.notebookId)
-    if (hasTargetNotebook) {
-      if (activeNotebookId !== target.notebookId) {
-        setActiveNotebookId(target.notebookId)
-        return
+    if (activeNotebookId && sectionsLoading) return
+    if (activeSectionId && dataLoading) return
+    saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
+    if (savedSelectionRef) {
+      savedSelectionRef.current = {
+        notebookId: activeNotebookId,
+        sectionId: activeSectionId,
+        pageId: activeTrackerId,
       }
-      // Notebook matches — correct section/page if the hooks loaded before
-      // pendingNavRef was set and picked the wrong defaults.
-      if (target.sectionId && activeSectionId !== target.sectionId) {
-        setActiveSectionId(target.sectionId)
-        return
-      }
-      if (target.pageId && activeTrackerId !== target.pageId) {
-        setActiveTrackerId(target.pageId)
-        return
-      }
-      return
-    }
-
-    if (notebooks.length > 0) {
-      setPendingNav(null)
-      setInitialNavReady(true)
     }
   }, [
     session,
-    notebooks,
+    initialNavReady,
+    pendingTarget,
+    savedSelectionRef,
     activeNotebookId,
     activeSectionId,
     activeTrackerId,
-    initialNavReady,
-    initialResolveGeneration,
-    setActiveNotebookId,
-    setActiveSectionId,
-    setActiveTrackerId,
-    setPendingNav,
+    sectionsLoading,
+    dataLoading,
+    sections.length,
+    trackers.length,
   ])
 
   useEffect(() => {
@@ -320,6 +339,9 @@ export const useNavigation = ({
     navIntentRef,
     hashBlockRef,
     initialNavReady,
+    pendingTarget,
+    isNavigating: Boolean(pendingTarget),
+    selectNavigationTarget,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
   }

@@ -7,7 +7,7 @@ import {
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
-export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
+export const useNotebooks = (userId) => {
   const [notebooks, setNotebooks] = useState([])
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
@@ -33,20 +33,11 @@ export const useNotebooks = (userId, pendingNavRef, savedSelectionRef) => {
     }
 
     setNotebooks(data ?? [])
-    const pending = pendingNavRef?.current
-    const saved = savedSelectionRef?.current
-    if (pending?.notebookId && data?.some((item) => item.id === pending.notebookId)) {
-      setActiveNotebookId(pending.notebookId)
-    } else {
-      setActiveNotebookId((prev) => {
-        if (prev && data?.some((item) => item.id === prev)) return prev
-        if (saved?.notebookId && data?.some((item) => item.id === saved.notebookId)) {
-          return saved.notebookId
-        }
-        return data?.[0]?.id ?? null
-      })
-    }
-  }, [userId, pendingNavRef, savedSelectionRef])
+    setActiveNotebookId((prev) => {
+      if (prev && data?.some((item) => item.id === prev)) return prev
+      return data?.[0]?.id ?? null
+    })
+  }, [userId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

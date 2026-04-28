@@ -109,7 +109,7 @@ const fixForwardBlockRefs = (content, blockIdMap) => {
   return walk(content)
 }
 
-export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelectionRef) => {
+export const useSections = (userId, activeNotebookId) => {
   const [sections, setSections] = useState([])
   const [activeSectionId, setActiveSectionId] = useState(null)
   const [sectionsLoading, setSectionsLoading] = useState(false)
@@ -161,20 +161,11 @@ export const useSections = (userId, activeNotebookId, pendingNavRef, savedSelect
       return
     }
     const notebookSections = sections.filter((s) => s.notebook_id === activeNotebookId)
-    const pending = pendingNavRef?.current
-    const saved = savedSelectionRef?.current
-    if (pending?.sectionId && notebookSections.some((s) => s.id === pending.sectionId)) {
-      setActiveSectionId(pending.sectionId)
-    } else {
-      setActiveSectionId((prev) => {
-        if (prev && notebookSections.some((s) => s.id === prev)) return prev
-        if (saved?.sectionId && notebookSections.some((s) => s.id === saved.sectionId)) {
-          return saved.sectionId
-        }
-        return notebookSections[0]?.id ?? null
-      })
-    }
-  }, [activeNotebookId, sections, pendingNavRef, savedSelectionRef])
+    setActiveSectionId((prev) => {
+      if (prev && notebookSections.some((s) => s.id === prev)) return prev
+      return notebookSections[0]?.id ?? null
+    })
+  }, [activeNotebookId, sections])
 
   const createSection = async (session, notebookId) => {
     if (!session || !notebookId) return
