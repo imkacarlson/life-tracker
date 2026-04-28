@@ -8,7 +8,7 @@ import { detectConflict } from '../utils/draftHelpers'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
-export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
+export const useTrackers = (userId, activeSectionId) => {
   const [trackers, setTrackers] = useState([])
   const [pagesBySection, setPagesBySection] = useState({})
   const [activeTrackerId, setActiveTrackerId] = useState(null)
@@ -388,22 +388,13 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       }
 
       setTrackers(data ?? [])
-      const pending = pendingNavRef?.current
-      const saved = savedSelectionRef?.current
-      if (pending?.pageId && data?.some((item) => item.id === pending.pageId)) {
-        setActiveTrackerId(pending.pageId)
-      } else {
-        setActiveTrackerId((prev) => {
-          if (prev && data?.some((item) => item.id === prev)) return prev
-          if (saved?.pageId && data?.some((item) => item.id === saved.pageId)) {
-            return saved.pageId
-          }
-          return data?.[0]?.id ?? null
-        })
-      }
+      setActiveTrackerId((prev) => {
+        if (prev && data?.some((item) => item.id === prev)) return prev
+        return data?.[0]?.id ?? null
+      })
       setDataLoading(false)
     },
-    [userId, pendingNavRef, savedSelectionRef],
+    [userId],
   )
 
   useEffect(() => {

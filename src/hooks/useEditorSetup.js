@@ -48,7 +48,6 @@ export const useEditorSetup = ({
   sessionKey,
   scheduleSave,
   scheduleSettingsSave,
-  pendingNavRef,
   pendingEditTapRef,
   touchNavigationGuardRef,
   touchNavigationGuard,

@@ -73,10 +73,13 @@ function NavigationTree({
     onSelectNotebook?.(id)
   }
 
-  const handleSelectSection = (id) => {
-    setExpandedSections((prev) => new Set(prev).add(id))
-    onLoadSectionPages?.(id)
-    onSelectSection?.(id)
+  const handleSelectSection = (section) => {
+    setExpandedSections((prev) => new Set(prev).add(section.id))
+    onLoadSectionPages?.(section.id)
+    onSelectSection?.({
+      notebookId: section.notebook_id,
+      sectionId: section.id,
+    })
   }
 
   // Auto-expand when active IDs change from parent (deep links, URL navigation)
@@ -294,7 +297,7 @@ function NavigationTree({
                               role="treeitem"
                               aria-expanded={sectionExpanded}
                               className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
-                              onClick={() => handleSelectSection(section.id)}
+                              onClick={() => handleSelectSection(section)}
                               onContextMenu={handleOpenContextMenu('section', section)}
                               onTouchStart={handleTouchStart('section', section)}
                               onTouchEnd={cancelLongPress}
@@ -340,7 +343,11 @@ function NavigationTree({
                                         className={`tree-node tree-node-page ${
                                           tracker.id === activeTrackerId ? 'active' : ''
                                         } ${overId === tracker.id ? 'drag-over' : ''}`}
-                                        onClick={() => onSelectPage?.(tracker.id)}
+                                        onClick={() => onSelectPage?.({
+                                          notebookId: section.notebook_id,
+                                          sectionId: section.id,
+                                          pageId: tracker.id,
+                                        })}
                                         onContextMenu={handleOpenContextMenu('page', tracker)}
                                         onTouchStart={handleTouchStart('page', tracker)}
                                         onTouchEnd={cancelLongPress}

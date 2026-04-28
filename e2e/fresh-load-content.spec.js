@@ -39,6 +39,7 @@ test.describe('fresh page load always shows content', () => {
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
     // Title and content should both appear without any extra navigation.
+    await expect(page.locator('.status-row')).not.toContainText('No tracker selected')
     await expect(page.locator('.title-input')).toHaveValue('Fresh Load Page', { timeout: 10000 })
     await expect(page.locator('.ProseMirror')).toContainText(PAGE_TEXT, { timeout: 10000 })
   })
