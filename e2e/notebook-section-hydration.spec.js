@@ -26,6 +26,8 @@ test.describe('notebook section hydration', () => {
   let sectionB1 = null
   let sectionB2 = null
   let pageA = null
+  let pageB1 = null
+  let pageB2 = null
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
@@ -40,6 +42,14 @@ test.describe('notebook section hydration', () => {
     pageA = await createPage(client, userId, sectionA.id, 'Page A-One', {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Page A content' }] }],
+    })
+    pageB1 = await createPage(client, userId, sectionB1.id, 'Page B-One', {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Page B1 content' }] }],
+    })
+    pageB2 = await createPage(client, userId, sectionB2.id, 'Page B-Two', {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Page B2 content' }] }],
     })
   })
 
@@ -107,5 +117,48 @@ test.describe('notebook section hydration', () => {
 
     // Section A-One should still be visible in A's tree
     await expect(page.locator('.tree-node', { hasText: 'Section A-One' })).toBeVisible()
+  })
+
+  test('expanding a section in a non-active notebook immediately shows its pages', async ({ page }) => {
+    // Start in notebook A — A is active, B is non-active
+    await waitForApp(page, `#nb=${notebookA.id}&sec=${sectionA.id}&pg=${pageA.id}`)
+    await ensureNavigationVisible(page)
+
+    // Expand notebook B via chevron only (do not select it)
+    await clickNavigationItem(page, chevronFor(page, notebookB.title))
+    await expect(rowFor(page, notebookB.title)).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('.tree-node', { hasText: 'Section B-One' })).toBeVisible()
+
+    // Expand section B-One via its chevron only (do not select it)
+    await clickNavigationItem(page, chevronFor(page, 'Section B-One'))
+
+    // Page B-One must be visible
+    await expect(
+      page.locator('.tree-node-page', { hasText: pageB1.title }),
+    ).toBeVisible({ timeout: 8000 })
+
+    // Active state must not have changed
+    await expect(rowFor(page, notebookA.title)).toHaveClass(/active/)
+    await expect(page.locator('.tree-node-section', { hasText: 'Section B-One' })).not.toHaveClass(/active/)
+  })
+
+  test('expanding a non-active section within the active notebook shows its pages without selecting it', async ({ page }) => {
+    // Start in notebook B with section B-Two active
+    await waitForApp(page, `#nb=${notebookB.id}&sec=${sectionB2.id}&pg=${pageB2.id}`)
+    await ensureNavigationVisible(page)
+
+    await expect(page.locator('.tree-node-section', { hasText: 'Section B-Two' })).toHaveClass(/active/)
+
+    // Expand section B-One via its chevron only (do not click the section row)
+    await clickNavigationItem(page, chevronFor(page, 'Section B-One'))
+
+    // Page B-One must be visible
+    await expect(
+      page.locator('.tree-node-page', { hasText: pageB1.title }),
+    ).toBeVisible({ timeout: 8000 })
+
+    // Section B-Two must still be active
+    await expect(page.locator('.tree-node-section', { hasText: 'Section B-Two' })).toHaveClass(/active/)
+    await expect(page.locator('.tree-node-section', { hasText: 'Section B-One' })).not.toHaveClass(/active/)
   })
 })

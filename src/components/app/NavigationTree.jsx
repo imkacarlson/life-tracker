@@ -4,12 +4,14 @@ import StarterKit from '@tiptap/starter-kit'
 import { supabase } from '../../lib/supabase'
 import { resizeAndEncode } from '../../utils/imageResize'
 import PasteRecipeModal from '../editor/PasteRecipeModal'
+import { getSectionPages } from '../../utils/sectionPages'
 
 function NavigationTree({
   className = '',
   notebooks,
   sections,
   trackers,
+  pagesBySection = {},
   activeNotebookId,
   activeSectionId,
   activeTrackerId,
@@ -25,6 +27,7 @@ function NavigationTree({
   onCreatePage,
   onReorderPages,
   onOpenContextMenu,
+  onLoadSectionPages,
   onCreateWithContent,
 }) {
   const dragIdRef = useRef(null)
@@ -55,8 +58,12 @@ function NavigationTree({
   const toggleSection = (id) => {
     setExpandedSections((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+        onLoadSectionPages?.(id)
+      }
       return next
     })
   }
@@ -68,6 +75,7 @@ function NavigationTree({
 
   const handleSelectSection = (id) => {
     setExpandedSections((prev) => new Set(prev).add(id))
+    onLoadSectionPages?.(id)
     onSelectSection?.(id)
   }
 
@@ -273,6 +281,11 @@ function NavigationTree({
                       notebookSections.map((section) => {
                         const sectionActive = section.id === activeSectionId
                         const sectionExpanded = expandedSections.has(section.id)
+                        const sectionPages = sectionActive
+                          ? trackers
+                          : getSectionPages(pagesBySection, section.id)
+                        const pagesLoading = (sectionActive && loading) ||
+                          (!sectionActive && pagesBySection[section.id] === null)
 
                         return (
                           <div key={section.id} className="tree-branch">
@@ -303,22 +316,22 @@ function NavigationTree({
                               <span className="tree-label sidebar-title">{section.title}</span>
                             </button>
 
-                            {sectionExpanded && sectionActive ? (
+                            {sectionExpanded ? (
                               <div className="tree-children tree-children-pages" role="group">
-                                {loading ? (
+                                {pagesLoading ? (
                                   <p className="subtle tree-empty">Loading pages...</p>
-                                ) : trackers.length === 0 ? (
+                                ) : sectionPages.length === 0 ? (
                                   <p className="subtle tree-empty">No pages yet.</p>
                                 ) : (
-                                  trackers.map((tracker) => (
+                                  sectionPages.map((tracker) => (
                                     <div
                                       key={tracker.id}
                                       className={`tree-page-row ${overId === tracker.id ? 'drag-over' : ''}`}
-                                      draggable={!loading}
-                                      onDragStart={handleDragStart(tracker.id)}
-                                      onDragOver={handleDragOver(tracker.id)}
-                                      onDrop={handleDrop(tracker.id)}
-                                      onDragEnd={handleDragEnd}
+                                      draggable={sectionActive && !loading}
+                                      onDragStart={sectionActive ? handleDragStart(tracker.id) : undefined}
+                                      onDragOver={sectionActive ? handleDragOver(tracker.id) : undefined}
+                                      onDrop={sectionActive ? handleDrop(tracker.id) : undefined}
+                                      onDragEnd={sectionActive ? handleDragEnd : undefined}
                                     >
                                       <button
                                         type="button"

@@ -10,6 +10,7 @@ import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 
 export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelectionRef) => {
   const [trackers, setTrackers] = useState([])
+  const [pagesBySection, setPagesBySection] = useState({})
   const [activeTrackerId, setActiveTrackerId] = useState(null)
   const [dataLoading, setDataLoading] = useState(false)
   const [trackerPageSaving, setTrackerPageSaving] = useState(false)
@@ -93,6 +94,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
   useEffect(() => {
     if (userId) return
     setTrackers([])
+    setPagesBySection({})
     setActiveTrackerId(null)
     setDataLoading(false)
     setTrackerPageSaving(false)
@@ -109,6 +111,57 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     draftWriteTimersByTrackerRef.current = {}
     latestDraftKeyByTrackerRef.current = {}
   }, [userId])
+
+  // Fetch light page metadata (no content) for a section on first expand.
+  // Results are cached in pagesBySection so subsequent expands are instant.
+  const loadSectionPagesMeta = useCallback(async (sectionId) => {
+    if (!userId || !sectionId) return
+    setPagesBySection((prev) => {
+      if (prev[sectionId]) return prev
+      return prev
+    })
+    // Check synchronously whether we already have data for this section.
+    // We can't read state inside a callback reliably, so we set a sentinel
+    // and let the updater decide.
+    setPagesBySection((prev) => {
+      if (prev[sectionId] !== undefined) return prev
+      // Mark as loading with null so a second call before the fetch
+      // completes does not fire a duplicate request.
+      return { ...prev, [sectionId]: null }
+    })
+  }, [userId])
+
+  // Perform the actual fetch whenever pagesBySection gains a null sentinel.
+  useEffect(() => {
+    const pending = Object.entries(pagesBySection)
+      .filter(([, v]) => v === null)
+      .map(([id]) => id)
+
+    if (pending.length === 0 || !userId) return
+
+    const fetchMeta = async (sectionId) => {
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase
+          .from('pages')
+          .select('id, title, section_id, sort_order, is_tracker_page')
+          .eq('section_id', sectionId)
+          .order('sort_order', { ascending: true, nullsLast: true }),
+      )
+      if (error) {
+        setPagesBySection((prev) => {
+          const next = { ...prev }
+          delete next[sectionId]
+          return next
+        })
+        return
+      }
+      setPagesBySection((prev) => ({ ...prev, [sectionId]: data ?? [] }))
+    }
+
+    for (const sectionId of pending) {
+      fetchMeta(sectionId)
+    }
+  }, [pagesBySection, userId])
 
   // Immediately write any debounced localStorage drafts for all trackers.
   const flushAllPendingDrafts = useCallback(() => {
@@ -245,6 +298,17 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
       setTrackers((prev) =>
         prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
       )
+      if (typeof payload.title === 'string') {
+        setPagesBySection((prev) => {
+          const sectionId = trackersRef.current.find((t) => t.id === trackerId)?.section_id
+          const existing = sectionId ? prev[sectionId] : null
+          if (!existing) return prev
+          return {
+            ...prev,
+            [sectionId]: existing.map((p) => (p.id === trackerId ? { ...p, title: payload.title } : p)),
+          }
+        })
+      }
 
       if (trackerId === activeTrackerRef.current?.id) {
         setSaveStatus('Saved')
@@ -466,6 +530,12 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     }
 
     setTrackers((prev) => [...prev, { ...data, sort_order: nextSortOrder }])
+    setPagesBySection((prev) => {
+      const existing = prev[sectionId]
+      if (existing === undefined || existing === null) return prev
+      const meta = { id: data.id, title: data.title, section_id: sectionId, sort_order: nextSortOrder, is_tracker_page: false }
+      return { ...prev, [sectionId]: [...existing, meta] }
+    })
     setActiveTrackerId(data.id)
   }
 
@@ -496,6 +566,12 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     }
 
     setTrackers((prev) => [...prev, { ...data, sort_order: nextSortOrder }])
+    setPagesBySection((prev) => {
+      const existing = prev[sectionId]
+      if (existing === undefined || existing === null) return prev
+      const meta = { id: data.id, title: pageTitle, section_id: sectionId, sort_order: nextSortOrder, is_tracker_page: false }
+      return { ...prev, [sectionId]: [...existing, meta] }
+    })
     setActiveTrackerId(data.id)
     return data
   }
@@ -508,6 +584,14 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
         sort_order: index + 1,
       }))
       setTrackers(reordered)
+      setPagesBySection((prev) => {
+        if (!activeSectionId || !prev[activeSectionId]) return prev
+        const orderMap = Object.fromEntries(reordered.map((item) => [item.id, item.sort_order]))
+        const updated = prev[activeSectionId].map((p) =>
+          orderMap[p.id] !== undefined ? { ...p, sort_order: orderMap[p.id] } : p,
+        )
+        return { ...prev, [activeSectionId]: updated }
+      })
       const updates = reordered.map((item) =>
         supabase.from('pages').update({ sort_order: item.sort_order }).eq('id', item.id),
       )
@@ -517,7 +601,7 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
         setMessage(error.message)
       }
     },
-    [userId],
+    [userId, activeSectionId],
   )
 
   const setTrackerPage = useCallback(
@@ -535,6 +619,12 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
           is_tracker_page: item.id === pageId,
         })),
       )
+      setPagesBySection((prev) => {
+        const existing = prev[activeSectionId]
+        if (!existing) return prev
+        const updated = existing.map((p) => ({ ...p, is_tracker_page: p.id === pageId }))
+        return { ...prev, [activeSectionId]: updated }
+      })
 
       const { error: clearError } = await supabase
         .from('pages')
@@ -604,6 +694,12 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
     clearNavHierarchyCache()
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
+    setPagesBySection((prev) => {
+      const sectionId = tracker.section_id ?? activeSectionId
+      const existing = prev[sectionId]
+      if (!existing) return prev
+      return { ...prev, [sectionId]: existing.filter((p) => p.id !== tracker.id) }
+    })
     delete pendingTitleByTrackerRef.current[tracker.id]
     clearPageDraft(tracker.id)
     setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
@@ -629,6 +725,8 @@ export const useTrackers = (userId, activeSectionId, pendingNavRef, savedSelecti
 
   return {
     trackers,
+    pagesBySection,
+    loadSectionPagesMeta,
     activeTrackerId,
     setActiveTrackerId,
     activeTracker,

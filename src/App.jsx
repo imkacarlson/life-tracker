@@ -151,6 +151,8 @@ function App() {
 
   const {
     trackers,
+    pagesBySection,
+    loadSectionPagesMeta,
     activeTrackerId,
     setActiveTrackerId,
     activeTracker,
@@ -711,6 +713,7 @@ function App() {
           notebooks={notebooks}
           sections={sections}
           trackers={trackers}
+          pagesBySection={pagesBySection}
           activeNotebookId={activeNotebookId}
           activeSectionId={activeSectionId}
           activeTrackerId={activeTrackerId}
@@ -726,6 +729,7 @@ function App() {
           onCreatePage={() => createTracker(session, activeSectionId)}
           onReorderPages={reorderTrackers}
           onOpenContextMenu={handleOpenTreeContextMenu}
+          onLoadSectionPages={loadSectionPagesMeta}
           onCreateWithContent={(title, content) =>
             createTrackerWithContent(session, activeSectionId, title, content)
           }
