@@ -4,6 +4,7 @@ function EditorHeader({
   onDelete,
   saveStatus,
   hasTracker,
+  editorTransitioning,
   message,
   titleReadOnly,
   editorLocked,
@@ -38,8 +39,9 @@ function EditorHeader({
         )}
       </div>
       <div className="status-row">
-        <span className="subtle">{hasTracker ? saveStatus : 'No tracker selected'}</span>
-        {editorLocked && hasTracker && <span className="subtle">Switching...</span>}
+        <span className="subtle">
+          {editorTransitioning ? 'Switching...' : hasTracker ? saveStatus : 'No tracker selected'}
+        </span>
         {message && <span className="message-inline">{message}</span>}
       </div>
     </div>

@@ -283,6 +283,25 @@
   font-size: 0.82rem;
 }
 
+.tree-page-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem 0.3rem 1.55rem;
+}
+
+.tree-page-skeleton span {
+  display: block;
+  width: min(9rem, 72%);
+  height: 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.tree-page-skeleton span:nth-child(2) {
+  width: min(7rem, 58%);
+}
+
 .tree-node {
   width: 100%;
   min-width: 0;

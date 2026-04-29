@@ -35,6 +35,7 @@ function EditorPanel({
   saveStatus,
   onImageUpload,
   hasTracker,
+  editorTransitioning = false,
   message,
   notebookId,
   sectionId,
@@ -738,6 +739,7 @@ function EditorPanel({
         onDelete={onDelete}
         saveStatus={saveStatus}
         hasTracker={hasTracker}
+        editorTransitioning={editorTransitioning}
         message={message}
         titleReadOnly={titleReadOnly}
         editorLocked={editorLocked}

@@ -12,10 +12,18 @@ import {
 const TARGET_BLOCK_ID = 'e2e-target-block-copy'
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-const exactTreeNode = (page, className, label) =>
-  page.locator(className).filter({
-    has: page.locator('.tree-label', { hasText: new RegExp(`^${escapeRegex(label)}$`) }),
-  }).first()
+const exactTreeNode = (root, className, label) => {
+  const classToken = className.startsWith('.') ? className.slice(1) : className
+  return root
+    .locator('.tree-label', { hasText: new RegExp(`^${escapeRegex(label)}$`) })
+    .locator(
+      `xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " ${classToken} ")][1]`,
+    )
+    .first()
+}
+
+const treeBranchForNode = (node) =>
+  node.locator('xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " tree-branch ")][1]')
 
 test.describe('Issue #70 same-notebook section copy', () => {
   let notebookId = null
@@ -157,7 +165,8 @@ test.describe('Issue #70 same-notebook section copy', () => {
     const copiedSectionNode = exactTreeNode(page, '.tree-node-section', `${sectionTitle} (1)`)
     await expect(copiedSectionNode).toBeVisible({ timeout: 10000 })
     await clickNavigationItem(page, copiedSectionNode)
-    const copiedScratchpad = exactTreeNode(page, '.tree-node-page', scratchpadTitle)
+    const copiedSectionBranch = treeBranchForNode(copiedSectionNode)
+    const copiedScratchpad = exactTreeNode(copiedSectionBranch, '.tree-node-page', scratchpadTitle)
     await expect(copiedScratchpad).toBeVisible({ timeout: 10000 })
     await clickNavigationItem(page, copiedScratchpad)
     await expect(page.locator('.ProseMirror')).toContainText('See the target', { timeout: 10000 })

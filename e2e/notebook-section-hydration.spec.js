@@ -87,6 +87,7 @@ test.describe('notebook section hydration', () => {
 
     // The stale "select notebook" prompt must not appear anywhere
     await expect(page.locator('text=Select notebook to load sections')).toHaveCount(0)
+    await expect(page.getByText('Loading pages...')).toHaveCount(0)
   })
 
   test('clicking a non-active notebook switches active section to its first section', async ({ page }) => {
@@ -136,6 +137,7 @@ test.describe('notebook section hydration', () => {
     await expect(
       page.locator('.tree-node-page', { hasText: pageB1.title }),
     ).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText('Loading pages...')).toHaveCount(0)
 
     // Active state must not have changed
     await expect(rowFor(page, notebookA.title)).toHaveClass(/active/)
@@ -156,6 +158,7 @@ test.describe('notebook section hydration', () => {
     await expect(
       page.locator('.tree-node-page', { hasText: pageB1.title }),
     ).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText('Loading pages...')).toHaveCount(0)
 
     // Section B-Two must still be active
     await expect(page.locator('.tree-node-section', { hasText: 'Section B-Two' })).toHaveClass(/active/)

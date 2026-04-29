@@ -150,8 +150,9 @@ function App() {
 
   const {
     trackers,
-    pagesBySection,
+    sectionPageCache,
     loadSectionPagesMeta,
+    loadedTrackerSectionId,
     activeTrackerId,
     setActiveTrackerId,
     activeTracker,
@@ -177,10 +178,20 @@ function App() {
     flushAllPendingSaves,
   } = useTrackers(userId, activeSectionId)
 
+  const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
+    activeTrackerId,
+    activeTracker,
+    dataLoading,
+    settingsMode,
+    settingsContentVersion,
+    templateContentRef,
+    hydrateContentWithSignedUrls,
+  })
+
   const {
     navIntentRef,
     hashBlockRef,
-    isNavigating,
+    pendingTarget,
     selectNavigationTarget,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
@@ -191,6 +202,8 @@ function App() {
     trackers,
     sectionsLoading,
     dataLoading,
+    loadedTrackerSectionId,
+    editorReady: trackerSession.status === 'ready',
     activeNotebookId,
     activeSectionId,
     activeTrackerId,
@@ -361,16 +374,6 @@ function App() {
   }
 
   const uploadImageRef = useRef(null)
-
-  const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
-    activeTrackerId,
-    activeTracker,
-    dataLoading,
-    settingsMode,
-    settingsContentVersion,
-    templateContentRef,
-    hydrateContentWithSignedUrls,
-  })
 
   const { editor, suppressFocusRef } = useEditorSetup({
     authSession: session,
@@ -574,7 +577,31 @@ function App() {
 
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
-  const hasEditorTarget = Boolean(activeTracker) || isNavigating
+  const activeSectionPending =
+    Boolean(activeSectionId) && loadedTrackerSectionId !== activeSectionId
+  const isSamePageBlockAnchor =
+    Boolean(pendingTarget?.blockId) &&
+    pendingTarget.notebookId === activeNotebookId &&
+    pendingTarget.sectionId === activeSectionId &&
+    pendingTarget.pageId === activeTrackerId
+  const navigationRequiresEditorTransition = Boolean(
+    pendingTarget &&
+      !isSamePageBlockAnchor &&
+      (pendingTarget.notebookId !== activeNotebookId ||
+        pendingTarget.sectionId !== activeSectionId ||
+        pendingTarget.pageId !== activeTrackerId),
+  )
+  const editorTransitioning =
+    navigationRequiresEditorTransition ||
+    dataLoading ||
+    activeSectionPending ||
+    trackerSession.status === 'loading'
+  const hasEditorTarget =
+    Boolean(activeTracker) ||
+    Boolean(activeTrackerId) ||
+    navigationRequiresEditorTransition ||
+    dataLoading ||
+    activeSectionPending
   const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
   const isSidebarOpen = isMobileViewport ? mobileSidebarOpen : !sidebarCollapsed
   const workspaceClassName = [
@@ -668,7 +695,7 @@ function App() {
           notebooks={notebooks}
           sections={sections}
           trackers={trackers}
-          pagesBySection={pagesBySection}
+          sectionPageCache={sectionPageCache}
           activeNotebookId={activeNotebookId}
           activeSectionId={activeSectionId}
           activeTrackerId={activeTrackerId}
@@ -739,13 +766,14 @@ function App() {
             <EditorPanel
               key={sessionKey}
               editor={editor}
-              editorLocked={trackerSession.status !== 'ready'}
+              editorLocked={trackerSession.status !== 'ready' || editorTransitioning}
               title={titleDraft}
               onTitleChange={(value) => handleTitleChange(value, editor)}
               onDelete={deleteTracker}
               saveStatus={saveStatus}
               onImageUpload={finalUploadImageAndInsert}
               hasTracker={hasEditorTarget}
+              editorTransitioning={editorTransitioning}
               message={message}
               notebookId={activeNotebookId}
               sectionId={activeSectionId}

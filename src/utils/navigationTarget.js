@@ -39,6 +39,7 @@ export const getNavigationApplyStep = ({
   activeTrackerId = null,
   sectionsLoading = false,
   dataLoading = false,
+  loadedTrackerSectionId = null,
 }) => {
   if (!target?.notebookId) return { type: 'done' }
 
@@ -62,6 +63,10 @@ export const getNavigationApplyStep = ({
   }
 
   if (!target.pageId) return { type: 'done' }
+
+  if (loadedTrackerSectionId !== target.sectionId) {
+    return { type: 'wait' }
+  }
 
   if (!trackers.some((item) => item.id === target.pageId && item.section_id === target.sectionId)) {
     if (trackers.length === 0) return { type: 'wait' }
