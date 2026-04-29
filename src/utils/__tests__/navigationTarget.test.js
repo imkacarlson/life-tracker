@@ -88,6 +88,7 @@ describe('getNavigationApplyStep', () => {
       activeNotebookId: 'nb-2',
       activeSectionId: 'sec-2',
       activeTrackerId: 'pg-1',
+      loadedTrackerSectionId: 'sec-2',
     })).toEqual({ type: 'page', id: 'pg-2' })
   })
 
@@ -100,6 +101,33 @@ describe('getNavigationApplyStep', () => {
       activeNotebookId: 'nb-2',
       activeSectionId: 'sec-2',
       dataLoading: true,
+      loadedTrackerSectionId: 'sec-2',
     })).toEqual({ type: 'wait' })
+  })
+
+  it('waits for the target section page data instead of using stale trackers', () => {
+    expect(getNavigationApplyStep({
+      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' },
+      notebooks,
+      sections,
+      trackers: [{ id: 'pg-1', section_id: 'sec-1' }],
+      activeNotebookId: 'nb-2',
+      activeSectionId: 'sec-2',
+      activeTrackerId: 'pg-1',
+      dataLoading: false,
+      loadedTrackerSectionId: 'sec-1',
+    })).toEqual({ type: 'wait' })
+  })
+
+  it('treats a page as missing only after the target section has loaded', () => {
+    expect(getNavigationApplyStep({
+      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-missing' },
+      notebooks,
+      sections,
+      trackers,
+      activeNotebookId: 'nb-2',
+      activeSectionId: 'sec-2',
+      loadedTrackerSectionId: 'sec-2',
+    })).toEqual({ type: 'missing' })
   })
 })

@@ -4,14 +4,14 @@ import StarterKit from '@tiptap/starter-kit'
 import { supabase } from '../../lib/supabase'
 import { resizeAndEncode } from '../../utils/imageResize'
 import PasteRecipeModal from '../editor/PasteRecipeModal'
-import { getSectionPages } from '../../utils/sectionPages'
+import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../../utils/sectionPages'
 
 function NavigationTree({
   className = '',
   notebooks,
   sections,
   trackers,
-  pagesBySection = {},
+  sectionPageCache = {},
   activeNotebookId,
   activeSectionId,
   activeTrackerId,
@@ -284,11 +284,15 @@ function NavigationTree({
                       notebookSections.map((section) => {
                         const sectionActive = section.id === activeSectionId
                         const sectionExpanded = expandedSections.has(section.id)
-                        const sectionPages = sectionActive
-                          ? trackers
-                          : getSectionPages(pagesBySection, section.id)
-                        const pagesLoading = (sectionActive && loading) ||
-                          (!sectionActive && pagesBySection[section.id] === null)
+                        const sectionPageEntry = getSectionPageEntry(sectionPageCache, section.id)
+                        const sectionPages = sectionPageEntry.pages
+                        const pagesLoading =
+                          (sectionActive && loading && sectionPageEntry.status !== SECTION_PAGE_STATUS.LOADED) ||
+                          sectionPageEntry.status === SECTION_PAGE_STATUS.LOADING
+                        const showPageSkeleton = pagesLoading && sectionPages.length === 0
+                        const showEmptyPages =
+                          sectionPageEntry.status === SECTION_PAGE_STATUS.LOADED &&
+                          sectionPages.length === 0
 
                         return (
                           <div key={section.id} className="tree-branch">
@@ -321,9 +325,16 @@ function NavigationTree({
 
                             {sectionExpanded ? (
                               <div className="tree-children tree-children-pages" role="group">
-                                {pagesLoading ? (
-                                  <p className="subtle tree-empty">Loading pages...</p>
-                                ) : sectionPages.length === 0 ? (
+                                {showPageSkeleton ? (
+                                  <div
+                                    className="tree-page-skeleton"
+                                    role="status"
+                                    aria-label="Loading pages"
+                                  >
+                                    <span />
+                                    <span />
+                                  </div>
+                                ) : showEmptyPages ? (
                                   <p className="subtle tree-empty">No pages yet.</p>
                                 ) : (
                                   sectionPages.map((tracker) => (

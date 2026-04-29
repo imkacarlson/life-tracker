@@ -21,6 +21,8 @@ export const useNavigation = ({
   trackers,
   sectionsLoading,
   dataLoading,
+  loadedTrackerSectionId,
+  editorReady = true,
   activeNotebookId,
   activeSectionId,
   activeTrackerId,
@@ -193,6 +195,7 @@ export const useNavigation = ({
       activeTrackerId,
       sectionsLoading,
       dataLoading,
+      loadedTrackerSectionId,
     })
 
     if (step.type === 'wait') return
@@ -223,6 +226,7 @@ export const useNavigation = ({
       clearPendingTarget()
       return
     }
+    if (!editorReady) return
 
     requestAnimationFrame(() => {
       const found = scrollToBlock(pendingTarget.blockId)
@@ -239,6 +243,8 @@ export const useNavigation = ({
     activeTrackerId,
     sectionsLoading,
     dataLoading,
+    loadedTrackerSectionId,
+    editorReady,
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
@@ -294,12 +300,13 @@ export const useNavigation = ({
       savedSelection?.sectionId === activeSectionId &&
       savedSelection.pageId &&
       !activeTrackerId &&
-      (dataLoading || trackers.length > 0)
+      (dataLoading || loadedTrackerSectionId !== activeSectionId || trackers.length > 0)
     ) {
       return
     }
     if (activeNotebookId && sectionsLoading) return
     if (activeSectionId && dataLoading) return
+    if (activeSectionId && loadedTrackerSectionId !== activeSectionId) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     if (savedSelectionRef) {
       savedSelectionRef.current = {
@@ -318,6 +325,7 @@ export const useNavigation = ({
     activeTrackerId,
     sectionsLoading,
     dataLoading,
+    loadedTrackerSectionId,
     sections.length,
     trackers.length,
   ])
