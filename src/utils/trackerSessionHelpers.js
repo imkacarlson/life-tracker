@@ -24,6 +24,8 @@ export function computeSessionStatusSync(mode, activeTracker, _dataLoading) {
   if (mode === 'template') return 'pending-hydration'
   // mode === 'tracker'
   if (!activeTracker) return 'loading'
+  // content === undefined means the page content cache hasn't loaded yet
+  if (activeTracker.content === undefined) return 'loading'
   return 'pending-hydration'
 }
 
@@ -37,5 +39,8 @@ export function computeSessionKey(mode, activeTrackerId, nonce, activeTracker, s
   if (mode === 'template') return `template:${settingsContentVersion ?? 0}`
   // mode === 'tracker'
   if (!activeTracker) return `loading:${activeTrackerId}`
+  // content === undefined means cache hasn't loaded yet — keep as loading key so
+  // the editor mounts only after content is available (key change triggers remount)
+  if (activeTracker.content === undefined) return `loading:${activeTrackerId}`
   return `${activeTrackerId}:${nonce}`
 }

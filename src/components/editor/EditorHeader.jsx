@@ -40,7 +40,7 @@ function EditorHeader({
       </div>
       <div className="status-row">
         <span className="subtle">
-          {editorTransitioning ? 'Switching...' : hasTracker ? saveStatus : 'No tracker selected'}
+          {editorTransitioning ? 'Loading...' : hasTracker ? saveStatus : 'No tracker selected'}
         </span>
         {message && <span className="message-inline">{message}</span>}
       </div>

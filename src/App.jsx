@@ -152,7 +152,6 @@ function App() {
     trackers,
     sectionPageCache,
     loadSectionPagesMeta,
-    loadedTrackerSectionId,
     activeTrackerId,
     setActiveTrackerId,
     activeTracker,
@@ -176,6 +175,7 @@ function App() {
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
+    flushSaveForTracker,
   } = useTrackers(userId, activeSectionId)
 
   const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
@@ -199,10 +199,8 @@ function App() {
     session,
     notebooks,
     sections,
-    trackers,
+    sectionPageCache,
     sectionsLoading,
-    dataLoading,
-    loadedTrackerSectionId,
     editorReady: trackerSession.status === 'ready',
     activeNotebookId,
     activeSectionId,
@@ -210,6 +208,7 @@ function App() {
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
+    flushSaveForTracker,
     getPendingNav,
     setPendingNav,
     savedSelectionRef,
@@ -577,8 +576,6 @@ function App() {
 
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
-  const activeSectionPending =
-    Boolean(activeSectionId) && loadedTrackerSectionId !== activeSectionId
   const isSamePageBlockAnchor =
     Boolean(pendingTarget?.blockId) &&
     pendingTarget.notebookId === activeNotebookId &&
@@ -591,17 +588,17 @@ function App() {
         pendingTarget.sectionId !== activeSectionId ||
         pendingTarget.pageId !== activeTrackerId),
   )
+  // editorTransitioning is true only while content is actually loading — the
+  // activeSectionPending gate is gone because the content cache + session status
+  // already covers that wait accurately.
   const editorTransitioning =
-    navigationRequiresEditorTransition ||
-    dataLoading ||
-    activeSectionPending ||
+    (pendingTarget && navigationRequiresEditorTransition && trackerSession.status !== 'ready') ||
     trackerSession.status === 'loading'
   const hasEditorTarget =
     Boolean(activeTracker) ||
     Boolean(activeTrackerId) ||
     navigationRequiresEditorTransition ||
-    dataLoading ||
-    activeSectionPending
+    dataLoading
   const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
   const isSidebarOpen = isMobileViewport ? mobileSidebarOpen : !sidebarCollapsed
   const workspaceClassName = [
@@ -699,6 +696,7 @@ function App() {
           activeNotebookId={activeNotebookId}
           activeSectionId={activeSectionId}
           activeTrackerId={activeTrackerId}
+          userId={userId}
           loading={dataLoading}
           compactBadges={compactBadges}
           isRecipesNotebook={isRecipesNotebook}

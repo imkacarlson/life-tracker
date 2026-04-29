@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { resizeAndEncode } from '../../utils/imageResize'
 import PasteRecipeModal from '../editor/PasteRecipeModal'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../../utils/sectionPages'
+import { useLocalStorageState } from '../../hooks/useLocalStorageState'
 
 function NavigationTree({
   className = '',
@@ -15,6 +16,7 @@ function NavigationTree({
   activeNotebookId,
   activeSectionId,
   activeTrackerId,
+  userId,
   loading,
   compactBadges = false,
   isRecipesNotebook = false,
@@ -32,12 +34,21 @@ function NavigationTree({
 }) {
   const dragIdRef = useRef(null)
   const [overId, setOverId] = useState(null)
-  const [expandedNotebooks, setExpandedNotebooks] = useState(
-    () => (activeNotebookId ? new Set([activeNotebookId]) : new Set()),
+  const [expandedNotebooksRaw, setExpandedNotebooks] = useLocalStorageState(
+    `nav-tree-expanded:notebooks:${userId ?? 'anon'}`,
+    activeNotebookId ? [activeNotebookId] : [],
   )
-  const [expandedSections, setExpandedSections] = useState(
-    () => (activeSectionId ? new Set([activeSectionId]) : new Set()),
+  const [expandedSectionsRaw, setExpandedSections] = useLocalStorageState(
+    `nav-tree-expanded:sections:${userId ?? 'anon'}`,
+    activeSectionId ? [activeSectionId] : [],
   )
+  // Convert arrays (from JSON storage) to Sets for O(1) lookups
+  const expandedNotebooks = expandedNotebooksRaw instanceof Set
+    ? expandedNotebooksRaw
+    : new Set(Array.isArray(expandedNotebooksRaw) ? expandedNotebooksRaw : [])
+  const expandedSections = expandedSectionsRaw instanceof Set
+    ? expandedSectionsRaw
+    : new Set(Array.isArray(expandedSectionsRaw) ? expandedSectionsRaw : [])
   const [pasteRecipeOpen, setPasteRecipeOpen] = useState(false)
   const [pasteRecipeText, setPasteRecipeText] = useState('')
   const [pasteRecipeLoading, setPasteRecipeLoading] = useState(false)
@@ -48,33 +59,41 @@ function NavigationTree({
 
   const toggleNotebook = (id) => {
     setExpandedNotebooks((prev) => {
-      const next = new Set(prev)
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      const next = new Set(prevSet)
       if (next.has(id)) next.delete(id)
       else next.add(id)
-      return next
+      return [...next]
     })
   }
 
   const toggleSection = (id) => {
     setExpandedSections((prev) => {
-      const next = new Set(prev)
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      const next = new Set(prevSet)
       if (next.has(id)) {
         next.delete(id)
       } else {
         next.add(id)
         onLoadSectionPages?.(id)
       }
-      return next
+      return [...next]
     })
   }
 
   const handleSelectNotebook = (id) => {
-    setExpandedNotebooks((prev) => new Set(prev).add(id))
+    setExpandedNotebooks((prev) => {
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      return [...new Set(prevSet).add(id)]
+    })
     onSelectNotebook?.(id)
   }
 
   const handleSelectSection = (section) => {
-    setExpandedSections((prev) => new Set(prev).add(section.id))
+    setExpandedSections((prev) => {
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      return [...new Set(prevSet).add(section.id)]
+    })
     onLoadSectionPages?.(section.id)
     onSelectSection?.({
       notebookId: section.notebook_id,
@@ -85,13 +104,21 @@ function NavigationTree({
   // Auto-expand when active IDs change from parent (deep links, URL navigation)
   useEffect(() => {
     if (activeNotebookId) {
-      setExpandedNotebooks((prev) => (prev.has(activeNotebookId) ? prev : new Set(prev).add(activeNotebookId)))
+      setExpandedNotebooks((prev) => {
+        const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+        if (prevSet.has(activeNotebookId)) return prev
+        return [...new Set(prevSet).add(activeNotebookId)]
+      })
     }
   }, [activeNotebookId])
 
   useEffect(() => {
     if (activeSectionId) {
-      setExpandedSections((prev) => (prev.has(activeSectionId) ? prev : new Set(prev).add(activeSectionId)))
+      setExpandedSections((prev) => {
+        const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+        if (prevSet.has(activeSectionId)) return prev
+        return [...new Set(prevSet).add(activeSectionId)]
+      })
     }
   }, [activeSectionId])
 

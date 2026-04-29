@@ -54,6 +54,11 @@ describe('computeSessionStatusSync', () => {
     expect(computeSessionStatusSync('tracker', TRACKER, false)).toBe('pending-hydration')
   })
 
+  it('returns "loading" when mode is "tracker" and activeTracker exists but content is undefined (cache not loaded)', () => {
+    const trackerMetaOnly = { id: TRACKER_ID, title: 'Test Page', content: undefined }
+    expect(computeSessionStatusSync('tracker', trackerMetaOnly, false)).toBe('loading')
+  })
+
   it('returns "pending-hydration" when mode is "template"', () => {
     // Template content is always available (via ref); we always need to hydrate
     expect(computeSessionStatusSync('template', null, false)).toBe('pending-hydration')
@@ -69,8 +74,13 @@ describe('computeSessionKey', () => {
     expect(computeSessionKey('settings', null, 0, null, null)).toBe('settings')
   })
 
-  it('returns "loading:<trackerId>" while tracker content is loading', () => {
+  it('returns "loading:<trackerId>" while tracker content is loading (null activeTracker)', () => {
     expect(computeSessionKey('tracker', TRACKER_ID, 0, null, null)).toBe(`loading:${TRACKER_ID}`)
+  })
+
+  it('returns "loading:<trackerId>" when activeTracker exists but content is undefined (cache not loaded)', () => {
+    const trackerMetaOnly = { id: TRACKER_ID, title: 'Test Page', content: undefined }
+    expect(computeSessionKey('tracker', TRACKER_ID, 0, trackerMetaOnly, null)).toBe(`loading:${TRACKER_ID}`)
   })
 
   it('includes trackerId and nonce for tracker mode', () => {
