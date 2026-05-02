@@ -8,6 +8,7 @@ import { detectConflict } from '../utils/draftHelpers'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { useSectionPageCache } from './useSectionPageCache'
+import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 
 export const useTrackers = (userId, activeSectionId) => {
   const [trackers, setTrackers] = useState([])
@@ -47,18 +48,40 @@ export const useTrackers = (userId, activeSectionId) => {
     markCachedTrackerPage,
   } = useSectionPageCache(userId)
 
+  const {
+    pageContentCache,
+    loadPageContent,
+    setPageContent,
+    invalidatePage,
+  } = usePageContentCache(userId)
+  const pageContentCacheRef = useRef(pageContentCache)
+
+  useEffect(() => {
+    pageContentCacheRef.current = pageContentCache
+  }, [pageContentCache])
+
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
+    const contentEntry = pageContentCache[activeTrackerId]
+    const contentLoaded = contentEntry?.status === PAGE_CONTENT_STATUS.LOADED
+    // undefined signals "content not yet fetched from cache" — keeps the editor
+    // in loading state until the single-row content fetch completes.
+    const serverContent = contentLoaded ? (contentEntry.content ?? null) : undefined
+
     // While a conflict is pending, show server content (modal blocks interaction).
-    if (draftConflict?.trackerId === activeTrackerId) return activeTrackerServer
-    if (!activeDraft) return activeTrackerServer
+    if (draftConflict?.trackerId === activeTrackerId) {
+      return { ...activeTrackerServer, content: serverContent }
+    }
+    if (!activeDraft) {
+      return { ...activeTrackerServer, content: serverContent }
+    }
     return {
       ...activeTrackerServer,
       title: typeof activeDraft.title === 'string' ? activeDraft.title : activeTrackerServer.title,
-      content: activeDraft.content ?? activeTrackerServer.content,
+      content: contentLoaded ? (activeDraft.content ?? serverContent) : undefined,
     }
-  }, [activeDraft, activeTrackerServer, draftConflict, activeTrackerId])
+  }, [activeDraft, activeTrackerServer, draftConflict, activeTrackerId, pageContentCache])
 
   useEffect(() => {
     titleDraftRef.current = titleDraft
@@ -72,6 +95,15 @@ export const useTrackers = (userId, activeSectionId) => {
     draftConflictRef.current = draftConflict
   }, [draftConflict])
 
+  // Trigger a single-row content fetch when the active page changes and content
+  // isn't already cached (Notesnook openSession pattern).
+  useEffect(() => {
+    if (!activeTrackerId) return
+    const entry = pageContentCacheRef.current[activeTrackerId]
+    if (entry?.status === PAGE_CONTENT_STATUS.LOADED || entry?.status === PAGE_CONTENT_STATUS.LOADING) return
+    loadPageContent(activeTrackerId)
+  }, [activeTrackerId, loadPageContent])
+
   // Read the draft and detect conflicts in a single effect so both values are
   // always computed from the same draft snapshot.  Two separate effects caused a
   // one-render flash of the conflict modal: the draft-read effect would call
@@ -84,18 +116,24 @@ export const useTrackers = (userId, activeSectionId) => {
       return
     }
     const draft = readPageDraft(activeTrackerId)
-    const conflict = detectConflict(activeTrackerId, activeTrackerServer, draft)
+    // Conflict detection requires the server content — only run once the cache has loaded.
+    const contentEntry = pageContentCacheRef.current[activeTrackerId]
+    const serverContentLoaded = contentEntry?.status === PAGE_CONTENT_STATUS.LOADED
+    const serverRowForConflict = serverContentLoaded
+      ? { ...activeTrackerServer, content: contentEntry.content ?? null }
+      : null
+    const conflict = detectConflict(activeTrackerId, serverRowForConflict, draft)
     // If the draft exists but content matches the server (stale draft left over from a
     // previous session whose save succeeded), clear it silently so the status doesn't
     // stick on "Unsaved (local)" and localStorage doesn't leak orphan entries.
-    if (draft && !conflict && activeTrackerServer) {
+    if (draft && !conflict && serverRowForConflict) {
       clearPageDraft(activeTrackerId)
       setActiveDraft(null)
     } else {
       setActiveDraft(draft)
     }
     setDraftConflict(conflict)
-  }, [activeTrackerId, activeTrackerServer, draftInvalidation])
+  }, [activeTrackerId, activeTrackerServer, pageContentCache, draftInvalidation])
 
   useEffect(() => {
     trackersRef.current = trackers
@@ -218,8 +256,7 @@ export const useTrackers = (userId, activeSectionId) => {
 
       const { payload, payloadKey } = queued
       // Snapshot the old content before the save so we can diff for removed images.
-      const oldTracker = trackersRef.current.find((item) => item.id === trackerId)
-      const oldContent = oldTracker?.content ?? null
+      const oldContent = pageContentCacheRef.current[trackerId]?.content ?? null
       const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
 
       inFlightByTrackerRef.current[trackerId] = false
@@ -257,6 +294,10 @@ export const useTrackers = (userId, activeSectionId) => {
       setTrackers((prev) =>
         prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
       )
+      // Write-through to the content cache so the editor sees its own saves without re-fetching.
+      if (payload.content !== undefined) {
+        setPageContent(trackerId, payload.content)
+      }
       if (typeof payload.title === 'string') {
         const sectionId = trackersRef.current.find((t) => t.id === trackerId)?.section_id
         updateCachedPage(sectionId, trackerId, { title: payload.title })
@@ -283,7 +324,7 @@ export const useTrackers = (userId, activeSectionId) => {
 
       recomputeHasPendingSaves()
     },
-    [maybeClearLocalDraft, recomputeHasPendingSaves, updateCachedPage],
+    [maybeClearLocalDraft, recomputeHasPendingSaves, setPageContent, updateCachedPage],
   )
 
   // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
@@ -325,7 +366,7 @@ export const useTrackers = (userId, activeSectionId) => {
       const { data, error } = await runSupabaseQueryWithRetry(() =>
         supabase
           .from('pages')
-          .select('id, title, content, created_at, updated_at, section_id, sort_order, is_tracker_page')
+          .select('id, title, created_at, updated_at, section_id, sort_order, is_tracker_page')
           .eq('section_id', sectionId)
           .order('sort_order', { ascending: true, nullsLast: true })
           .order('updated_at', { ascending: false }),
@@ -480,6 +521,8 @@ export const useTrackers = (userId, activeSectionId) => {
     const created = { ...data, sort_order: nextSortOrder }
     setTrackers((prev) => [...prev, created])
     upsertCachedPage(sectionId, created)
+    // Seed the content cache so the editor can mount immediately without a round-trip.
+    setPageContent(data.id, EMPTY_DOC)
     setActiveTrackerId(data.id)
   }
 
@@ -512,6 +555,8 @@ export const useTrackers = (userId, activeSectionId) => {
     const created = { ...data, sort_order: nextSortOrder }
     setTrackers((prev) => [...prev, created])
     upsertCachedPage(sectionId, created)
+    // Seed the content cache so the editor can mount immediately without a round-trip.
+    setPageContent(data.id, content)
     setActiveTrackerId(data.id)
     return data
   }
@@ -605,8 +650,9 @@ export const useTrackers = (userId, activeSectionId) => {
     const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
     if (!confirmDelete) return
 
-    // Collect image paths before deletion (we need the content in memory).
-    const imagePaths = collectAllImagePaths([tracker])
+    // Collect image paths before deletion (pull content from cache, not tracker metadata).
+    const trackerContent = pageContentCacheRef.current[tracker.id]?.content ?? null
+    const imagePaths = collectAllImagePaths([{ ...tracker, content: trackerContent }])
 
     const { error } = await supabase.from('pages').delete().eq('id', tracker.id)
 
@@ -632,6 +678,8 @@ export const useTrackers = (userId, activeSectionId) => {
   const resolveConflictWithServer = useCallback(() => {
     if (!draftConflict) return
     clearPageDraft(draftConflict.trackerId)
+    // The server version is already loaded in the page-content cache; clearing
+    // the local draft is enough to let the editor remount with that content.
     setActiveDraft(null)
     setDraftConflict(null)
     setDraftInvalidation((n) => n + 1)
@@ -678,5 +726,6 @@ export const useTrackers = (userId, activeSectionId) => {
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
+    flushSaveForTracker,
   }
 }

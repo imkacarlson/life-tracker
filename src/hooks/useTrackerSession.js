@@ -40,6 +40,9 @@ export function useTrackerSession({
   const lastHydratedSessionKeyRef = useRef(null)
   // Cancel stale in-flight hydration when session changes before hydration completes.
   const hydrationRequestIdRef = useRef(0)
+  // Track page switches so we always re-hydrate when returning to a previously visited
+  // page whose content is already in the cache (same key, but content changed since last visit).
+  const lastActiveTrackerIdRef = useRef(activeTrackerId)
 
   const bumpSessionNonce = useCallback(() => {
     setNonce((n) => n + 1)
@@ -49,6 +52,14 @@ export function useTrackerSession({
     const mode = computeSessionMode(settingsMode, activeTrackerId)
     const syncStatus = computeSessionStatusSync(mode, activeTracker, dataLoading)
     const sessionKey = computeSessionKey(mode, activeTrackerId, nonce, activeTracker, settingsContentVersion)
+
+    // When switching to a different page, clear the hydration guard so we always
+    // re-hydrate — even if the content is already in the cache and the session key
+    // happens to be the same as a previous visit (e.g., same nonce, cache hit).
+    if (lastActiveTrackerIdRef.current !== activeTrackerId) {
+      lastActiveTrackerIdRef.current = activeTrackerId
+      lastHydratedSessionKeyRef.current = null
+    }
 
     if (syncStatus === 'idle') {
       lastHydratedSessionKeyRef.current = null

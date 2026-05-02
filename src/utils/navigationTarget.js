@@ -33,13 +33,11 @@ export const getNavigationApplyStep = ({
   target,
   notebooks = [],
   sections = [],
-  trackers = [],
+  sectionPageCache = {},
   activeNotebookId = null,
   activeSectionId = null,
   activeTrackerId = null,
   sectionsLoading = false,
-  dataLoading = false,
-  loadedTrackerSectionId = null,
 }) => {
   if (!target?.notebookId) return { type: 'done' }
 
@@ -64,13 +62,19 @@ export const getNavigationApplyStep = ({
 
   if (!target.pageId) return { type: 'done' }
 
-  if (loadedTrackerSectionId !== target.sectionId) {
+  // Use sectionPageCache for the page existence check — it's populated for all
+  // expanded sections and seeded by loadTrackers, so it's always up-to-date once
+  // the section is active. No need to wait for loadedTrackerSectionId.
+  const sectionEntry = sectionPageCache[target.sectionId]
+  if (!sectionEntry || sectionEntry.status === 'idle' || sectionEntry.status === 'loading') {
     return { type: 'wait' }
   }
-
-  if (!trackers.some((item) => item.id === target.pageId && item.section_id === target.sectionId)) {
-    if (trackers.length === 0) return { type: 'wait' }
-    return dataLoading ? { type: 'wait' } : { type: 'missing' }
+  if (sectionEntry.status === 'error') {
+    return { type: 'missing' }
+  }
+  // status === 'loaded'
+  if (!sectionEntry.pages?.some((p) => p.id === target.pageId)) {
+    return { type: 'missing' }
   }
 
   if (activeTrackerId !== target.pageId) {

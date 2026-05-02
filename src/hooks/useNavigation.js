@@ -12,16 +12,16 @@ import {
   getNavigationApplyStep,
   isWeakerDescendantTarget,
   normalizeNavigationTarget,
+  targetMatchesSelection,
 } from '../utils/navigationTarget'
+import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../utils/sectionPages'
 
 export const useNavigation = ({
   session,
   notebooks,
   sections,
-  trackers,
+  sectionPageCache,
   sectionsLoading,
-  dataLoading,
-  loadedTrackerSectionId,
   editorReady = true,
   activeNotebookId,
   activeSectionId,
@@ -29,6 +29,7 @@ export const useNavigation = ({
   setActiveNotebookId,
   setActiveSectionId,
   setActiveTrackerId,
+  flushSaveForTracker,
   getPendingNav,
   setPendingNav,
   savedSelectionRef,
@@ -106,9 +107,17 @@ export const useNavigation = ({
   const selectNavigationTarget = useCallback(
     (target) => {
       setDeepLinkFocusGuard(false)
-      queueResolvedTarget(target, { hashMode: 'push' })
+      const normalized = normalizeNavigationTarget(target)
+      // Same-page click with no block anchor: nothing to do (Notesnook noteAlreadyOpened pattern)
+      if (
+        targetMatchesSelection(normalized, { activeNotebookId, activeSectionId, activeTrackerId }) &&
+        !normalized.blockId
+      ) {
+        return
+      }
+      queueResolvedTarget(normalized, { hashMode: 'push' })
     },
-    [queueResolvedTarget, setDeepLinkFocusGuard],
+    [queueResolvedTarget, setDeepLinkFocusGuard, activeNotebookId, activeSectionId, activeTrackerId],
   )
 
   const handleInternalHashNavigate = useCallback((href) => {
@@ -189,13 +198,11 @@ export const useNavigation = ({
       target: pendingTarget,
       notebooks,
       sections,
-      trackers,
+      sectionPageCache,
       activeNotebookId,
       activeSectionId,
       activeTrackerId,
       sectionsLoading,
-      dataLoading,
-      loadedTrackerSectionId,
     })
 
     if (step.type === 'wait') return
@@ -217,6 +224,9 @@ export const useNavigation = ({
     }
 
     if (step.type === 'page') {
+      // Flush any pending saves for the page we're leaving before activating the new one
+      // (Docmost saveTitle / Notesnook saveSessionContentIfNotSaved pattern).
+      flushSaveForTracker?.(activeTrackerId)
       setActiveTrackerId(step.id)
       return
     }
@@ -237,17 +247,16 @@ export const useNavigation = ({
     pendingTarget,
     notebooks,
     sections,
-    trackers,
+    sectionPageCache,
     activeNotebookId,
     activeSectionId,
     activeTrackerId,
     sectionsLoading,
-    dataLoading,
-    loadedTrackerSectionId,
     editorReady,
     setActiveNotebookId,
     setActiveSectionId,
     setActiveTrackerId,
+    flushSaveForTracker,
     clearPendingTarget,
   ])
 
@@ -295,18 +304,19 @@ export const useNavigation = ({
     ) {
       return
     }
+    const activeSectionEntry = activeSectionId ? getSectionPageEntry(sectionPageCache, activeSectionId) : null
+    const activeSectionLoaded = activeSectionEntry?.status === SECTION_PAGE_STATUS.LOADED
     if (
       activeSectionId &&
       savedSelection?.sectionId === activeSectionId &&
       savedSelection.pageId &&
       !activeTrackerId &&
-      (dataLoading || loadedTrackerSectionId !== activeSectionId || trackers.length > 0)
+      (!activeSectionLoaded || activeSectionEntry.pages.length > 0)
     ) {
       return
     }
     if (activeNotebookId && sectionsLoading) return
-    if (activeSectionId && dataLoading) return
-    if (activeSectionId && loadedTrackerSectionId !== activeSectionId) return
+    if (activeSectionId && !activeSectionLoaded) return
     saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
     if (savedSelectionRef) {
       savedSelectionRef.current = {
@@ -324,10 +334,8 @@ export const useNavigation = ({
     activeSectionId,
     activeTrackerId,
     sectionsLoading,
-    dataLoading,
-    loadedTrackerSectionId,
+    sectionPageCache,
     sections.length,
-    trackers.length,
   ])
 
   useEffect(() => {
