@@ -10,7 +10,6 @@ import {
   createPage,
   createSection,
   deleteNotebookById,
-  ensureNavigationVisible,
   getSupabase,
   waitForApp,
 } from './test-helpers'
@@ -44,7 +43,6 @@ test.describe('save flush on page switch', () => {
   test('edits to page A are saved when switching to page B and back', async ({ page }) => {
     const hashA = `#nb=${notebook.id}&sec=${section.id}&pg=${pageA.id}`
     await waitForApp(page, hashA)
-    await ensureNavigationVisible(page)
 
     // Verify starting state
     await expect(page.locator('.ProseMirror')).toContainText('Original A content')

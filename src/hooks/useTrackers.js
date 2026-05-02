@@ -678,12 +678,12 @@ export const useTrackers = (userId, activeSectionId) => {
   const resolveConflictWithServer = useCallback(() => {
     if (!draftConflict) return
     clearPageDraft(draftConflict.trackerId)
-    // Invalidate the content cache so the server version re-fetches on next activation.
-    invalidatePage(draftConflict.trackerId)
+    // The server version is already loaded in the page-content cache; clearing
+    // the local draft is enough to let the editor remount with that content.
     setActiveDraft(null)
     setDraftConflict(null)
     setDraftInvalidation((n) => n + 1)
-  }, [draftConflict, invalidatePage])
+  }, [draftConflict])
 
   const resolveConflictWithDraft = useCallback(() => {
     if (!draftConflict) return
