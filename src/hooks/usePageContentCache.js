@@ -20,7 +20,7 @@ const MAX_CACHE_ENTRIES = 30
  *
  * Returns:
  *   pageContentCache     — reactive cache map (React state)
- *   loadPageContent(id)  — idempotent single-row content fetch
+ *   loadPageContent(id)  — idempotent single-row content fetch that resolves content
  *   setPageContent(id, c)— write-through after autosave
  *   invalidatePage(id)   — resets to IDLE (for conflict resolution)
  */
@@ -62,54 +62,67 @@ export function usePageContentCache(userId) {
 
   const loadPageContent = useCallback(
     async (pageId) => {
-      if (!userId || !pageId) return
+      if (!userId || !pageId) return null
       const current = cacheRef.current[pageId]
-      if (current?.status === PAGE_CONTENT_STATUS.LOADING) return
-      if (current?.status === PAGE_CONTENT_STATUS.LOADED) return
-      if (inFlightRef.current[pageId]) return
+      if (current?.status === PAGE_CONTENT_STATUS.LOADING && inFlightRef.current[pageId]) {
+        return inFlightRef.current[pageId]
+      }
+      if (current?.status === PAGE_CONTENT_STATUS.LOADED) return current.content ?? null
+      if (inFlightRef.current[pageId]) return inFlightRef.current[pageId]
 
-      inFlightRef.current[pageId] = true
-      setPageContentCache((prev) => ({
-        ...prev,
-        [pageId]: {
-          status: PAGE_CONTENT_STATUS.LOADING,
-          content: prev[pageId]?.content ?? null,
-          error: null,
-          loadedAt: null,
-        },
-      }))
-
-      const { data, error } = await runSupabaseQueryWithRetry(() =>
-        supabase
-          .from('pages')
-          .select('content, updated_at')
-          .eq('id', pageId)
-          .single(),
-      )
-
-      delete inFlightRef.current[pageId]
-      if (userIdRef.current !== userId) return
-
-      if (error) {
+      const request = (async () => {
         setPageContentCache((prev) => ({
           ...prev,
-          [pageId]: { status: PAGE_CONTENT_STATUS.ERROR, content: null, error: error.message, loadedAt: null },
-        }))
-        return
-      }
-
-      recordAccess(pageId)
-      setPageContentCache((prev) =>
-        applyEviction({
-          ...prev,
           [pageId]: {
-            status: PAGE_CONTENT_STATUS.LOADED,
-            content: data?.content ?? null,
+            status: PAGE_CONTENT_STATUS.LOADING,
+            content: prev[pageId]?.content ?? null,
             error: null,
-            loadedAt: Date.now(),
+            loadedAt: null,
           },
-        }),
-      )
+        }))
+
+        const { data, error } = await runSupabaseQueryWithRetry(() =>
+          supabase
+            .from('pages')
+            .select('content, updated_at')
+            .eq('id', pageId)
+            .single(),
+        )
+
+        if (userIdRef.current !== userId) return null
+
+        if (error) {
+          setPageContentCache((prev) => ({
+            ...prev,
+            [pageId]: { status: PAGE_CONTENT_STATUS.ERROR, content: null, error: error.message, loadedAt: null },
+          }))
+          throw new Error(error.message)
+        }
+
+        const content = data?.content ?? null
+        recordAccess(pageId)
+        setPageContentCache((prev) =>
+          applyEviction({
+            ...prev,
+            [pageId]: {
+              status: PAGE_CONTENT_STATUS.LOADED,
+              content,
+              error: null,
+              loadedAt: Date.now(),
+            },
+          }),
+        )
+        return content
+      })()
+
+      inFlightRef.current[pageId] = request
+      try {
+        return await request
+      } finally {
+        if (inFlightRef.current[pageId] === request) {
+          delete inFlightRef.current[pageId]
+        }
+      }
     },
     [userId, recordAccess, applyEviction],
   )

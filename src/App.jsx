@@ -156,6 +156,7 @@ function App() {
     setActiveTrackerId,
     activeTracker,
     sectionTrackerPage,
+    loadTrackerContent,
     titleDraft,
     saveStatus,
     hasPendingSaves,
@@ -779,6 +780,7 @@ function App() {
               onNavigateHash={handleInternalHashNavigate}
               allTrackers={trackers}
               trackerSourcePage={sectionTrackerPage}
+              loadTrackerContent={loadTrackerContent}
               onSetTrackerPage={setTrackerPage}
               trackerPageSaving={trackerPageSaving}
               userId={userId}
