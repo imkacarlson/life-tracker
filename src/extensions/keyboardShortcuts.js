@@ -1,6 +1,5 @@
 export {
   LinkShortcut,
-  BoldShortcut,
   ArrowMoveToLineEnd,
   ListIndentShortcut,
   ListSelectShortcut,

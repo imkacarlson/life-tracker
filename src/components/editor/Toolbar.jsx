@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TextSelection } from '@tiptap/pm/state'
-import { isTouchOnlyDevice } from '../../utils/device'
 import { mixColors } from '../../utils/colorUtils'
 import { serializeDocForExport } from '../../lib/serializeDocForExport'
 import { findInDocPluginKey } from '../../extensions/findInDoc'
@@ -8,9 +7,15 @@ import { toggleLineStrike } from '../../extensions/keyboard/toggleLineStrike'
 import { useKeepCursorVisible } from '../../hooks/useKeepCursorVisible'
 import { useEditorUIStore } from '../../stores/editorUIStore'
 import FindBar from './FindBar'
+import ToolButton from './ToolButton'
+import HighlightPicker from './toolbar/HighlightPicker'
+import ShadingPicker from './toolbar/ShadingPicker'
+import TablePicker from './toolbar/TablePicker'
+import AiDailyPicker from './toolbar/AiDailyPicker'
+import MoreMenu from './toolbar/MoreMenu'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
-  HighlightIcon, TextColorIcon,
+  HighlightIcon,
   BulletListIcon, OrderedListIcon, TaskListIcon,
   AlignLeftIcon, AlignCenterIcon, AlignRightIcon,
   LinkIcon, UnlinkIcon, ImageIcon,
@@ -75,16 +80,10 @@ function Toolbar({
   const [tableSize, setTableSize] = useState({ rows: 2, cols: 2 })
   const [aiDailyPickerOpen, setAiDailyPickerOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
-  const gridSize = 5
 
-  // On touch devices, avoid calling .focus() when the editor isn't already
-  // focused — that would open the virtual keyboard.
-  const editorCmd = useCallback(() => {
-    if (!editor) return null
-    return (isTouchOnly && !editor.view.hasFocus())
-      ? editor.chain()
-      : editor.chain().focus()
-  }, [editor, isTouchOnly])
+  // Idiomatic Tiptap chain. Selection preservation on touch is handled at the
+  // ToolButton layer (preventDefault on mousedown), so always include .focus().
+  const cmd = useCallback(() => editor?.chain().focus() ?? null, [editor])
 
   const isInList = editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')
 
@@ -252,7 +251,7 @@ function Toolbar({
     editor.chain().focus().liftListItem(info.itemTypeName).run()
   }, [editor, getListItemInfo, syncSelectionFromDom])
 
-  // --- Editor command handlers (moved from EditorPanel) ---
+  // --- Editor command handlers ---
 
   const handleSetLink = () => {
     if (!editor) return
@@ -267,7 +266,7 @@ function Toolbar({
   }
 
   const handleSetTextAlign = (alignment) => {
-    editorCmd()?.setTextAlign(alignment).run()
+    cmd()?.setTextAlign(alignment).run()
   }
 
   const handleExportText = () => {
@@ -315,46 +314,46 @@ function Toolbar({
 
   const handleInsertTable = (rows, cols) => {
     if (!editor) return
-    editorCmd()?.insertTable({ rows, cols, withHeaderRow: false }).run()
+    cmd()?.insertTable({ rows, cols, withHeaderRow: false }).run()
   }
 
   const handleApplyHighlight = () => {
     if (!editor) return
     if (!highlightColor) {
-      editorCmd()?.unsetHighlight().run()
+      cmd()?.unsetHighlight().run()
       return
     }
-    editorCmd()?.setHighlight({ color: highlightColor }).run()
+    cmd()?.setHighlight({ color: highlightColor }).run()
   }
 
   const handlePickHighlight = (color) => {
     if (!editor) return
     if (!color) {
       setHighlightColor(null)
-      editorCmd()?.unsetHighlight().run()
+      cmd()?.unsetHighlight().run()
     } else {
       setHighlightColor(color)
-      editorCmd()?.setHighlight({ color }).run()
+      cmd()?.setHighlight({ color }).run()
     }
   }
 
   const handleApplyShading = () => {
     if (!editor) return
     if (!shadingColor) {
-      editorCmd()?.setCellAttribute('backgroundColor', null).run()
+      cmd()?.setCellAttribute('backgroundColor', null).run()
       return
     }
-    editorCmd()?.setCellAttribute('backgroundColor', shadingColor).run()
+    cmd()?.setCellAttribute('backgroundColor', shadingColor).run()
   }
 
   const handlePickShading = (color) => {
     if (!editor) return
     if (!color) {
       setShadingColor(null)
-      editorCmd()?.setCellAttribute('backgroundColor', null).run()
+      cmd()?.setCellAttribute('backgroundColor', null).run()
     } else {
       setShadingColor(color)
-      editorCmd()?.setCellAttribute('backgroundColor', color).run()
+      cmd()?.setCellAttribute('backgroundColor', color).run()
     }
   }
 
@@ -560,15 +559,6 @@ function Toolbar({
     }
   }, [tablePickerOpen, highlightPickerOpen, shadingPickerOpen, aiDailyPickerOpen, moreMenuOpen])
 
-  const tableGrid = useMemo(() => {
-    return Array.from({ length: gridSize }, (_, rowIndex) =>
-      Array.from({ length: gridSize }, (_, colIndex) => ({
-        row: rowIndex + 1,
-        col: colIndex + 1,
-      })),
-    )
-  }, [gridSize])
-
   const closeTablePicker = useCallback(() => setTablePickerOpen(false), [])
 
   const onInsertTable = (rows, cols) => {
@@ -596,299 +586,216 @@ function Toolbar({
     setMoreMenuOpen(false)
   }
 
+  // ToolButton helpers — every toolbar button uses the wrapper that
+  // preserves the editor selection on touch.
+  const tb = (props) => (
+    <ToolButton
+      isTouchOnly={isTouchOnly}
+      disabled={!hasTracker}
+      {...props}
+    />
+  )
+
   return (
     <div
       ref={toolbarRef}
       className={`toolbar${controlsDisabled ? ' disabled' : ''}${isTouchOnly && !toolbarExpanded ? ' toolbar-collapsed' : ''}`}
       data-expanded={!isTouchOnly || toolbarExpanded ? 'true' : 'false'}
-      onMouseDownCapture={(event) => {
-        if (event.target instanceof HTMLElement && event.target.closest('button')) {
-          event.preventDefault()
-        }
-      }}
     >
       <div className="toolbar-core">
         {/* Text formatting group */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('bold') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleBold().run()}
-            disabled={!hasTracker}
-            title="Bold"
-            aria-label="Bold"
-          >
-            <BoldIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('italic') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleItalic().run()}
-            disabled={!hasTracker}
-            title="Italic"
-            aria-label="Italic"
-          >
-            <ItalicIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('heading', { level: 1 }) ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleHeading({ level: 1 }).run()}
-            disabled={!hasTracker}
-            title="Heading 1"
-            aria-label="Heading 1"
-          >
-            <span className="toolbar-btn-label">H1</span>
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('bulletList') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleBulletList().run()}
-            disabled={!hasTracker}
-            title="Bullet list"
-            aria-label="Bullet list"
-          >
-            <BulletListIcon />
-          </button>
+          {tb({
+            active: editor?.isActive('bold'),
+            onActivate: () => cmd()?.toggleBold().run(),
+            title: 'Bold',
+            children: <BoldIcon />,
+          })}
+          {tb({
+            active: editor?.isActive('italic'),
+            onActivate: () => cmd()?.toggleItalic().run(),
+            title: 'Italic',
+            children: <ItalicIcon />,
+          })}
+          {tb({
+            active: editor?.isActive('heading', { level: 1 }),
+            onActivate: () => cmd()?.toggleHeading({ level: 1 }).run(),
+            title: 'Heading 1',
+            children: <span className="toolbar-btn-label">H1</span>,
+          })}
+          {tb({
+            active: editor?.isActive('bulletList'),
+            onActivate: () => cmd()?.toggleBulletList().run(),
+            title: 'Bullet list',
+            children: <BulletListIcon />,
+          })}
           {isTouchOnly && (
             <>
-              <button
-                type="button"
-                className="toolbar-btn"
-                onClick={handleOutdent}
-                disabled={!hasTracker || !isInList}
-                title="Outdent"
-                aria-label="Outdent list item"
-                data-testid="toolbar-outdent"
-              >
-                <OutdentIcon />
-              </button>
-              <button
-                type="button"
-                className="toolbar-btn"
-                onClick={handleIndent}
-                disabled={!hasTracker || !isInList}
-                title="Indent"
-                aria-label="Indent list item"
-                data-testid="toolbar-indent"
-              >
-                <IndentIcon />
-              </button>
+              {tb({
+                disabled: !hasTracker || !isInList,
+                onActivate: handleOutdent,
+                title: 'Outdent',
+                ariaLabel: 'Outdent list item',
+                testId: 'toolbar-outdent',
+                children: <OutdentIcon />,
+              })}
+              {tb({
+                disabled: !hasTracker || !isInList,
+                onActivate: handleIndent,
+                title: 'Indent',
+                ariaLabel: 'Indent list item',
+                testId: 'toolbar-indent',
+                children: <IndentIcon />,
+              })}
             </>
           )}
         </div>
 
         {/* Link + Undo group */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={handleSetLink}
-            disabled={!hasTracker}
-            title="Link"
-            aria-label="Insert link"
-          >
-            <LinkIcon />
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().undo().run()}
-            disabled={!hasTracker}
-            title="Undo"
-            aria-label="Undo"
-            data-testid="toolbar-undo"
-          >
-            <UndoIcon />
-          </button>
+          {tb({
+            onActivate: handleSetLink,
+            title: 'Link',
+            ariaLabel: 'Insert link',
+            children: <LinkIcon />,
+          })}
+          {tb({
+            onActivate: () => cmd()?.undo().run(),
+            title: 'Undo',
+            testId: 'toolbar-undo',
+            children: <UndoIcon />,
+          })}
         </div>
 
         {/* Mobile expand toggle */}
         {isTouchOnly && (
-          <button
-            type="button"
+          <ToolButton
+            isTouchOnly={isTouchOnly}
             className="toolbar-expand-toggle"
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => setToolbarExpanded((prev) => !prev)}
-            aria-label={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
-            data-testid="toolbar-expand-toggle"
+            onActivate={() => setToolbarExpanded((prev) => !prev)}
+            ariaLabel={toolbarExpanded ? 'Collapse toolbar' : 'Expand toolbar'}
+            testId="toolbar-expand-toggle"
           >
             {toolbarExpanded ? '▴' : '▾'}
-          </button>
+          </ToolButton>
         )}
       </div>
 
       <div className="toolbar-extra">
         {/* Extended text formatting */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('underline') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleUnderline().run()}
-            disabled={!hasTracker}
-            title="Underline"
-            aria-label="Underline"
-          >
-            <UnderlineIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('strike') ? ' active' : ''}`}
-            onClick={() => editor && toggleLineStrike(editor)}
-            disabled={!hasTracker}
-            title="Strikethrough"
-            aria-label="Toggle strikethrough"
-            data-testid="toolbar-strikethrough"
-          >
-            <StrikethroughIcon />
-          </button>
+          {tb({
+            active: editor?.isActive('underline'),
+            onActivate: () => cmd()?.toggleUnderline().run(),
+            title: 'Underline',
+            children: <UnderlineIcon />,
+          })}
+          {tb({
+            active: editor?.isActive('strike'),
+            onActivate: () => editor && toggleLineStrike(editor),
+            title: 'Strikethrough',
+            ariaLabel: 'Toggle strikethrough',
+            testId: 'toolbar-strikethrough',
+            children: <StrikethroughIcon />,
+          })}
           <div className="highlight-control" ref={highlightButtonRef}>
-            <button
-              type="button"
-              className={`toolbar-btn${editor?.isActive('highlight') ? ' active' : ''}`}
-              onClick={handleApplyHighlight}
-              disabled={!hasTracker}
-              title="Highlight"
-              aria-label="Highlight"
-            >
-              <HighlightIcon />
-              <span
-                className="toolbar-color-bar"
-                style={{ backgroundColor: highlightColor ?? 'transparent' }}
-              />
-            </button>
-            <button
-              type="button"
-              className="toolbar-btn toolbar-btn-caret"
-              onClick={() => setHighlightPickerOpen((prev) => !prev)}
-              disabled={!hasTracker}
-              aria-label="Highlight colors"
-            >
-              ▾
-            </button>
+            {tb({
+              active: editor?.isActive('highlight'),
+              onActivate: handleApplyHighlight,
+              title: 'Highlight',
+              children: (
+                <>
+                  <HighlightIcon />
+                  <span
+                    className="toolbar-color-bar"
+                    style={{ backgroundColor: highlightColor ?? 'transparent' }}
+                  />
+                </>
+              ),
+            })}
+            {tb({
+              className: 'toolbar-btn-caret',
+              onActivate: () => setHighlightPickerOpen((prev) => !prev),
+              ariaLabel: 'Highlight colors',
+              children: '▾',
+            })}
             {highlightPickerOpen && (
-              <div className="highlight-picker" ref={highlightPickerRef}>
-                <div className="highlight-grid">
-                  {highlightColors.flatMap((row) =>
-                    row.map((swatch) => (
-                      <button
-                        key={swatch.label}
-                        type="button"
-                        className="highlight-swatch"
-                        style={{ backgroundColor: swatch.value }}
-                        onClick={() => onPickHighlight(swatch.value)}
-                        aria-label={swatch.label}
-                      />
-                    )),
-                  )}
-                </div>
-                <button type="button" className="highlight-none" onClick={() => onPickHighlight(null)}>
-                  No Color
-                </button>
-              </div>
+              <HighlightPicker
+                pickerRef={highlightPickerRef}
+                colors={highlightColors}
+                onPick={onPickHighlight}
+              />
             )}
           </div>
           <input
             type="color"
             aria-label="Text color"
             className="toolbar-color-input"
-            onChange={(event) => editorCmd().setColor(event.target.value).run()}
+            onChange={(event) => cmd()?.setColor(event.target.value).run()}
             disabled={!hasTracker}
           />
         </div>
 
         {/* Headings + Lists */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('heading', { level: 2 }) ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleHeading({ level: 2 }).run()}
-            disabled={!hasTracker}
-            title="Heading 2"
-            aria-label="Heading 2"
-          >
-            <span className="toolbar-btn-label">H2</span>
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('orderedList') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleOrderedList().run()}
-            disabled={!hasTracker}
-            title="Numbered list"
-            aria-label="Numbered list"
-          >
-            <OrderedListIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive('taskList') ? ' active' : ''}`}
-            onClick={() => editorCmd().toggleTaskList().run()}
-            disabled={!hasTracker}
-            title="Task list"
-            aria-label="Task list"
-          >
-            <TaskListIcon />
-          </button>
+          {tb({
+            active: editor?.isActive('heading', { level: 2 }),
+            onActivate: () => cmd()?.toggleHeading({ level: 2 }).run(),
+            title: 'Heading 2',
+            children: <span className="toolbar-btn-label">H2</span>,
+          })}
+          {tb({
+            active: editor?.isActive('orderedList'),
+            onActivate: () => cmd()?.toggleOrderedList().run(),
+            title: 'Numbered list',
+            children: <OrderedListIcon />,
+          })}
+          {tb({
+            active: editor?.isActive('taskList'),
+            onActivate: () => cmd()?.toggleTaskList().run(),
+            title: 'Task list',
+            children: <TaskListIcon />,
+          })}
         </div>
 
         {/* Alignment */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive({ textAlign: 'left' }) ? ' active' : ''}`}
-            onClick={() => handleSetTextAlign('left')}
-            disabled={!hasTracker}
-            title="Align left"
-            aria-label="Align left"
-          >
-            <AlignLeftIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive({ textAlign: 'center' }) ? ' active' : ''}`}
-            onClick={() => handleSetTextAlign('center')}
-            disabled={!hasTracker}
-            title="Align center"
-            aria-label="Align center"
-          >
-            <AlignCenterIcon />
-          </button>
-          <button
-            type="button"
-            className={`toolbar-btn${editor?.isActive({ textAlign: 'right' }) ? ' active' : ''}`}
-            onClick={() => handleSetTextAlign('right')}
-            disabled={!hasTracker}
-            title="Align right"
-            aria-label="Align right"
-          >
-            <AlignRightIcon />
-          </button>
+          {tb({
+            active: editor?.isActive({ textAlign: 'left' }),
+            onActivate: () => handleSetTextAlign('left'),
+            title: 'Align left',
+            children: <AlignLeftIcon />,
+          })}
+          {tb({
+            active: editor?.isActive({ textAlign: 'center' }),
+            onActivate: () => handleSetTextAlign('center'),
+            title: 'Align center',
+            children: <AlignCenterIcon />,
+          })}
+          {tb({
+            active: editor?.isActive({ textAlign: 'right' }),
+            onActivate: () => handleSetTextAlign('right'),
+            title: 'Align right',
+            children: <AlignRightIcon />,
+          })}
         </div>
 
         <div className="toolbar-separator" />
 
         {/* Insert group */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().unsetLink().run()}
-            disabled={!hasTracker}
-            title="Unlink"
-            aria-label="Remove link"
-          >
-            <UnlinkIcon />
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={handlePickImage}
-            disabled={!hasTracker}
-            title="Image"
-            aria-label="Insert image"
-          >
-            <ImageIcon />
-          </button>
+          {tb({
+            onActivate: () => cmd()?.unsetLink().run(),
+            title: 'Unlink',
+            ariaLabel: 'Remove link',
+            children: <UnlinkIcon />,
+          })}
+          {tb({
+            onActivate: handlePickImage,
+            title: 'Image',
+            ariaLabel: 'Insert image',
+            children: <ImageIcon />,
+          })}
           <input
             ref={fileInputRef}
             type="file"
@@ -897,323 +804,182 @@ function Toolbar({
             className="file-input"
           />
           <div className="table-picker-wrap">
-            <button
-              type="button"
-              className="toolbar-btn"
-              ref={tableButtonRef}
-              onClick={() => setTablePickerOpen((prev) => !prev)}
-              disabled={!hasTracker}
-              title="Table"
-              aria-label="Insert table"
-            >
-              <TableIcon />
-            </button>
+            {tb({
+              buttonRef: tableButtonRef,
+              onActivate: () => setTablePickerOpen((prev) => !prev),
+              title: 'Table',
+              ariaLabel: 'Insert table',
+              children: <TableIcon />,
+            })}
             {tablePickerOpen && (
-              <div
-                className="table-picker-backdrop"
-                onClick={closeTablePicker}
-                aria-hidden="true"
+              <TablePicker
+                pickerRef={tablePickerRef}
+                size={tableSize}
+                setSize={setTableSize}
+                onInsert={onInsertTable}
+                onClose={closeTablePicker}
               />
             )}
-            {tablePickerOpen && (
-              <div className="table-picker" ref={tablePickerRef}>
-                <div className="table-picker-grid">
-                  {tableGrid.map((row) =>
-                    row.map((cell) => {
-                      const isActive =
-                        cell.row <= tableSize.rows && cell.col <= tableSize.cols
-                      return (
-                        <div
-                          key={`${cell.row}-${cell.col}`}
-                          className={`table-picker-cell ${isActive ? 'active' : ''}`}
-                          onMouseEnter={() => setTableSize({ rows: cell.row, cols: cell.col })}
-                          onClick={() => onInsertTable(cell.row, cell.col)}
-                        />
-                      )
-                    }),
-                  )}
-                </div>
-                <div className="table-picker-label">
-                  {tableSize.rows} × {tableSize.cols}
-                </div>
-              </div>
-            )}
           </div>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().addRowAfter().run()}
-            disabled={!hasTracker}
-            title="Add row"
-            aria-label="Add row"
-          >
-            <AddRowIcon />
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().addColumnAfter().run()}
-            disabled={!hasTracker}
-            title="Add column"
-            aria-label="Add column"
-          >
-            <AddColIcon />
-          </button>
+          {tb({
+            onActivate: () => cmd()?.addRowAfter().run(),
+            title: 'Add row',
+            children: <AddRowIcon />,
+          })}
+          {tb({
+            onActivate: () => cmd()?.addColumnAfter().run(),
+            title: 'Add column',
+            children: <AddColIcon />,
+          })}
           {inTable && (
             <div className="shading-control" ref={shadingButtonRef}>
-              <button
-                type="button"
-                className={`toolbar-btn${shadingColor ? ' active' : ''}`}
-                onClick={handleApplyShading}
-                disabled={!hasTracker}
-                title="Shading"
-                aria-label="Cell shading"
-              >
-                <ShadingIcon />
-              </button>
-              <button
-                type="button"
-                className="toolbar-btn toolbar-btn-caret"
-                onClick={() => setShadingPickerOpen((prev) => !prev)}
-                disabled={!hasTracker}
-                aria-label="Shading colors"
-              >
-                ▾
-              </button>
+              {tb({
+                active: !!shadingColor,
+                onActivate: handleApplyShading,
+                title: 'Shading',
+                ariaLabel: 'Cell shading',
+                children: <ShadingIcon />,
+              })}
+              {tb({
+                className: 'toolbar-btn-caret',
+                onActivate: () => setShadingPickerOpen((prev) => !prev),
+                ariaLabel: 'Shading colors',
+                children: '▾',
+              })}
               {shadingPickerOpen && (
-                <div className="shading-picker" ref={shadingPickerRef}>
-                  <div className="shading-section">
-                    <p className="shading-header">Theme Colors</p>
-                    <div className="shading-grid">
-                      {themeRows.map((row, rowIndex) =>
-                        row.map((color, colIndex) => (
-                          <button
-                            key={`theme-${rowIndex}-${colIndex}`}
-                            type="button"
-                            className={`shading-swatch ${
-                              shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
-                            }`}
-                            style={{ backgroundColor: color }}
-                            onClick={() => onPickShading(color)}
-                            aria-label={`Theme color ${rowIndex + 1}-${colIndex + 1}`}
-                          />
-                        )),
-                      )}
-                    </div>
-                  </div>
-                  <div className="shading-section">
-                    <p className="shading-header">Standard Colors</p>
-                    <div className="shading-grid shading-grid-standard">
-                      {standardColors.map((color, index) => (
-                        <button
-                          key={`standard-${color}`}
-                          type="button"
-                          className={`shading-swatch ${
-                            shadingColor?.toLowerCase() === color.toLowerCase() ? 'active' : ''
-                          }`}
-                          style={{ backgroundColor: color }}
-                          onClick={() => onPickShading(color)}
-                          aria-label={`Standard color ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="shading-actions">
-                    <button type="button" className="shading-action" onClick={() => onPickShading(null)}>
-                      <span className="shading-icon" aria-hidden="true" />
-                      No Color
-                    </button>
-                    <button type="button" className="shading-action" onClick={openCustomShading}>
-                      <span className="shading-icon palette" aria-hidden="true" />
-                      More Colors...
-                    </button>
-                    <input
-                      ref={shadingInputRef}
-                      type="color"
-                      className="shading-input"
-                      onChange={handleCustomShading}
-                      aria-label="Custom shading color"
-                    />
-                  </div>
-                </div>
+                <ShadingPicker
+                  pickerRef={shadingPickerRef}
+                  themeRows={themeRows}
+                  standardColors={standardColors}
+                  shadingColor={shadingColor}
+                  customInputRef={shadingInputRef}
+                  onPick={onPickShading}
+                  onOpenCustom={openCustomShading}
+                  onCustomChange={handleCustomShading}
+                />
               )}
             </div>
           )}
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().deleteTable().run()}
-            disabled={!hasTracker}
-            title="Delete table"
-            aria-label="Delete table"
-          >
-            <DeleteTableIcon />
-          </button>
+          {tb({
+            onActivate: () => cmd()?.deleteTable().run(),
+            title: 'Delete table',
+            children: <DeleteTableIcon />,
+          })}
         </div>
 
         <div className="toolbar-separator" />
 
         {/* Undo/Redo + utilities */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => editorCmd().redo().run()}
-            disabled={!hasTracker}
-            title="Redo"
-            aria-label="Redo"
-          >
-            <RedoIcon />
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={handleExportText}
-            disabled={!hasTracker}
-            title="Export"
-            aria-label="Export"
-          >
-            <ExportIcon />
-          </button>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={handleCopyText}
-            disabled={!hasTracker}
-            title={copyLabel}
-            aria-label="Copy text"
-          >
-            <CopyIcon />
-          </button>
+          {tb({
+            onActivate: () => cmd()?.redo().run(),
+            title: 'Redo',
+            children: <RedoIcon />,
+          })}
+          {tb({
+            onActivate: handleExportText,
+            title: 'Export',
+            children: <ExportIcon />,
+          })}
+          {tb({
+            onActivate: handleCopyText,
+            title: copyLabel,
+            ariaLabel: 'Copy text',
+            children: <CopyIcon />,
+          })}
         </div>
 
         {/* AI group */}
         {showAiDaily && (
           <div className="toolbar-group">
             <div className="ai-daily-control" ref={aiDailyButtonRef}>
-              <button
-                type="button"
-                className="toolbar-btn toolbar-btn-ai"
-                onClick={onAiDailyGenerate}
-                disabled={!hasTracker || aiLoading || aiInsertLoading}
-                title={aiLoading ? 'Generating...' : 'AI Daily'}
-                aria-label="AI Daily"
-              >
-                <AiIcon />
-                <span className="toolbar-btn-label toolbar-btn-ai-label">
-                  {aiLoading ? '...' : 'AI'}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="toolbar-btn toolbar-btn-caret"
-                onClick={() => setAiDailyPickerOpen((prev) => !prev)}
-                disabled={!hasTracker || aiLoading || aiInsertLoading}
-                aria-label="Pick date for AI Daily"
-              >
-                ▾
-              </button>
-              {aiDailyPickerOpen && (
-                <div className="ai-daily-picker" ref={aiDailyPickerRef}>
-                  <div className="ai-daily-date-nav">
-                    <button type="button" onClick={handleAiDailyPrevDay}>&#8249;</button>
-                    <span className="ai-daily-date-label">
-                      {aiDailyDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {tb({
+                disabled: !hasTracker || aiLoading || aiInsertLoading,
+                className: 'toolbar-btn-ai',
+                onActivate: onAiDailyGenerate,
+                title: aiLoading ? 'Generating...' : 'AI Daily',
+                ariaLabel: 'AI Daily',
+                children: (
+                  <>
+                    <AiIcon />
+                    <span className="toolbar-btn-label toolbar-btn-ai-label">
+                      {aiLoading ? '...' : 'AI'}
                     </span>
-                    <button type="button" onClick={handleAiDailyNextDay}>&#8250;</button>
-                  </div>
-                  <input
-                    type="date"
-                    value={aiDailyDate.toLocaleDateString('en-CA')}
-                    onChange={(e) => handleAiDailyDateChange(e.target.value)}
-                    className="ai-daily-date-input"
-                  />
-                </div>
+                  </>
+                ),
+              })}
+              {tb({
+                disabled: !hasTracker || aiLoading || aiInsertLoading,
+                className: 'toolbar-btn-caret',
+                onActivate: () => setAiDailyPickerOpen((prev) => !prev),
+                ariaLabel: 'Pick date for AI Daily',
+                children: '▾',
+              })}
+              {aiDailyPickerOpen && (
+                <AiDailyPicker
+                  pickerRef={aiDailyPickerRef}
+                  date={aiDailyDate}
+                  onPrevDay={handleAiDailyPrevDay}
+                  onNextDay={handleAiDailyNextDay}
+                  onDateChange={handleAiDailyDateChange}
+                />
               )}
             </div>
-            {showAiInsert && (
-              <button
-                type="button"
-                className="toolbar-btn toolbar-btn-ai"
-                onClick={() => {
-                  setAiDailyPickerOpen(false)
-                  setAiInsertOpen(true)
-                }}
-                disabled={!hasTracker || aiLoading || aiInsertLoading}
-                title={aiInsertLoading ? 'Inserting...' : 'AI Insert'}
-                aria-label="AI Insert"
-              >
-                <AiIcon />
-                <span className="toolbar-btn-label toolbar-btn-ai-label">
-                  {aiInsertLoading ? '...' : '⊕'}
-                </span>
-              </button>
-            )}
+            {showAiInsert && tb({
+              disabled: !hasTracker || aiLoading || aiInsertLoading,
+              className: 'toolbar-btn-ai',
+              onActivate: () => {
+                setAiDailyPickerOpen(false)
+                setAiInsertOpen(true)
+              },
+              title: aiInsertLoading ? 'Inserting...' : 'AI Insert',
+              ariaLabel: 'AI Insert',
+              children: (
+                <>
+                  <AiIcon />
+                  <span className="toolbar-btn-label toolbar-btn-ai-label">
+                    {aiInsertLoading ? '...' : '⊕'}
+                  </span>
+                </>
+              ),
+            })}
           </div>
         )}
 
         {/* Search + More */}
         <div className="toolbar-group">
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={openFind}
-            disabled={!hasTracker}
-            title="Find"
-            aria-label="Find in page"
-          >
-            <SearchIcon />
-          </button>
+          {tb({
+            onActivate: openFind,
+            title: 'Find',
+            ariaLabel: 'Find in page',
+            children: <SearchIcon />,
+          })}
           <div className="more-menu-wrap" ref={moreMenuRef}>
-            <button
-              type="button"
-              className="toolbar-btn"
-              onClick={() => setMoreMenuOpen(prev => !prev)}
-              disabled={!hasTracker}
-              title="More"
-              aria-label="More actions"
-            >
-              <MoreIcon />
-            </button>
+            {tb({
+              onActivate: () => setMoreMenuOpen((prev) => !prev),
+              title: 'More',
+              ariaLabel: 'More actions',
+              children: <MoreIcon />,
+            })}
             {moreMenuOpen && (
-              <>
-                <div className="more-menu-backdrop" onClick={() => setMoreMenuOpen(false)} />
-                <div className="more-menu">
-                  <button
-                    type="button"
-                    className="table-context-item"
-                    onClick={onCopyLinkFromToolbar}
-                    disabled={!toolbarDeepLinkHash}
-                  >
-                    Copy link to paragraph
-                  </button>
-                  <button
-                    type="button"
-                    className="table-context-item"
-                    onClick={onSetTrackerFromToolbar}
-                    disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
-                  >
-                    {isCurrentPageTracker ? 'This page is the tracker page'
-                      : trackerPageSaving ? 'Setting tracker page...'
-                      : 'Set this page as tracker'}
-                  </button>
-                  {inTable && (
-                    <>
-                      <div className="more-menu-divider" />
-                      {contextMenuItems.map((item) => (
-                        <button
-                          key={item.label}
-                          type="button"
-                          className="table-context-item"
-                          onClick={() => { item.action(); setMoreMenuOpen(false) }}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </>
+              <MoreMenu
+                onClose={() => setMoreMenuOpen(false)}
+                onCopyLink={onCopyLinkFromToolbar}
+                copyLinkDisabled={!toolbarDeepLinkHash}
+                onSetTrackerPage={onSetTrackerFromToolbar}
+                setTrackerLabel={
+                  isCurrentPageTracker
+                    ? 'This page is the tracker page'
+                    : trackerPageSaving
+                    ? 'Setting tracker page...'
+                    : 'Set this page as tracker'
+                }
+                setTrackerDisabled={
+                  !hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage
+                }
+                inTable={inTable}
+                contextMenuItems={contextMenuItems}
+              />
             )}
           </div>
         </div>
