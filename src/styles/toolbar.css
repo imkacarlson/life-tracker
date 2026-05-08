@@ -74,6 +74,10 @@
   position: relative;
   transition: background-color 80ms ease, color 80ms ease;
   padding: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolbar-btn:hover {

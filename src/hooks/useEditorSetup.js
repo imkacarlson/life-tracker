@@ -27,7 +27,6 @@ import {
 import { EnsureNodeIds, SecureImage, InternalLink } from '../extensions/editorExtensions'
 import {
   LinkShortcut,
-  BoldShortcut,
   ArrowMoveToLineEnd,
   ListIndentShortcut,
   ListSelectShortcut,
@@ -114,7 +113,6 @@ export const useEditorSetup = ({
           },
         }),
         LinkShortcut,
-        BoldShortcut,
         ArrowMoveToLineEnd,
         ListIndentShortcut,
         ListSelectShortcut,
