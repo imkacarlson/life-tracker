@@ -695,6 +695,18 @@ export const useTrackers = (userId, activeSectionId) => {
 
   const sectionTrackerPage = trackers.find((item) => item.is_tracker_page) ?? null
 
+  const loadTrackerContent = useCallback(
+    async (pageId) => {
+      if (!pageId) return null
+      const entry = pageContentCacheRef.current[pageId]
+      if (entry?.status === PAGE_CONTENT_STATUS.LOADED) {
+        return entry.content ?? null
+      }
+      return loadPageContent(pageId)
+    },
+    [loadPageContent],
+  )
+
   return {
     trackers,
     sectionPageCache,
@@ -722,6 +734,7 @@ export const useTrackers = (userId, activeSectionId) => {
     activeTrackerRef,
     draftConflictRef,
     sectionTrackerPage,
+    loadTrackerContent,
     draftConflict,
     resolveConflictWithServer,
     resolveConflictWithDraft,

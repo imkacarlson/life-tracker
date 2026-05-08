@@ -43,6 +43,7 @@ function EditorPanel({
   onNavigateHash,
   allTrackers,
   trackerSourcePage = null,
+  loadTrackerContent = null,
   onSetTrackerPage = null,
   trackerPageSaving = false,
   userId,
@@ -230,11 +231,22 @@ function EditorPanel({
         return
       }
 
+      let trackerContent = null
+      if (sourceTrackerPage.id === trackerId) {
+        trackerContent = editor.getJSON()
+      } else if (loadTrackerContent) {
+        trackerContent = await loadTrackerContent(sourceTrackerPage.id)
+      }
+
+      if (!trackerContent || typeof trackerContent !== 'object') {
+        throw new Error('Tracker page content could not be loaded.')
+      }
+
       const trackerPages = [
         {
           title: sourceTrackerPage.title,
           pageId: sourceTrackerPage.id,
-          content: sourceTrackerPage.content || { type: 'doc', content: [] },
+          content: trackerContent,
         },
       ]
       const trackerPagesForModel = trackerPages.map((page) => ({
