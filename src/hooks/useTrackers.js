@@ -5,10 +5,12 @@ import { sanitizeContentForSave } from '../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
 import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
+import { classifySaveResult } from '../utils/saveConflict'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
+import { usePageRealtime } from './sync/usePageRealtime'
 
 export const useTrackers = (userId, activeSectionId) => {
   const [trackers, setTrackers] = useState([])
@@ -53,12 +55,52 @@ export const useTrackers = (userId, activeSectionId) => {
     loadPageContent,
     setPageContent,
     invalidatePage,
+    getKnownUpdatedAt,
+    setKnownUpdatedAt,
   } = usePageContentCache(userId)
   const pageContentCacheRef = useRef(pageContentCache)
 
   useEffect(() => {
     pageContentCacheRef.current = pageContentCache
   }, [pageContentCache])
+
+  // Realtime: when another device writes the active page, react accordingly.
+  const handleRemotePageChange = useCallback(
+    (payload) => {
+      const row = payload?.new
+      if (!row?.id) return
+      const trackerId = row.id
+      const incomingTs = row.updated_at
+      // Ignore echoes of our own write (we already advanced the token to this value).
+      if (incomingTs && getKnownUpdatedAt(trackerId) === incomingTs) return
+
+      const isDirty =
+        !!queuedPayloadByTrackerRef.current[trackerId] ||
+        !!inFlightByTrackerRef.current[trackerId] ||
+        !!latestDraftKeyByTrackerRef.current[trackerId]
+
+      if (isDirty) {
+        // Bump the token only — the next save attempt will enter the conflict
+        // gate (its UPDATE will mismatch and route through detectConflict).
+        if (incomingTs) setKnownUpdatedAt(trackerId, incomingTs)
+        return
+      }
+
+      // Clean editor: swap server content in and advance the token in one step.
+      if (row.content !== undefined) {
+        setPageContent(trackerId, row.content, incomingTs)
+      } else if (incomingTs) {
+        setKnownUpdatedAt(trackerId, incomingTs)
+      }
+      if (typeof row.title === 'string') {
+        setTrackers((prev) =>
+          prev.map((item) => (item.id === trackerId ? { ...item, title: row.title, updated_at: incomingTs } : item)),
+        )
+      }
+    },
+    [getKnownUpdatedAt, setKnownUpdatedAt, setPageContent],
+  )
+  usePageRealtime(activeTrackerId, handleRemotePageChange)
 
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
   const activeTracker = useMemo(() => {
@@ -257,11 +299,68 @@ export const useTrackers = (userId, activeSectionId) => {
       const { payload, payloadKey } = queued
       // Snapshot the old content before the save so we can diff for removed images.
       const oldContent = pageContentCacheRef.current[trackerId]?.content ?? null
-      const { error } = await supabase.from('pages').update(payload).eq('id', trackerId)
+      // Optimistic concurrency: only write if the server still has the version we last read.
+      // Zero rows matched -> conflict (someone else wrote since we loaded).
+      // If we never observed a version (e.g. title-only save on a page that was never
+      // opened), fetch it just-in-time so we have a baseline to compare against.
+      let knownTs = getKnownUpdatedAt(trackerId)
+      if (!knownTs) {
+        const { data: seedRow } = await supabase
+          .from('pages')
+          .select('updated_at')
+          .eq('id', trackerId)
+          .maybeSingle()
+        if (seedRow?.updated_at) {
+          setKnownUpdatedAt(trackerId, seedRow.updated_at)
+          knownTs = seedRow.updated_at
+        }
+      }
+      const { data, error } = await supabase
+        .from('pages')
+        .update(payload)
+        .eq('id', trackerId)
+        .eq('updated_at', knownTs)
+        .select('updated_at')
+        .maybeSingle()
 
       inFlightByTrackerRef.current[trackerId] = false
 
-      if (error) {
+      const outcome = classifySaveResult({ data, error, knownTs })
+
+      if (outcome.kind === 'conflict') {
+        // Someone else wrote since we loaded. Fetch the server row, run the
+        // existing detectConflict gate, and surface the modal if content actually
+        // differs. Identical content (e.g. a retry whose first attempt succeeded)
+        // auto-recovers by adopting the server's new version token.
+        const { data: serverRow } = await supabase
+          .from('pages')
+          .select('content, updated_at, title')
+          .eq('id', trackerId)
+          .maybeSingle()
+        const conflictDescriptor = serverRow
+          ? detectConflict(trackerId, serverRow, {
+              ts: Date.parse(payload.updated_at) || Date.now(),
+              content: payload.content,
+              title: payload.title,
+            })
+          : null
+        if (conflictDescriptor) {
+          // Real conflict — drop the in-flight payload (the user will pick a side
+          // via ConflictModal). Stop the retry timer; this is not a network error.
+          const rt = retryTimersByTrackerRef.current[trackerId]
+          if (rt) { clearTimeout(rt); retryTimersByTrackerRef.current[trackerId] = null }
+          if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
+          if (trackerId === activeTrackerRef.current?.id) {
+            setSaveStatus('Conflict')
+          }
+          setDraftConflict(conflictDescriptor)
+          recomputeHasPendingSaves()
+          return
+        }
+        // Identical content — silently adopt the new server version and treat as success.
+        if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
+        // fall through to success cleanup below
+      } else if (outcome.kind === 'error') {
         // If nothing newer is queued, keep this payload as the next attempt.
         if (!queuedPayloadByTrackerRef.current[trackerId]) {
           queuedPayloadByTrackerRef.current[trackerId] = queued
@@ -273,12 +372,15 @@ export const useTrackers = (userId, activeSectionId) => {
             recomputeHasPendingSaves()
           }, 5000)
         }
-        setMessage(error.message)
+        const errMsg = outcome.error?.message ?? 'Save failed'
+        setMessage(errMsg)
         if (trackerId === activeTrackerRef.current?.id) {
           setSaveStatus('Error')
         }
         recomputeHasPendingSaves()
         return
+      } else if (outcome.kind === 'ok' && outcome.nextKnownTs) {
+        setKnownUpdatedAt(trackerId, outcome.nextKnownTs)
       }
 
       const retryTimer = retryTimersByTrackerRef.current[trackerId]
@@ -295,8 +397,9 @@ export const useTrackers = (userId, activeSectionId) => {
         prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
       )
       // Write-through to the content cache so the editor sees its own saves without re-fetching.
+      // Pass the latest server timestamp (when available) so the OCC token stays current.
       if (payload.content !== undefined) {
-        setPageContent(trackerId, payload.content)
+        setPageContent(trackerId, payload.content, outcome.nextKnownTs)
       }
       if (typeof payload.title === 'string') {
         const sectionId = trackersRef.current.find((t) => t.id === trackerId)?.section_id
@@ -324,7 +427,7 @@ export const useTrackers = (userId, activeSectionId) => {
 
       recomputeHasPendingSaves()
     },
-    [maybeClearLocalDraft, recomputeHasPendingSaves, setPageContent, updateCachedPage],
+    [maybeClearLocalDraft, recomputeHasPendingSaves, setPageContent, updateCachedPage, getKnownUpdatedAt, setKnownUpdatedAt],
   )
 
   // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
