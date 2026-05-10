@@ -781,12 +781,29 @@ export const useTrackers = (userId, activeSectionId) => {
   const resolveConflictWithServer = useCallback(() => {
     if (!draftConflict) return
     clearPageDraft(draftConflict.trackerId)
-    // The server version is already loaded in the page-content cache; clearing
-    // the local draft is enough to let the editor remount with that content.
+    // For save-time conflicts the cache still holds the stale pre-remote-write
+    // snapshot, so refresh it from the descriptor we built when classifying.
+    if (draftConflict.serverContent !== undefined) {
+      setPageContent(draftConflict.trackerId, draftConflict.serverContent, draftConflict.serverUpdatedAt)
+    }
+    if (typeof draftConflict.serverTitle === 'string') {
+      setTrackers((prev) =>
+        prev.map((item) =>
+          item.id === draftConflict.trackerId
+            ? { ...item, title: draftConflict.serverTitle, updated_at: draftConflict.serverUpdatedAt }
+            : item,
+        ),
+      )
+    }
+    // Drop any queued/in-flight save; the user chose to discard their edit.
+    queuedPayloadByTrackerRef.current[draftConflict.trackerId] = null
+    const rt = retryTimersByTrackerRef.current[draftConflict.trackerId]
+    if (rt) { clearTimeout(rt); retryTimersByTrackerRef.current[draftConflict.trackerId] = null }
     setActiveDraft(null)
     setDraftConflict(null)
     setDraftInvalidation((n) => n + 1)
-  }, [draftConflict])
+    setSaveStatus('Saved')
+  }, [draftConflict, setPageContent])
 
   const resolveConflictWithDraft = useCallback(() => {
     if (!draftConflict) return
