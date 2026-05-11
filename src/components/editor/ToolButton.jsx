@@ -1,18 +1,22 @@
 import { useEffect, useRef } from 'react'
+import { attachToolButtonTouchGuard } from '../../utils/toolButtonTouchGuard'
 
 // Shared toolbar button.
 //
-// Why this exists: on mobile, tapping a plain <button> inside a contenteditable
-// toolbar makes the browser pull focus off the editor before the click handler
-// runs. That collapses the text selection (so toggleItalic ends up a no-op)
-// and dismisses the on-screen keyboard. Pattern mirrors notesnook's
-// packages/editor/src/toolbar/components/tool-button.tsx:
+// Pieces that keep the editor selection alive when a button is tapped:
+//   1. tabIndex={-1}             keep the button out of the focus order
+//   2. mousedown preventDefault  block focus transfer to the button. mousedown
+//                                also fires on touch (via the touch→mouse
+//                                compatibility sequence) before the synthetic
+//                                click, so a single capture-phase mousedown
+//                                handler covers both pointer and touch.
+//   3. plain onClick             runs the editor command (chain().focus().toggleX().run())
 //
-//   1. tabIndex={-1}            keep the button out of the focus order
-//   2. onMouseDown preventDefault    stop focus transfer on touch
-//   3. capture-phase native listener belt-and-braces in case anything
-//                                    synthesizes its own pointer handling
-//   4. plain onClick runs the editor command (chain().focus().toggleX().run())
+// Do NOT add a touchstart preventDefault here. On Android Chrome, canceling
+// touchstart suppresses the synthetic click that would otherwise follow
+// touchend — which silently breaks every button that activates via onClick
+// (most visibly the toolbar expand/collapse toggle). See
+// src/utils/toolButtonTouchGuard.js for the canonical guard and its tests.
 function ToolButton({
   active = false,
   disabled = false,
@@ -30,15 +34,7 @@ function ToolButton({
   const ref = buttonRef ?? localRef
 
   useEffect(() => {
-    const el = ref.current
-    if (!el || !isTouchOnly) return undefined
-    const onDown = (e) => { e.preventDefault() }
-    el.addEventListener('mousedown', onDown, { capture: true, passive: false })
-    el.addEventListener('touchstart', onDown, { capture: true, passive: false })
-    return () => {
-      el.removeEventListener('mousedown', onDown, { capture: true })
-      el.removeEventListener('touchstart', onDown, { capture: true })
-    }
+    return attachToolButtonTouchGuard(ref.current, { isTouchOnly })
   }, [isTouchOnly, ref])
 
   const composedClassName = `toolbar-btn${active ? ' active' : ''}${className ? ` ${className}` : ''}`
