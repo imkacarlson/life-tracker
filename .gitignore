@@ -45,3 +45,7 @@ tmp_req*.txt
 recovery/
 .codex
 .playwright-mcp/
+
+# Reference implementation clones (kept locally for review, not tracked)
+docmost/
+notesnook/

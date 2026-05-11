@@ -82,7 +82,9 @@ test.describe('cross-notebook switch speed', () => {
     await page.evaluate(({ nb, sec, pg }) => {
       window.location.hash = `#nb=${nb}&sec=${sec}&pg=${pg}`
     }, { nb: notebookA.id, sec: sectionA.id, pg: pageA.id })
-    await expect(page.locator('.ProseMirror')).toContainText('Content of page A', { timeout: 2000 })
+    // This is only cache warmup; it may still hit Supabase and should not use
+    // the strict cached-return SLA asserted below.
+    await expect(page.locator('.ProseMirror')).toContainText('Content of page A', { timeout: 10000 })
 
     // Navigate back to page B (should be in cache — no loading flash)
     const t0 = Date.now()

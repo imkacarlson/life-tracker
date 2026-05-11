@@ -19,10 +19,12 @@ const MAX_CACHE_ENTRIES = 30
  * Shape: { [pageId]: { status, content, error, loadedAt } }
  *
  * Returns:
- *   pageContentCache     — reactive cache map (React state)
- *   loadPageContent(id)  — idempotent single-row content fetch that resolves content
- *   setPageContent(id, c)— write-through after autosave
- *   invalidatePage(id)   — resets to IDLE (for conflict resolution)
+ *   pageContentCache         — reactive cache map (React state)
+ *   loadPageContent(id)      — idempotent single-row content fetch that resolves content
+ *   setPageContent(id, c, ts)— write-through after autosave (ts advances the OCC token)
+ *   invalidatePage(id)       — resets to IDLE (for conflict resolution)
+ *   getKnownUpdatedAt(id)    — current OCC version token from server
+ *   setKnownUpdatedAt(id, ts)— record the latest server timestamp we've observed
  */
 export function usePageContentCache(userId) {
   const [pageContentCache, setPageContentCache] = useState({})
@@ -31,6 +33,9 @@ export function usePageContentCache(userId) {
   const userIdRef = useRef(userId)
   // LRU order: oldest pageId at index 0, newest at the end
   const lruOrderRef = useRef([])
+  // OCC version tokens: { [pageId]: '2026-05-10T12:34:56.789Z' }
+  // Populated from each successful load and each successful save.
+  const knownUpdatedAtRef = useRef({})
 
   useEffect(() => {
     cacheRef.current = pageContentCache
@@ -41,6 +46,7 @@ export function usePageContentCache(userId) {
     if (userId) return
     inFlightRef.current = {}
     lruOrderRef.current = []
+    knownUpdatedAtRef.current = {}
     setPageContentCache({})
   }, [userId])
 
@@ -100,6 +106,9 @@ export function usePageContentCache(userId) {
         }
 
         const content = data?.content ?? null
+        if (data?.updated_at) {
+          knownUpdatedAtRef.current[pageId] = data.updated_at
+        }
         recordAccess(pageId)
         setPageContentCache((prev) =>
           applyEviction({
@@ -128,8 +137,11 @@ export function usePageContentCache(userId) {
   )
 
   const setPageContent = useCallback(
-    (pageId, content) => {
+    (pageId, content, updatedAt) => {
       if (!pageId) return
+      if (updatedAt) {
+        knownUpdatedAtRef.current[pageId] = updatedAt
+      }
       recordAccess(pageId)
       setPageContentCache((prev) =>
         applyEviction({
@@ -149,6 +161,7 @@ export function usePageContentCache(userId) {
   const invalidatePage = useCallback((pageId) => {
     if (!pageId) return
     delete inFlightRef.current[pageId]
+    delete knownUpdatedAtRef.current[pageId]
     lruOrderRef.current = lruOrderRef.current.filter((id) => id !== pageId)
     setPageContentCache((prev) => {
       const next = { ...prev }
@@ -157,10 +170,22 @@ export function usePageContentCache(userId) {
     })
   }, [])
 
+  const getKnownUpdatedAt = useCallback((pageId) => {
+    if (!pageId) return null
+    return knownUpdatedAtRef.current[pageId] ?? null
+  }, [])
+
+  const setKnownUpdatedAt = useCallback((pageId, updatedAt) => {
+    if (!pageId || !updatedAt) return
+    knownUpdatedAtRef.current[pageId] = updatedAt
+  }, [])
+
   return {
     pageContentCache,
     loadPageContent,
     setPageContent,
     invalidatePage,
+    getKnownUpdatedAt,
+    setKnownUpdatedAt,
   }
 }
