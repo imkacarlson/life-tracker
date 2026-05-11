@@ -4,7 +4,9 @@ import { isTouchOnlyDevice } from '../utils/device'
 export const useEditorUIStore = create((set) => ({
   // Toolbar layout
   toolbarExpanded: !isTouchOnlyDevice(),
-  setToolbarExpanded: (v) => set({ toolbarExpanded: v }),
+  setToolbarExpanded: (v) => set((state) => ({
+    toolbarExpanded: typeof v === 'function' ? v(state.toolbarExpanded) : v,
+  })),
 
   // Find bar
   findOpen: false,
