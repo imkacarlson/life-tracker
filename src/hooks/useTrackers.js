@@ -80,9 +80,9 @@ export const useTrackers = (userId, activeSectionId) => {
         !!latestDraftKeyByTrackerRef.current[trackerId]
 
       if (isDirty) {
-        // Bump the token only — the next save attempt will enter the conflict
-        // gate (its UPDATE will mismatch and route through detectConflict).
-        if (incomingTs) setKnownUpdatedAt(trackerId, incomingTs)
+        // Keep the old version token. The pending save must compare against the
+        // version we loaded before editing so a remote write becomes an OCC conflict
+        // instead of becoming the new baseline for a stale local overwrite.
         return
       }
 
@@ -301,20 +301,11 @@ export const useTrackers = (userId, activeSectionId) => {
       const oldContent = pageContentCacheRef.current[trackerId]?.content ?? null
       // Optimistic concurrency: only write if the server still has the version we last read.
       // Zero rows matched -> conflict (someone else wrote since we loaded).
-      // If we never observed a version (e.g. title-only save on a page that was never
-      // opened), fetch it just-in-time so we have a baseline to compare against.
+      // If we never observed a version, do not fetch one at save time. A fresh
+      // fetch could adopt another device's newer timestamp and turn a stale local
+      // write into an accepted overwrite. Loaded/created pages seed this token
+      // from server metadata before edits are allowed.
       let knownTs = getKnownUpdatedAt(trackerId)
-      if (!knownTs) {
-        const { data: seedRow } = await supabase
-          .from('pages')
-          .select('updated_at')
-          .eq('id', trackerId)
-          .maybeSingle()
-        if (seedRow?.updated_at) {
-          setKnownUpdatedAt(trackerId, seedRow.updated_at)
-          knownTs = seedRow.updated_at
-        }
-      }
       const { data, error } = await supabase
         .from('pages')
         .update(payload)
@@ -484,6 +475,9 @@ export const useTrackers = (userId, activeSectionId) => {
       }
 
       const nextTrackers = data ?? []
+      nextTrackers.forEach((page) => {
+        if (page?.id && page?.updated_at) setKnownUpdatedAt(page.id, page.updated_at)
+      })
       setTrackers(nextTrackers)
       setLoadedTrackerSectionId(sectionId)
       seedSectionPages(sectionId, nextTrackers)
@@ -493,7 +487,7 @@ export const useTrackers = (userId, activeSectionId) => {
       })
       setDataLoading(false)
     },
-    [seedSectionPages, userId],
+    [seedSectionPages, setKnownUpdatedAt, userId],
   )
 
   useEffect(() => {
@@ -625,7 +619,7 @@ export const useTrackers = (userId, activeSectionId) => {
     setTrackers((prev) => [...prev, created])
     upsertCachedPage(sectionId, created)
     // Seed the content cache so the editor can mount immediately without a round-trip.
-    setPageContent(data.id, EMPTY_DOC)
+    setPageContent(data.id, EMPTY_DOC, data.updated_at)
     setActiveTrackerId(data.id)
   }
 
@@ -659,7 +653,7 @@ export const useTrackers = (userId, activeSectionId) => {
     setTrackers((prev) => [...prev, created])
     upsertCachedPage(sectionId, created)
     // Seed the content cache so the editor can mount immediately without a round-trip.
-    setPageContent(data.id, content)
+    setPageContent(data.id, content, data.updated_at)
     setActiveTrackerId(data.id)
     return data
   }
