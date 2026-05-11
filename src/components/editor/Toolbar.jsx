@@ -507,7 +507,7 @@ function Toolbar({
   }, [isTouchOnly, toolbarRef])
 
   // When the toolbar expands on mobile, scroll so the cursor stays visible above it.
-  useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef })
+  useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef, editorPanelRef })
 
   // Outside click and escape handlers for pickers
   useEffect(() => {
