@@ -1,5 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { attachToolButtonTouchGuard } from '../toolButtonTouchGuard'
+import * as keyboardShown from '../keyboardShown'
+
+// Default: pretend the on-screen keyboard is up so the existing tests
+// (which were written before the gate existed) keep their original meaning.
+beforeEach(() => {
+  vi.spyOn(keyboardShown, 'isKeyboardShown').mockReturnValue(true)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 // Focus-preservation guard for toolbar buttons.
 //
@@ -66,6 +77,23 @@ describe('attachToolButtonTouchGuard', () => {
     cleanup()
     const ev = dispatch(el, 'mousedown')
     expect(ev.defaultPrevented).toBe(false)
+  })
+
+  it('does NOT preventDefault when the on-screen keyboard is hidden (notesnook parity)', () => {
+    keyboardShown.isKeyboardShown.mockReturnValue(false)
+    const el = makeEl()
+    attachToolButtonTouchGuard(el, { isTouchOnly: true })
+    const ev = dispatch(el, 'mousedown')
+    expect(ev.defaultPrevented).toBe(false)
+  })
+
+  it('preventDefault re-engages as soon as the keyboard comes back up', () => {
+    const el = makeEl()
+    attachToolButtonTouchGuard(el, { isTouchOnly: true })
+    keyboardShown.isKeyboardShown.mockReturnValue(false)
+    expect(dispatch(el, 'mousedown').defaultPrevented).toBe(false)
+    keyboardShown.isKeyboardShown.mockReturnValue(true)
+    expect(dispatch(el, 'mousedown').defaultPrevented).toBe(true)
   })
 
   it('uses capture-phase listener (runs before bubble-phase listeners)', () => {

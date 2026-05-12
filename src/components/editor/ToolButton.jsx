@@ -1,15 +1,20 @@
 import { useEffect, useRef } from 'react'
 import { attachToolButtonTouchGuard } from '../../utils/toolButtonTouchGuard'
+import { isKeyboardShown } from '../../utils/keyboardShown'
 
 // Shared toolbar button.
 //
 // Pieces that keep the editor selection alive when a button is tapped:
 //   1. tabIndex={-1}             keep the button out of the focus order
-//   2. mousedown preventDefault  block focus transfer to the button. mousedown
+//   2. mousedown preventDefault  block focus transfer to the button, ONLY
+//                                while the on-screen keyboard is up. mousedown
 //                                also fires on touch (via the touch→mouse
 //                                compatibility sequence) before the synthetic
 //                                click, so a single capture-phase mousedown
-//                                handler covers both pointer and touch.
+//                                handler covers both pointer and touch. Gating
+//                                on isKeyboardShown() mirrors notesnook and
+//                                stops ambient toolbar taps (e.g. the expand
+//                                toggle) from summoning the IME on Android.
 //   3. plain onClick             runs the editor command (chain().focus().toggleX().run())
 //
 // Do NOT add a touchstart preventDefault here. On Android Chrome, canceling
@@ -49,7 +54,7 @@ function ToolButton({
       title={title}
       aria-label={ariaLabel ?? title}
       data-testid={testId}
-      onMouseDown={(e) => { if (isTouchOnly) e.preventDefault() }}
+      onMouseDown={(e) => { if (isTouchOnly && isKeyboardShown()) e.preventDefault() }}
       onClick={(e) => {
         if (disabled) return
         e.preventDefault()
