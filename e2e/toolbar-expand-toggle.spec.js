@@ -91,6 +91,42 @@ test(
 )
 
 test(
+  'tapping the expand toggle without prior editor focus does NOT focus the editor',
+  async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'Mobile-only test')
+
+    // Regression for: tapping the toolbar expand toggle on Android Chrome
+    // while the on-screen keyboard is hidden was pulling the IME up because
+    // ToolButton unconditionally preventDefault'd mousedown, keeping the
+    // editor "claimed" for focus. The fix gates that preventDefault on
+    // isKeyboardShown() (mirrors notesnook's tool-button.tsx). In headless
+    // emulation the IME isn't real, but we can assert the focus semantic:
+    // an ambient toggle tap must not transfer focus into the editor.
+    const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
+    await waitForApp(page, hash, { expectedText: 'Toolbar toggle test line one' })
+
+    // Make sure the editor does NOT currently have focus.
+    await page.evaluate(() => {
+      const el = document.activeElement
+      if (el && typeof el.blur === 'function') el.blur()
+    })
+    const editorFocusedBefore = await page.evaluate(
+      () => !!document.activeElement?.closest('.ProseMirror'),
+    )
+    expect(editorFocusedBefore).toBe(false)
+
+    await page.getByTestId('toolbar-expand-toggle').tap()
+    // Allow any focus-related microtasks to flush.
+    await page.waitForTimeout(50)
+
+    const editorFocusedAfter = await page.evaluate(
+      () => !!document.activeElement?.closest('.ProseMirror'),
+    )
+    expect(editorFocusedAfter).toBe(false)
+  },
+)
+
+test(
   'tapping a command button preserves editor selection and applies the command',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
