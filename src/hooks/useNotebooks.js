@@ -15,6 +15,7 @@ export const useNotebooks = (userId) => {
   // stays up while this is true so a returning user goes splash -> editor
   // without flashing the empty-account WelcomeScreen in between.
   const [notebooksLoading, setNotebooksLoading] = useState(true)
+  const [loadedUserId, setLoadedUserId] = useState(null)
   const loadRequestIdRef = useRef(0)
 
   const loadNotebooks = useCallback(async () => {
@@ -33,11 +34,13 @@ export const useNotebooks = (userId) => {
 
     if (error) {
       setMessage(error.message)
+      setLoadedUserId(userId)
       setNotebooksLoading(false)
       return
     }
 
     setNotebooks(data ?? [])
+    setLoadedUserId(userId)
     setNotebooksLoading(false)
     setActiveNotebookId((prev) => {
       if (prev && data?.some((item) => item.id === prev)) return prev
@@ -52,9 +55,11 @@ export const useNotebooks = (userId) => {
         setNotebooks([])
         setActiveNotebookId(null)
         setMessage('')
+        setLoadedUserId(null)
         setNotebooksLoading(false)
         return
       }
+      setNotebooksLoading(true)
       void loadNotebooks()
     }, 0)
     return () => window.clearTimeout(timer)
@@ -193,7 +198,7 @@ export const useNotebooks = (userId) => {
 
   return {
     notebooks,
-    notebooksLoading,
+    notebooksLoading: Boolean(userId) && (notebooksLoading || loadedUserId !== userId),
     activeNotebookId,
     setActiveNotebookId,
     activeNotebook,
