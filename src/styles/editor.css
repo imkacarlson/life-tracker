@@ -71,6 +71,39 @@
   min-height: 0;
 }
 
+/* Shimmer placeholder lines, aligned to the editor's content padding. */
+.editor-skeleton__lines {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.75rem 0 0;
+}
+
+.editor-skeleton__line {
+  height: 0.875rem;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-raised) 0%,
+    var(--border) 50%,
+    var(--surface-raised) 100%
+  );
+  background-size: 200% 100%;
+  animation: editor-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes editor-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-skeleton__line {
+    animation: none;
+    background: var(--surface-raised);
+  }
+}
+
 .editor-content,
 .ProseMirror {
   min-height: 0;

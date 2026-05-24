@@ -25,6 +25,8 @@ export const useTrackers = (userId, activeSectionId) => {
   const [draftConflict, setDraftConflict] = useState(null)
   const [draftInvalidation, setDraftInvalidation] = useState(0)
   const [activeDraft, setActiveDraft] = useState(null)
+  // Bumped on resume to force the realtime channel to tear down + resubscribe.
+  const [reconnectKey, setReconnectKey] = useState(0)
 
   const titleDraftRef = useRef(titleDraft)
   const activeTrackerRef = useRef(null)
@@ -100,7 +102,31 @@ export const useTrackers = (userId, activeSectionId) => {
     },
     [getKnownUpdatedAt, setKnownUpdatedAt, setPageContent],
   )
-  usePageRealtime(activeTrackerId, handleRemotePageChange)
+  usePageRealtime(activeTrackerId, handleRemotePageChange, reconnectKey)
+
+  // Keep the active page id in a ref so the stable resume handler can read it
+  // without being recreated on every page switch.
+  const activeTrackerIdRef = useRef(activeTrackerId)
+  useEffect(() => {
+    activeTrackerIdRef.current = activeTrackerId
+  }, [activeTrackerId])
+
+  // Called when the app returns to the foreground (see useResumeRefresh). The
+  // realtime socket may have died while backgrounded, so resubscribe; then pull
+  // the latest server content for the active page through the same
+  // conflict-aware path as realtime — catching edits made on another device
+  // without clobbering unsaved local changes (handleRemotePageChange bails when
+  // the editor is dirty).
+  const handleResume = useCallback(async () => {
+    setReconnectKey((key) => key + 1)
+    const pageId = activeTrackerIdRef.current
+    if (!pageId) return
+    const { data, error } = await runSupabaseQueryWithRetry(() =>
+      supabase.from('pages').select('id, content, updated_at, title').eq('id', pageId).single(),
+    )
+    if (error || !data) return
+    handleRemotePageChange({ new: data })
+  }, [handleRemotePageChange])
 
   const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
   const activeTracker = useMemo(() => {
@@ -854,5 +880,6 @@ export const useTrackers = (userId, activeSectionId) => {
     resolveConflictWithDraft,
     flushAllPendingSaves,
     flushSaveForTracker,
+    handleResume,
   }
 }

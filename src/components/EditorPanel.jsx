@@ -11,6 +11,7 @@ import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
 import AiInsertModal from './editor/AiInsertModal'
 import EditorShell from './editor/EditorShell'
+import EditorSkeleton from './editor/EditorSkeleton'
 import {
   getMergeableTemplateList,
   hasMeaningfulTemplate,
@@ -793,7 +794,7 @@ function EditorPanel({
       />
 
       {editorLocked && hasTracker ? (
-        <div className="editor-loading-skeleton" aria-hidden="true" />
+        <EditorSkeleton />
       ) : (
         <EditorShell ref={editorShellRef} hasTracker={hasTracker} editor={editor} />
       )}

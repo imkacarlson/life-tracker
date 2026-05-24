@@ -15,8 +15,10 @@ import { supabase } from '../../lib/supabase'
  *
  * @param {string|null} pageId       The active page id, or null to unsubscribe.
  * @param {(payload: { new: { id: string, content: unknown, updated_at: string, title: string } }) => void} onRemoteChange
+ * @param {number} [reconnectKey]    Bump to force a teardown + resubscribe
+ *                                   (e.g. on resume, when the socket may be dead).
  */
-export function usePageRealtime(pageId, onRemoteChange) {
+export function usePageRealtime(pageId, onRemoteChange, reconnectKey = 0) {
   useEffect(() => {
     if (!pageId) return
     const channel = supabase
@@ -28,10 +30,16 @@ export function usePageRealtime(pageId, onRemoteChange) {
           if (payload?.new) onRemoteChange(payload)
         },
       )
-      .subscribe()
+      .subscribe((status) => {
+        // A dead/timed-out socket recovers on the next resume, which bumps
+        // reconnectKey and re-runs this effect to resubscribe.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn(`Realtime channel page:${pageId} status: ${status}`)
+        }
+      })
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [pageId, onRemoteChange])
+  }, [pageId, onRemoteChange, reconnectKey])
 }
