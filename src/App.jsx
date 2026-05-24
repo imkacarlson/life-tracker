@@ -123,6 +123,7 @@ function App() {
 
   const {
     notebooks,
+    notebooksLoading,
     activeNotebookId,
     setActiveNotebookId,
     activeNotebook,
@@ -134,6 +135,11 @@ function App() {
     renameNotebook,
     deleteNotebook,
   } = useNotebooks(userId)
+
+  // Keep the boot splash up until BOTH auth and the initial notebooks fetch
+  // resolve. Gating on auth alone tore the splash down before notebooks loaded,
+  // briefly flashing the empty-account WelcomeScreen for returning users.
+  const bootLoading = loading || (Boolean(session) && notebooksLoading)
 
   const {
     sections,
@@ -450,10 +456,10 @@ function App() {
   // error boundary and an inline failsafe timeout also remove it, so this is
   // just the primary, happy-path removal.
   useEffect(() => {
-    if ((missingEnv || !loading) && typeof window !== 'undefined' && window.__removeAppSplash) {
+    if ((missingEnv || !bootLoading) && typeof window !== 'undefined' && window.__removeAppSplash) {
       window.__removeAppSplash()
     }
-  }, [missingEnv, loading])
+  }, [missingEnv, bootLoading, session, notebooksLoading])
 
   // On returning to the foreground / regaining network: resubscribe realtime
   // and refetch the active tracker so a change made on another device shows up.
@@ -656,9 +662,11 @@ function App() {
     )
   }
 
-  if (loading) {
+  if (bootLoading) {
     // The branded splash baked into index.html is still covering the screen;
-    // render nothing so there's one continuous loading state, not three.
+    // render nothing so there's one continuous loading state, not three. This
+    // also waits on the initial notebooks fetch so returning users don't flash
+    // the empty-account WelcomeScreen before their trackers load.
     return null
   }
 

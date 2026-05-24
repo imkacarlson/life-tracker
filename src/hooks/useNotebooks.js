@@ -11,6 +11,10 @@ export const useNotebooks = (userId) => {
   const [notebooks, setNotebooks] = useState([])
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
+  // True until the initial fetch has resolved at least once. The boot splash
+  // stays up while this is true so a returning user goes splash -> editor
+  // without flashing the empty-account WelcomeScreen in between.
+  const [notebooksLoading, setNotebooksLoading] = useState(true)
   const loadRequestIdRef = useRef(0)
 
   const loadNotebooks = useCallback(async () => {
@@ -29,10 +33,12 @@ export const useNotebooks = (userId) => {
 
     if (error) {
       setMessage(error.message)
+      setNotebooksLoading(false)
       return
     }
 
     setNotebooks(data ?? [])
+    setNotebooksLoading(false)
     setActiveNotebookId((prev) => {
       if (prev && data?.some((item) => item.id === prev)) return prev
       return data?.[0]?.id ?? null
@@ -46,6 +52,7 @@ export const useNotebooks = (userId) => {
         setNotebooks([])
         setActiveNotebookId(null)
         setMessage('')
+        setNotebooksLoading(false)
         return
       }
       void loadNotebooks()
@@ -186,6 +193,7 @@ export const useNotebooks = (userId) => {
 
   return {
     notebooks,
+    notebooksLoading,
     activeNotebookId,
     setActiveNotebookId,
     activeNotebook,
