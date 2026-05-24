@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { withTimeout } from '../utils/promiseTimeout'
 
 const getUserId = (value) => value?.user?.id ?? null
+
+// On a fragile resume getSession() can hang, which used to pin the loading
+// state (and the splash) forever. Cap it: on timeout we treat the user as
+// signed-out with a retry message. onAuthStateChange still fires later if the
+// real session resolves, so a recovered network self-heals.
+const GET_SESSION_TIMEOUT_MS = 8000
+const GET_SESSION_TIMEOUT_RESULT = {
+  data: { session: null },
+  error: { message: 'Connection timed out. Check your network and reload.' },
+}
 
 export const useAuth = () => {
   const [session, setSession] = useState(null)
@@ -11,7 +22,11 @@ export const useAuth = () => {
   useEffect(() => {
     let mounted = true
 
-    supabase.auth.getSession().then(({ data, error }) => {
+    withTimeout(
+      supabase.auth.getSession(),
+      GET_SESSION_TIMEOUT_MS,
+      () => GET_SESSION_TIMEOUT_RESULT,
+    ).then(({ data, error }) => {
       if (!mounted) return
       if (error) setMessage(error.message)
       setSession((prev) => {

@@ -9,6 +9,7 @@ import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
 import { useTrackerSession } from './hooks/useTrackerSession'
+import { useResumeRefresh } from './hooks/useResumeRefresh'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
 import {
@@ -177,6 +178,7 @@ function App() {
     resolveConflictWithDraft,
     flushAllPendingSaves,
     flushSaveForTracker,
+    handleResume,
   } = useTrackers(userId, activeSectionId)
 
   const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
@@ -444,6 +446,19 @@ function App() {
     }
   }, [isSaving, flushAllPendingSaves])
 
+  // Tear down the boot splash (baked into index.html) once auth resolves. The
+  // error boundary and an inline failsafe timeout also remove it, so this is
+  // just the primary, happy-path removal.
+  useEffect(() => {
+    if ((missingEnv || !loading) && typeof window !== 'undefined' && window.__removeAppSplash) {
+      window.__removeAppSplash()
+    }
+  }, [missingEnv, loading])
+
+  // On returning to the foreground / regaining network: resubscribe realtime
+  // and refetch the active tracker so a change made on another device shows up.
+  useResumeRefresh(handleResume)
+
   const handleSignOut = async () => {
     if (!confirmLeaveWhileSaving()) return
     await signOut()
@@ -642,12 +657,9 @@ function App() {
   }
 
   if (loading) {
-    return (
-      <div className="app">
-        <h1>Life Tracker</h1>
-        <div className="card">Loading...</div>
-      </div>
-    )
+    // The branded splash baked into index.html is still covering the screen;
+    // render nothing so there's one continuous loading state, not three.
+    return null
   }
 
   if (!session) {
