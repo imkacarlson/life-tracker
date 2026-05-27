@@ -28,7 +28,9 @@ export const useEditorUIStore = create((set) => ({
   aiLoading: false,
   aiDailyDate: new Date(),
   setAiLoading: (v) => set({ aiLoading: v }),
-  setAiDailyDate: (d) => set({ aiDailyDate: d }),
+  setAiDailyDate: (d) => set((state) => ({
+    aiDailyDate: typeof d === 'function' ? d(state.aiDailyDate) : d,
+  })),
 
   // Selection context (synced from editor selection)
   inTable: false,
