@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useEditorUIStore } from '../editorUIStore'
 
 const reset = () => {
-  useEditorUIStore.setState({ toolbarExpanded: false })
+  useEditorUIStore.setState({ toolbarExpanded: false, aiDailyDate: new Date('2026-05-26T00:00:00') })
 }
 
 describe('useEditorUIStore - setToolbarExpanded', () => {
@@ -38,5 +38,27 @@ describe('useEditorUIStore - setToolbarExpanded', () => {
       return prev
     })
     expect(received).toBe(true)
+  })
+})
+
+describe('useEditorUIStore - setAiDailyDate', () => {
+  beforeEach(reset)
+
+  it('accepts a Date value', () => {
+    const next = new Date('2026-05-27T00:00:00')
+    useEditorUIStore.getState().setAiDailyDate(next)
+    expect(useEditorUIStore.getState().aiDailyDate).toBe(next)
+  })
+
+  it('accepts a functional updater without storing the function', () => {
+    useEditorUIStore.getState().setAiDailyDate((prev) => {
+      const next = new Date(prev)
+      next.setDate(next.getDate() + 1)
+      return next
+    })
+
+    const aiDailyDate = useEditorUIStore.getState().aiDailyDate
+    expect(aiDailyDate).toBeInstanceOf(Date)
+    expect(aiDailyDate.toLocaleDateString('en-CA')).toBe('2026-05-27')
   })
 })
