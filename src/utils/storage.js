@@ -64,3 +64,29 @@ export const saveStoredSidebarCollapsed = (collapsed) => {
     // Ignore storage errors
   }
 }
+
+// Color tools persist a hex string or `null` ("No Color"). `null` is a real,
+// intentional state — distinct from "never set" — so it is encoded as an empty
+// string sentinel and decoded back to `null` on read. A missing key returns the
+// caller's fallback (which may itself be `null`).
+const NULL_COLOR_SENTINEL = ''
+
+export const readStoredColor = (key, fallback) => {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    return raw === NULL_COLOR_SENTINEL ? null : raw
+  } catch {
+    return fallback
+  }
+}
+
+export const saveStoredColor = (key, value) => {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(key, value == null ? NULL_COLOR_SENTINEL : value)
+  } catch {
+    // Ignore storage errors
+  }
+}
