@@ -75,6 +75,7 @@ function EditorPanel({
     submenuDirection, setSubmenuDirection,
     highlightColor, setHighlightColor,
     shadingColor, setShadingColor,
+    setTextColor,
     resetOnTrackerChange,
   } = useEditorUIStore()
 
@@ -713,6 +714,22 @@ function EditorPanel({
       editor.off('transaction', syncHighlight)
     }
   }, [editor, setHighlightColor])
+
+  // Sync text color from editor selection → store. The store's change-guard
+  // keeps this from spamming localStorage on every cursor move.
+  useEffect(() => {
+    if (!editor) return
+    const syncTextColor = () => {
+      const color = editor.getAttributes('textStyle')?.color
+      if (color) setTextColor(color)
+    }
+    editor.on('selectionUpdate', syncTextColor)
+    editor.on('transaction', syncTextColor)
+    return () => {
+      editor.off('selectionUpdate', syncTextColor)
+      editor.off('transaction', syncTextColor)
+    }
+  }, [editor, setTextColor])
 
   useEffect(() => {
     if (!editor) return

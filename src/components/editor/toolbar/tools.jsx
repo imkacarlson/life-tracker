@@ -383,18 +383,89 @@ function HighlightTool({ editor }) {
   )
 }
 
-// --- Text color (native input) -------------------------------------------
+// --- Text color (split button with picker) -------------------------------
+
+// Text-appropriate colors (readable as letterforms, not pale highlight tints).
+const TEXT_COLORS = [
+  [
+    { label: 'Black', value: '#000000' },
+    { label: 'Dark Gray', value: '#374151' },
+    { label: 'Gray', value: '#6b7280' },
+    { label: 'Red', value: '#dc2626' },
+    { label: 'Orange', value: '#ea580c' },
+  ],
+  [
+    { label: 'Amber', value: '#b45309' },
+    { label: 'Green', value: '#16a34a' },
+    { label: 'Teal', value: '#0d9488' },
+    { label: 'Blue', value: '#2563eb' },
+    { label: 'Navy', value: '#1e3a8a' },
+  ],
+  [
+    { label: 'Indigo', value: '#4f46e5' },
+    { label: 'Purple', value: '#7c3aed' },
+    { label: 'Magenta', value: '#c026d3' },
+    { label: 'Pink', value: '#db2777' },
+    { label: 'Maroon', value: '#7f1d1d' },
+  ],
+]
 
 function TextColorTool({ editor }) {
-  const { hasTracker } = useToolbarContext()
+  const textColor = useEditorUIStore((s) => s.textColor)
+  const setTextColor = useEditorUIStore((s) => s.setTextColor)
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+  const pickerRef = useRef(null)
+  const refs = useMemo(() => [wrapRef, pickerRef], [])
+  useOutsideClick({ isOpen: open, onClose: () => setOpen(false), refs })
+
+  const apply = () => {
+    if (!editor) return
+    if (!textColor) cmd(editor)?.unsetColor().run()
+    else cmd(editor)?.setColor(textColor).run()
+  }
+
+  const pick = (color) => {
+    if (!editor) return
+    if (!color) {
+      setTextColor(null)
+      cmd(editor)?.unsetColor().run()
+    } else {
+      setTextColor(color)
+      cmd(editor)?.setColor(color).run()
+    }
+    setOpen(false)
+  }
+
   return (
-    <input
-      type="color"
-      aria-label="Text color"
-      className="toolbar-color-input"
-      onChange={(event) => cmd(editor)?.setColor(event.target.value).run()}
-      disabled={!hasTracker}
-    />
+    <div className="text-color-control" ref={wrapRef}>
+      <Btn
+        active={editor?.isActive('textStyle', { color: textColor })}
+        onActivate={apply}
+        title="Text color"
+        ariaLabel="Text color"
+      >
+        <span className="toolbar-btn-label">A</span>
+        <span
+          className="toolbar-color-bar"
+          style={{ backgroundColor: textColor ?? 'transparent' }}
+        />
+      </Btn>
+      <Btn
+        className="toolbar-btn-caret"
+        onActivate={() => setOpen((prev) => !prev)}
+        ariaLabel="Text colors"
+      >
+        ▾
+      </Btn>
+      {open && (
+        <HighlightPicker
+          pickerRef={pickerRef}
+          colors={TEXT_COLORS}
+          onPick={pick}
+        />
+      )}
+    </div>
   )
 }
 
@@ -603,6 +674,10 @@ function ShadingTool({ editor }) {
         ariaLabel="Cell shading"
       >
         <ShadingIcon />
+        <span
+          className="toolbar-color-bar"
+          style={{ backgroundColor: shadingColor ?? 'transparent' }}
+        />
       </Btn>
       <Btn
         className="toolbar-btn-caret"
