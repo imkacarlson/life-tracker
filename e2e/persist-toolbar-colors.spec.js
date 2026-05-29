@@ -65,15 +65,31 @@ test.beforeAll(async () => {
   const { client, userId } = await getSupabase()
   const notebook = await createNotebook(client, userId, `${seedLabel} Notebook`)
   const section = await createSection(client, userId, notebook.id, `${seedLabel} Section`, 0)
-  const page = await createPage(
+  const highlightPage = await createPage(
     client,
     userId,
     section.id,
-    `${seedLabel} Page`,
+    `${seedLabel} Highlight Page`,
     buildSeedContent(),
     0,
   )
-  seedIds = { notebook, section, page }
+  const shortcutPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Shortcut Page`,
+    buildSeedContent(),
+    1,
+  )
+  const textPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Text Page`,
+    buildSeedContent(),
+    2,
+  )
+  seedIds = { notebook, section, highlightPage, shortcutPage, textPage }
 })
 
 test.afterAll(async () => {
@@ -81,8 +97,8 @@ test.afterAll(async () => {
   await deleteNotebookById(client, seedIds.notebook?.id)
 })
 
-const seedHash = () =>
-  `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
+const seedHash = (pageRow) =>
+  `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
 test('highlight color picked via caret persists across reload and the main button applies it', async ({
   page,
@@ -90,7 +106,7 @@ test('highlight color picked via caret persists across reload and the main butto
 }) => {
   test.skip(isMobile, 'Desktop-only: extra toolbar group is collapsed on touch')
 
-  await waitForApp(page, seedHash(), { expectedText: 'Persisted color test line' })
+  await waitForApp(page, seedHash(seedIds.highlightPage), { expectedText: 'Persisted color test line' })
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   // Pick a non-default highlight color (Green) via the caret picker.
@@ -120,7 +136,7 @@ test('highlight color picked via caret persists across reload and the main butto
 test('Ctrl+Alt+H applies the persisted highlight color after reload', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Desktop keyboard shortcut flow')
 
-  await waitForApp(page, seedHash(), { expectedText: 'Persisted color test line' })
+  await waitForApp(page, seedHash(seedIds.shortcutPage), { expectedText: 'Persisted color test line' })
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   // Persist the green color, then reload so storage is rehydrated from scratch.
@@ -145,7 +161,7 @@ test('text color picked via caret persists across reload and the main button app
 }) => {
   test.skip(isMobile, 'Desktop-only: extra toolbar group is collapsed on touch')
 
-  await waitForApp(page, seedHash(), { expectedText: 'Persisted color test line' })
+  await waitForApp(page, seedHash(seedIds.textPage), { expectedText: 'Persisted color test line' })
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   // Pick a text color (Blue) via the caret picker.
