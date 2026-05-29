@@ -61,6 +61,17 @@ const readSeedColor = (page, tag, prop) =>
     { tag, prop },
   )
 
+const pressHighlightShortcut = async (page) => {
+  await page.locator('.ProseMirror').dispatchEvent('keydown', {
+    key: 'h',
+    code: 'KeyH',
+    ctrlKey: true,
+    altKey: true,
+    bubbles: true,
+    cancelable: true,
+  })
+}
+
 test.beforeAll(async () => {
   const { client, userId } = await getSupabase()
   const notebook = await createNotebook(client, userId, `${seedLabel} Notebook`)
@@ -147,8 +158,9 @@ test('Ctrl+Alt+H applies the persisted highlight color after reload', async ({ p
   await expect(page.locator('.ProseMirror')).toContainText('Persisted color test line')
 
   // The shortcut reads editor.storage.highlightColor (synced from the store).
+  // Dispatch the keydown directly so CI/browser chrome never steals Ctrl+Alt+H.
   await selectSeedLine(page)
-  await page.keyboard.press('Control+Alt+h')
+  await pressHighlightShortcut(page)
 
   await expect(async () => {
     expect(await readSeedColor(page, 'mark', 'backgroundColor')).toBe(HIGHLIGHT_GREEN_RGB)
