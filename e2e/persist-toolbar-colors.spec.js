@@ -27,6 +27,8 @@ import {
 
 const HIGHLIGHT_GREEN_RGB = 'rgb(134, 239, 172)'
 const TEXT_BLUE_RGB = 'rgb(37, 99, 235)'
+// First swatch under "Standard Colors" in the shading picker (#7f1d1d).
+const SHADING_MAROON_RGB = 'rgb(127, 29, 29)'
 
 const buildSeedContent = () => ({
   type: 'doc',
@@ -35,6 +37,35 @@ const buildSeedContent = () => ({
       type: 'paragraph',
       attrs: { id: 'p-color-1' },
       content: [{ type: 'text', text: 'Persisted color test line' }],
+    },
+  ],
+})
+
+// A single-row, two-cell table. Cell shading is stored on the cell node's
+// `backgroundColor` attribute and rendered as an inline `background-color` style.
+const buildTableSeedContent = () => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'table',
+      attrs: { id: 'tbl-shading-1' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Shade me' }] }],
+            },
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Target cell' }] }],
+            },
+          ],
+        },
+      ],
     },
   ],
 })
@@ -60,6 +91,14 @@ const readSeedColor = (page, tag, prop) =>
     },
     { tag, prop },
   )
+
+// Read the computed background color of the table cell (td/th) containing text.
+const readCellColor = (page, cellText) =>
+  page.evaluate((cellText) => {
+    const cells = Array.from(document.querySelectorAll('.ProseMirror td, .ProseMirror th'))
+    const match = cells.find((c) => (c.textContent ?? '').includes(cellText))
+    return match ? getComputedStyle(match).backgroundColor : null
+  }, cellText)
 
 const pressHighlightShortcut = async (page) => {
   await page.locator('.ProseMirror').dispatchEvent('keydown', {
@@ -100,7 +139,15 @@ test.beforeAll(async () => {
     buildSeedContent(),
     2,
   )
-  seedIds = { notebook, section, highlightPage, shortcutPage, textPage }
+  const shadingPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Shading Page`,
+    buildTableSeedContent(),
+    3,
+  )
+  seedIds = { notebook, section, highlightPage, shortcutPage, textPage, shadingPage }
 })
 
 test.afterAll(async () => {
@@ -196,5 +243,45 @@ test('text color picked via caret persists across reload and the main button app
 
   await expect(async () => {
     expect(await readSeedColor(page, 'span', 'color')).toBe(TEXT_BLUE_RGB)
+  }).toPass({ timeout: 5000 })
+})
+
+test('shading color persists across reload and the main button shades a different cell', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop-only: shading caret lives in the collapsed extra group on touch')
+
+  await waitForApp(page, seedHash(seedIds.shadingPage), { expectedText: 'Shade me' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  // Click into the first cell so the in-table shading control renders, then
+  // pick a non-default color (first Standard swatch) via the caret picker.
+  await page.locator('.ProseMirror td', { hasText: 'Shade me' }).first().click()
+  await page.getByRole('button', { name: 'Shading colors' }).click()
+  await page.getByRole('button', { name: 'Standard color 1', exact: true }).click()
+
+  // Reload — the store must rehydrate the persisted shading color.
+  await page.reload()
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+  await expect(page.locator('.ProseMirror')).toContainText('Target cell')
+
+  // Move the cursor to a *different, unshaded* cell. The remembered color must
+  // survive this (regression: it used to be reset to null by cursor movement
+  // into an unshaded cell, leaving the main button a no-op).
+  await page.locator('.ProseMirror td', { hasText: 'Target cell' }).first().click()
+
+  // The preview underbar still reflects the persisted color.
+  await expect(page.locator('.shading-control .toolbar-color-bar')).toHaveCSS(
+    'background-color',
+    SHADING_MAROON_RGB,
+  )
+
+  // Clicking the main button (not the dropdown) shades the current cell with
+  // the remembered color.
+  await page.getByRole('button', { name: 'Cell shading', exact: true }).click()
+
+  await expect(async () => {
+    expect(await readCellColor(page, 'Target cell')).toBe(SHADING_MAROON_RGB)
   }).toPass({ timeout: 5000 })
 })

@@ -687,9 +687,13 @@ function EditorPanel({
       setCurrentBlockId(blockId)
 
       if (!nextInTable) return
+      // Only update the remembered shading color when the cell actually has a
+      // background. Mirrors the highlight/text-color guards so cursor movement
+      // into an unshaded cell does not clobber the remembered (persisted) color.
       const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
       const cellColor = editor.getAttributes('tableCell')?.backgroundColor
-      setShadingColor(headerColor || cellColor || null)
+      const cellShading = headerColor || cellColor
+      if (cellShading) setShadingColor(cellShading)
     }
     syncEditorState()
     editor.on('selectionUpdate', syncEditorState)

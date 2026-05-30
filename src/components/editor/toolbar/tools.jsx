@@ -647,6 +647,16 @@ function ShadingTool({ editor }) {
 
   if (!inTable) return null
 
+  // The remembered/persisted color drives the swatch and the main-button apply.
+  // The active (pressed) affordance should reflect the *current* cell's actual
+  // background instead, so the button isn't permanently "pressed" once a color
+  // is remembered. This stays fresh because the toolbar re-renders on every
+  // selection update.
+  const currentCellShading =
+    editor?.getAttributes('tableHeader')?.backgroundColor ||
+    editor?.getAttributes('tableCell')?.backgroundColor ||
+    null
+
   const apply = () => {
     if (!editor) return
     cmd(editor)?.setCellAttribute('backgroundColor', shadingColor || null).run()
@@ -668,7 +678,7 @@ function ShadingTool({ editor }) {
   return (
     <div className="shading-control" ref={wrapRef}>
       <Btn
-        active={Boolean(shadingColor)}
+        active={Boolean(currentCellShading)}
         onActivate={apply}
         title="Shading"
         ariaLabel="Cell shading"
