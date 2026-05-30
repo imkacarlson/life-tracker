@@ -39,11 +39,16 @@ const supabase = createClient(
 let cachedUserId: string | null = null
 async function getUserId(): Promise<string> {
   if (cachedUserId) return cachedUserId
-  const { data } = await supabase.auth.admin.listUsers()
-  const id = data?.users?.[0]?.id
-  if (!id) throw new Error('No user found')
-  cachedUserId = id
-  return id
+  // Find the user who actually owns tracker pages (there may be multiple auth users).
+  const { data, error } = await supabase
+    .from('pages')
+    .select('user_id')
+    .eq('is_tracker_page', true)
+    .limit(1)
+    .single()
+  if (error || !data?.user_id) throw new Error('No tracker-owning user found')
+  cachedUserId = data.user_id
+  return data.user_id
 }
 
 const bot = new Bot(BOT_TOKEN)
