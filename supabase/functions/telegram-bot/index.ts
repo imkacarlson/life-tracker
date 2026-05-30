@@ -1,0 +1,113 @@
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
+import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { Bot, webhookCallback } from 'https://deno.land/x/grammy@v1.30.0/mod.ts'
+
+import { isAuthorized } from './auth.ts'
+import { buildSystemPrompt } from './prompt.ts'
+import { callClaude } from './anthropic.ts'
+import { buildTools } from './tools.ts'
+import { registerCommands, sendReply, startTyping } from './telegram.ts'
+import {
+  closeActiveSessions,
+  loadRecentTurns,
+  persistAssistantTurn,
+  persistUserTurn,
+  resolveSession,
+} from './session.ts'
+
+// --- Constants (tunable) ---
+const IDLE_MINUTES = 30 // continue same conversation if last reply was within this window
+const MAX_TURNS = 12 // recent turns loaded into context (sessions are short by design)
+const MODEL = 'claude-sonnet-4-20250514' // matches the app's default
+const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s expiry
+
+// --- Secrets / config ---
+// verify_jwt = false is deliberate: Telegram cannot send a Supabase JWT. Auth is
+// the webhook secret-token header (verified by grammY) + a Telegram user-ID
+// allowlist that also pins the reply destination (see auth.ts).
+const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
+const WEBHOOK_SECRET = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? ''
+const ALLOWED_USER_ID = Deno.env.get('TELEGRAM_ALLOWED_USER_ID') ?? ''
+
+// Service-role client; access is scoped in code to the single known user.
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL') ?? '',
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+)
+
+// Resolve (and cache) the single app user — this is a personal, single-user app.
+let cachedUserId: string | null = null
+async function getUserId(): Promise<string> {
+  if (cachedUserId) return cachedUserId
+  const { data } = await supabase.auth.admin.listUsers()
+  const id = data?.users?.[0]?.id
+  if (!id) throw new Error('No user found')
+  cachedUserId = id
+  return id
+}
+
+const bot = new Bot(BOT_TOKEN)
+
+// Drop everything that isn't from the allowed user in their own private chat.
+bot.use(async (ctx, next) => {
+  if (!isAuthorized(ctx.from?.id, ctx.chat?.id, ALLOWED_USER_ID)) return
+  await next()
+})
+
+// /new -> close the active session; next message starts fresh.
+bot.command('new', async (ctx) => {
+  await closeActiveSessions(supabase, ctx.chat.id)
+  await ctx.reply('Starting fresh ✨')
+})
+
+bot.on('message:text', async (ctx) => {
+  const chatId = ctx.chat.id
+  const text = ctx.message.text
+  const messageId = ctx.message.message_id
+
+  const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
+  try {
+    const userId = await getUserId()
+    const now = new Date()
+
+    const sessionId = await resolveSession(supabase, userId, chatId, IDLE_MINUTES, now)
+
+    // Dedup: if Telegram retried this exact message, stop after the first time.
+    const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
+    if (duplicate) return
+
+    const turns = await loadRecentTurns(supabase, sessionId, MAX_TURNS)
+    const tools = buildTools(supabase, userId, now)
+
+    const reply = await callClaude({
+      system: buildSystemPrompt(true),
+      messages: turns.map((t) => ({ role: t.role, content: t.content })),
+      tools: tools.defs,
+      runTool: tools.runTool,
+      model: MODEL,
+    })
+
+    await persistAssistantTurn(supabase, sessionId, reply)
+    await sendReply(ctx.api, chatId, reply)
+  } catch (err) {
+    console.error('telegram-bot handler error:', String(err))
+    await sendReply(ctx.api, chatId, 'Sorry — something went wrong on my end. Please try again.')
+  } finally {
+    stopTyping()
+  }
+})
+
+// Register the command menu once at cold start (non-fatal if it fails).
+registerCommands(bot.api)
+
+// grammY verifies the secret-token header; mismatches get 401.
+const handleUpdate = webhookCallback(bot, 'std/http', { secretToken: WEBHOOK_SECRET })
+
+Deno.serve(async (req) => {
+  try {
+    return await handleUpdate(req)
+  } catch (err) {
+    console.error('webhook error:', String(err))
+    return new Response('ok', { status: 200 }) // ack to avoid Telegram retry storms
+  }
+})

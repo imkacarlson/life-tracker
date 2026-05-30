@@ -19,3 +19,10 @@ entrypoint = "./functions/ai-paste-recipe/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/check-scores/index.ts"
+
+[functions.telegram-bot]
+enabled = true
+# verify_jwt = false is deliberate: Telegram can't send a Supabase JWT.
+# Auth is the webhook secret-token header + a Telegram user-ID allowlist.
+verify_jwt = false
+entrypoint = "./functions/telegram-bot/index.ts"
