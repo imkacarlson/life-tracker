@@ -1,7 +1,13 @@
 import { create } from 'zustand'
 import { isTouchOnlyDevice } from '../utils/device'
+import { readStoredColor, saveStoredColor } from '../utils/storage'
+import {
+  HIGHLIGHT_COLOR_KEY,
+  SHADING_COLOR_KEY,
+  TEXT_COLOR_KEY,
+} from '../utils/constants'
 
-export const useEditorUIStore = create((set) => ({
+export const useEditorUIStore = create((set, get) => ({
   // Toolbar layout
   toolbarExpanded: !isTouchOnlyDevice(),
   setToolbarExpanded: (v) => set((state) => ({
@@ -40,11 +46,27 @@ export const useEditorUIStore = create((set) => ({
   setIsInList: (v) => set({ isInList: v }),
   setCurrentBlockId: (id) => set({ currentBlockId: id }),
 
-  // Colors (synced from editor selection)
-  highlightColor: '#fef08a',
-  shadingColor: null,
-  setHighlightColor: (c) => set({ highlightColor: c }),
-  setShadingColor: (c) => set({ shadingColor: c }),
+  // Colors (synced from editor selection, persisted across sessions).
+  // Each setter guards on change before persisting so the selection-sync
+  // effects (which fire on every cursor move) don't churn localStorage.
+  highlightColor: readStoredColor(HIGHLIGHT_COLOR_KEY, '#fef08a'),
+  textColor: readStoredColor(TEXT_COLOR_KEY, null),
+  shadingColor: readStoredColor(SHADING_COLOR_KEY, null),
+  setHighlightColor: (c) => {
+    if (c === get().highlightColor) return
+    set({ highlightColor: c })
+    saveStoredColor(HIGHLIGHT_COLOR_KEY, c)
+  },
+  setTextColor: (c) => {
+    if (c === get().textColor) return
+    set({ textColor: c })
+    saveStoredColor(TEXT_COLOR_KEY, c)
+  },
+  setShadingColor: (c) => {
+    if (c === get().shadingColor) return
+    set({ shadingColor: c })
+    saveStoredColor(SHADING_COLOR_KEY, c)
+  },
 
   // Context menu
   contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false },

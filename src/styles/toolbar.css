@@ -144,15 +144,6 @@
   border-radius: 1px;
 }
 
-.toolbar-color-input {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  padding: 0;
-  cursor: pointer;
-}
-
 .toolbar-expand-toggle {
   display: flex;
   align-items: center;
@@ -196,7 +187,8 @@
   text-align: right;
 }
 
-.highlight-control {
+.highlight-control,
+.text-color-control {
   position: relative;
   display: inline-flex;
   align-items: center;

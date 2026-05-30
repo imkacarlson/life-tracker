@@ -469,7 +469,8 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const pageDeleted = await waitForPageDeletion(client, pg.id)
     expect(pageDeleted).toBe(true)
 
-    // Page should be gone from the sidebar
-    await expect(page.locator('text=T7 Page')).not.toBeVisible()
+    // Page should be gone from the sidebar. On mobile the deleted page title
+    // can still appear briefly in breadcrumbs while selection settles.
+    await expect(page.getByRole('treeitem', { name: 'T7 Page' })).toBeHidden()
   })
 })
