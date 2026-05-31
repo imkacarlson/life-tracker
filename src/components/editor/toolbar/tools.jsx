@@ -659,7 +659,8 @@ function ShadingTool({ editor }) {
 
   const apply = () => {
     if (!editor) return
-    cmd(editor)?.setCellAttribute('backgroundColor', shadingColor || null).run()
+    const nextColor = currentCellShading ? null : shadingColor || null
+    cmd(editor)?.setCellAttribute('backgroundColor', nextColor).run()
   }
 
   const pick = (color) => {
