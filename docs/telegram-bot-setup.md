@@ -24,10 +24,18 @@ Pick a long random string for the webhook secret (e.g. `openssl rand -hex 32`).
 supabase secrets set \
   TELEGRAM_BOT_TOKEN='<token from BotFather>' \
   TELEGRAM_WEBHOOK_SECRET='<random string>' \
-  TELEGRAM_ALLOWED_USER_ID='<your numeric id>'
+  TELEGRAM_ALLOWED_USER_ID='<your numeric id>' \
+  USER_TIMEZONE='America/New_York'
 ```
 
 `ANTHROPIC_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are already configured.
+
+`USER_TIMEZONE` is your local [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
+name (e.g. `America/New_York`). The bot uses it to know what "today"/"now" means and to pick the
+right month's tracker — Telegram doesn't send your device's time zone, so it has to be configured
+here. It defaults to `America/New_York` if unset; set it explicitly. If you relocate to a different
+time zone long-term, update this secret (no redeploy needed — it takes effect on the next message).
+Short trips aren't worth changing; the bot doesn't track travel automatically.
 
 ## 4. Deploy the function
 
