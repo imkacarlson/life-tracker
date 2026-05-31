@@ -246,7 +246,7 @@ test('text color picked via caret persists across reload and the main button app
   }).toPass({ timeout: 5000 })
 })
 
-test('shading color persists across reload and the main button shades a different cell', async ({
+test('shading color persists across reload and the main button toggles a different cell', async ({
   page,
   isMobile,
 }) => {
@@ -284,4 +284,17 @@ test('shading color persists across reload and the main button shades a differen
   await expect(async () => {
     expect(await readCellColor(page, 'Target cell')).toBe(SHADING_MAROON_RGB)
   }).toPass({ timeout: 5000 })
+
+  // Clicking the main button again while the current cell is shaded clears it
+  // back to the table's default background without forgetting the swatch color.
+  await page.getByRole('button', { name: 'Cell shading', exact: true }).click()
+
+  await expect(async () => {
+    expect(await readCellColor(page, 'Target cell')).toBe('rgba(0, 0, 0, 0)')
+  }).toPass({ timeout: 5000 })
+
+  await expect(page.locator('.shading-control .toolbar-color-bar')).toHaveCSS(
+    'background-color',
+    SHADING_MAROON_RGB,
+  )
 })
