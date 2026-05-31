@@ -10,6 +10,8 @@
 // Unlike the AI-Daily flattener (dailyHelpers.ts), this one NEVER drops
 // crossed-off / completed items: the bot answers questions about them too.
 
+import { formatNowInZone } from './datetime.ts'
+
 type TiptapNode = {
   type?: string
   text?: string
@@ -25,11 +27,6 @@ type TrackerPage = {
   is_tracker_page?: boolean
   updated_at?: string
 }
-
-const MONTH_NAMES = [
-  'january', 'february', 'march', 'april', 'may', 'june',
-  'july', 'august', 'september', 'october', 'november', 'december',
-]
 
 // --- inline marks ---
 
@@ -234,16 +231,21 @@ export function flattenTrackerToText(content: TiptapNode | null | undefined, tit
  * Strategy: among pages with is_tracker_page === true, prefer the one whose
  * title contains the current month name AND year (e.g. "May 2026 Tracker").
  * Fall back to the most-recently-updated tracker page.
+ *
+ * The month/year are derived in `timeZone` (the user's local zone) rather than
+ * the server's UTC clock, so near month boundaries / late at night the bot still
+ * picks the page for the user's local month. Defaults to 'UTC'.
  */
 export function selectCurrentMonthTracker(
   pages: TrackerPage[] | null | undefined,
   now: Date,
+  timeZone = 'UTC',
 ): TrackerPage | null {
   const trackerPages = (pages || []).filter((p) => p.is_tracker_page)
   if (trackerPages.length === 0) return null
 
-  const month = MONTH_NAMES[now.getMonth()]
-  const year = String(now.getFullYear())
+  const { monthName, year } = formatNowInZone(now, timeZone)
+  const month = monthName.toLowerCase()
 
   const monthMatch = trackerPages.find((p) => {
     const title = (p.title || '').toLowerCase()

@@ -17,7 +17,12 @@ export type ToolRegistry = {
  * Build the tool registry bound to the single known user. The Supabase client
  * here uses the service role; access is scoped in code to `userId`.
  */
-export function buildTools(supabase: SupabaseLike, userId: string, now: Date): ToolRegistry {
+export function buildTools(
+  supabase: SupabaseLike,
+  userId: string,
+  now: Date,
+  timeZone = 'UTC',
+): ToolRegistry {
   const defs: ToolDef[] = [
     {
       name: 'read_current_tracker',
@@ -41,7 +46,7 @@ export function buildTools(supabase: SupabaseLike, userId: string, now: Date): T
       return 'Could not read the tracker right now.'
     }
 
-    const page = selectCurrentMonthTracker(data ?? [], now)
+    const page = selectCurrentMonthTracker(data ?? [], now, timeZone)
     if (!page) return 'No tracker page was found for the current month.'
 
     const text = flattenTrackerToText(page.content, page.title)

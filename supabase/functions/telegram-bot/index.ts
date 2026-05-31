@@ -4,6 +4,7 @@ import { Bot, webhookCallback } from 'https://deno.land/x/grammy@v1.30.0/mod.ts'
 
 import { isAuthorized } from './auth.ts'
 import { buildSystemPrompt } from './prompt.ts'
+import { formatNowInZone } from './datetime.ts'
 import { callClaude } from './anthropic.ts'
 import { buildTools } from './tools.ts'
 import { registerCommands, sendReply, startTyping } from './telegram.ts'
@@ -28,6 +29,10 @@ const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s exp
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
 const WEBHOOK_SECRET = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? ''
 const ALLOWED_USER_ID = Deno.env.get('TELEGRAM_ALLOWED_USER_ID') ?? ''
+// The user's local IANA time zone. Telegram never sends the sender's zone, so it
+// comes from config; "today"/"now" and current-month selection are computed in
+// this zone. Update the secret if you relocate long-term. Documented fallback.
+const USER_TIMEZONE = Deno.env.get('USER_TIMEZONE') ?? 'America/New_York'
 
 // Service-role client; access is scoped in code to the single known user.
 const supabase = createClient(
@@ -82,10 +87,11 @@ bot.on('message:text', async (ctx) => {
     if (duplicate) return
 
     const turns = await loadRecentTurns(supabase, sessionId, MAX_TURNS)
-    const tools = buildTools(supabase, userId, now)
+    const nowDisplay = formatNowInZone(now, USER_TIMEZONE).display
+    const tools = buildTools(supabase, userId, now, USER_TIMEZONE)
 
     const reply = await callClaude({
-      system: buildSystemPrompt(true),
+      system: buildSystemPrompt(true, nowDisplay),
       messages: turns.map((t) => ({ role: t.role, content: t.content })),
       tools: tools.defs,
       runTool: tools.runTool,
