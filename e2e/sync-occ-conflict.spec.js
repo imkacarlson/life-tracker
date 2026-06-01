@@ -50,19 +50,22 @@ test.describe('Save-time OCC conflict prevents stale overwrite', () => {
     await waitForApp(page, `/#pg=${testPage.id}`)
     await expect(page.locator('.ProseMirror')).toContainText('Initial shared content.', { timeout: 15000 })
 
-    // Simulate "the other device" writing the row via the API directly. This
-    // advances updated_at without going through our save path.
+    // Make a local edit first, so the browser holds a stale draft and the
+    // realtime handler must not adopt the incoming server version as the new
+    // OCC baseline.
+    await page.locator('.ProseMirror').click()
+    await page.keyboard.type(' Local edit on top of stale snapshot.')
+    await expect(page.locator('.ProseMirror')).toContainText('Local edit on top of stale snapshot.')
+
+    // Simulate "the other device" writing the row via the API directly before
+    // the 2s autosave debounce fires. This advances updated_at without going
+    // through our save path.
     const futureTs = new Date(Date.now() + 60_000).toISOString()
     const { error: remoteWriteError } = await supabaseInfo.client
       .from('pages')
       .update({ content: REMOTE_DEVICE_CONTENT, updated_at: futureTs })
       .eq('id', testPage.id)
     expect(remoteWriteError).toBeNull()
-
-    // Make a local edit so the autosave path runs and hits the .eq(updated_at)
-    // mismatch. Type into the editor.
-    await page.locator('.ProseMirror').click()
-    await page.keyboard.type(' Local edit on top of stale snapshot.')
 
     // ConflictModal should appear. The existing draft-conflict copy is reused.
     await expect(page.locator('.conflict-modal')).toBeVisible({ timeout: 15000 })
