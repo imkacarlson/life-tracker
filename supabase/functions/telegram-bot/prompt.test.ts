@@ -22,4 +22,16 @@ describe('buildSystemPrompt', () => {
     expect(withLegend).toContain('highlighted date is an explicit due date')
     expect(withLegend).toContain('cell shaded')
   })
+
+  it('omits the date anchor when no nowDisplay is given', () => {
+    expect(buildSystemPrompt(true)).not.toContain('current local date and time')
+    expect(buildSystemPrompt(false)).not.toContain('current local date and time')
+  })
+
+  it('appends the date anchor when nowDisplay is provided', () => {
+    const display = 'Saturday, May 31, 2026 at 1:54 PM (America/New_York)'
+    const prompt = buildSystemPrompt(true, display)
+    expect(prompt).toContain('current local date and time')
+    expect(prompt).toContain(display)
+  })
 })

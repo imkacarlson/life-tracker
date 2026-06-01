@@ -76,9 +76,15 @@ const seedLabel = `COLOR-PERSIST-${Date.now()}`
 // Select the whole seed line so a color command has a range to mark.
 const selectSeedLine = async (page) => {
   const line = page.locator('.ProseMirror p', { hasText: 'Persisted color test line' }).first()
-  await line.click()
-  await page.keyboard.press('Home')
-  await page.keyboard.press('Shift+End')
+  await expect(line).toBeVisible()
+  await line.evaluate((node) => {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    node.closest('.ProseMirror')?.focus()
+  })
 }
 
 // Read the inline color applied to the seed text, scoped to mark/span tags.
@@ -101,14 +107,8 @@ const readCellColor = (page, cellText) =>
   }, cellText)
 
 const pressHighlightShortcut = async (page) => {
-  await page.locator('.ProseMirror').dispatchEvent('keydown', {
-    key: 'h',
-    code: 'KeyH',
-    ctrlKey: true,
-    altKey: true,
-    bubbles: true,
-    cancelable: true,
-  })
+  await page.locator('.ProseMirror').focus()
+  await page.keyboard.press('Control+Alt+H')
 }
 
 test.beforeAll(async () => {

@@ -38,7 +38,16 @@ Planning, Finance). Notation:
 /**
  * Build the system prompt.
  * @param withTrackerLegend - include the tracker notation legend (Phase 3+).
+ * @param nowDisplay - the user's current local date/time (e.g. from
+ *   formatNowInZone). When provided, a "today is …" anchor is appended so the
+ *   model reasons about dates from the user's local clock, not its training
+ *   cutoff. When omitted, no date line is added.
  */
-export function buildSystemPrompt(withTrackerLegend = true): string {
-  return withTrackerLegend ? BASE_PROMPT + TRACKER_LEGEND : BASE_PROMPT
+export function buildSystemPrompt(withTrackerLegend = true, nowDisplay?: string): string {
+  const base = withTrackerLegend ? BASE_PROMPT + TRACKER_LEGEND : BASE_PROMPT
+  const dateLine = nowDisplay
+    ? `\n\nThe user's current local date and time is ${nowDisplay}. Use this as "today"/"now" ` +
+      `for any date or time reasoning; do not rely on your training cutoff.`
+    : ''
+  return base + dateLine
 }

@@ -33,6 +33,18 @@ describe('selectCurrentMonthTracker', () => {
     expect(selectCurrentMonthTracker([], now)).toBeNull()
     expect(selectCurrentMonthTracker(null, now)).toBeNull()
   })
+
+  it('selects the local month near a UTC month boundary', () => {
+    // 2026-06-01T02:00:00Z is June in UTC but still May 31 in America/New_York.
+    const boundary = new Date('2026-06-01T02:00:00Z')
+    const mayJune = [
+      { id: 'may', title: 'May 2026 Tracker', is_tracker_page: true, updated_at: '2026-05-01' },
+      { id: 'june', title: 'June 2026 Tracker', is_tracker_page: true, updated_at: '2026-06-01' },
+    ]
+    // UTC default picks June; the user's local (NY) clock is still May.
+    expect(selectCurrentMonthTracker(mayJune, boundary)?.id).toBe('june')
+    expect(selectCurrentMonthTracker(mayJune, boundary, 'America/New_York')?.id).toBe('may')
+  })
 })
 
 describe('flattenTrackerToText', () => {
