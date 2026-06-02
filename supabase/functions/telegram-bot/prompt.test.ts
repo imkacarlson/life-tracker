@@ -23,6 +23,17 @@ describe('buildSystemPrompt', () => {
     expect(withLegend).toContain('cell shaded')
   })
 
+  it('includes adaptive-verbosity and date-grouping rules', () => {
+    const base = buildSystemPrompt(false)
+    // Match the user's energy / brevity by default.
+    expect(base).toContain('Match the user')
+    expect(base).toContain('Default to brief')
+    // Date grouping + no vague urgency words.
+    expect(base).toContain('Due today')
+    expect(base).toContain('tomorrow')
+    expect(base).toContain('coming up very soon')
+  })
+
   it('omits the date anchor when no nowDisplay is given', () => {
     expect(buildSystemPrompt(true)).not.toContain('current local date and time')
     expect(buildSystemPrompt(false)).not.toContain('current local date and time')

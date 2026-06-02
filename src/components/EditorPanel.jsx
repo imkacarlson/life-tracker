@@ -148,7 +148,7 @@ function EditorPanel({
     setAiInsertLoading(true)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
-      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-6'
       const pageText = serializeDocToText(editor.getJSON())
 
       const { data: { session } } = await supabase.auth.getSession()
@@ -221,7 +221,7 @@ function EditorPanel({
     setAiLoading(true)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
-      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-6'
       const selectedDate = useEditorUIStore.getState().aiDailyDate
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
