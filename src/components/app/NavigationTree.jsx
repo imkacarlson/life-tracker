@@ -212,7 +212,7 @@ function NavigationTree({
     setPasteRecipeLoading(true)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
-      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-20250514'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-6'
 
       const {
         data: { session: currentSession },

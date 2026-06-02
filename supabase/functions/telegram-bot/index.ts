@@ -19,7 +19,7 @@ import {
 // --- Constants (tunable) ---
 const IDLE_MINUTES = 30 // continue same conversation if last reply was within this window
 const MAX_TURNS = 12 // recent turns loaded into context (sessions are short by design)
-const MODEL = 'claude-sonnet-4-20250514' // matches the app's default
+const MODEL = 'claude-sonnet-4-6' // matches the app's default
 const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s expiry
 
 // --- Secrets / config ---

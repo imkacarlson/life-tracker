@@ -51,7 +51,16 @@ export async function callClaude({
         'x-api-key': apiKey,
         'anthropic-version': ANTHROPIC_VERSION,
       },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages: working }),
+      // cache_control on the system block caches the stable tools+system prefix
+      // (Anthropic caches everything before the breakpoint). Back-to-back messages
+      // within the cache TTL re-read it at ~10% cost instead of re-billing it.
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+        tools,
+        messages: working,
+      }),
     })
 
     const data = await response.json()
