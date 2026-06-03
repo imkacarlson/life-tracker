@@ -8,6 +8,7 @@ import { detectConflict } from '../utils/draftHelpers'
 import { classifySaveResult } from '../utils/saveConflict'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
+import { reindexSortOrder } from '../utils/sidebarReorder'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
@@ -684,15 +685,18 @@ export const useTrackers = (userId, activeSectionId) => {
     return data
   }
 
-  const reorderTrackers = useCallback(
-    async (nextTrackers) => {
-      if (!userId) return
-      const reordered = nextTrackers.map((item, index) => ({
-        ...item,
-        sort_order: index + 1,
-      }))
-      setTrackers(reordered)
-      seedSectionPages(activeSectionId, reordered)
+  // Reorder pages within a section (drag-and-drop). Works for ANY expanded
+  // section, not just the active one: always update that section's page cache,
+  // and additionally update the `trackers` array when the reordered section is
+  // the active one (since `trackers` mirrors the active section's pages).
+  const reorderSectionPages = useCallback(
+    async (sectionId, nextPages) => {
+      if (!userId || !sectionId || !Array.isArray(nextPages)) return
+      const reordered = reindexSortOrder(nextPages)
+      seedSectionPages(sectionId, reordered)
+      if (sectionId === activeSectionId) {
+        setTrackers(reordered)
+      }
       const updates = reordered.map((item) =>
         supabase.from('pages').update({ sort_order: item.sort_order }).eq('id', item.id),
       )
@@ -700,6 +704,11 @@ export const useTrackers = (userId, activeSectionId) => {
       const error = results.find((result) => result.error)?.error
       if (error) {
         setMessage(error.message)
+        return
+      }
+      seedSectionPages(sectionId, reordered)
+      if (sectionId === activeSectionId) {
+        setTrackers(reordered)
       }
     },
     [activeSectionId, seedSectionPages, userId],
@@ -868,7 +877,7 @@ export const useTrackers = (userId, activeSectionId) => {
     handleTitleChange,
     createTracker,
     createTrackerWithContent,
-    reorderTrackers,
+    reorderSectionPages,
     setTrackerPage,
     deleteTracker,
     activeTrackerRef,

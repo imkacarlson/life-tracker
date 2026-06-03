@@ -7,6 +7,7 @@ import {
 } from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
+import { reindexSortOrder } from '../utils/sidebarReorder'
 
 const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
 
@@ -441,6 +442,39 @@ export const useSections = (userId, activeNotebookId) => {
     setSections((prev) => [...prev, newSection])
   }
 
+  // Reorder the sections within a single notebook (drag-and-drop). State holds
+  // every notebook's sections in one flat array, so reindex just the notebook's
+  // slice and merge it back into the global array: keep other notebooks'
+  // sections in their existing slots and drop the reordered slice into the slots
+  // that previously held this notebook's sections.
+  const reorderSections = useCallback(
+    async (notebookId, nextSectionsForNotebook) => {
+      if (!userId || !notebookId || !Array.isArray(nextSectionsForNotebook)) return
+      const reordered = reindexSortOrder(nextSectionsForNotebook)
+      const reorderedById = new Map(reordered.map((section) => [section.id, section]))
+
+      setSections((prev) => {
+        const queue = [...reordered]
+        return prev.map((section) => {
+          if (section.notebook_id !== notebookId) return section
+          // Replace this notebook's slot with the next reordered section. Fall
+          // back to the reindexed copy by id if the slice length somehow drifts.
+          return queue.shift() ?? reorderedById.get(section.id) ?? section
+        })
+      })
+
+      const updates = reordered.map((item) =>
+        supabase.from('sections').update({ sort_order: item.sort_order }).eq('id', item.id),
+      )
+      const results = await Promise.all(updates)
+      const error = results.find((result) => result.error)?.error
+      if (error) {
+        setMessage(error.message)
+      }
+    },
+    [userId],
+  )
+
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
 
   return {
@@ -456,5 +490,6 @@ export const useSections = (userId, activeNotebookId) => {
     deleteSection,
     moveSection,
     copySection,
+    reorderSections,
   }
 }

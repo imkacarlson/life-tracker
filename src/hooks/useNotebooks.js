@@ -6,6 +6,7 @@ import {
 } from '../utils/imageCleanup'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
+import { reindexSortOrder } from '../utils/sidebarReorder'
 
 export const useNotebooks = (userId) => {
   const [notebooks, setNotebooks] = useState([])
@@ -168,6 +169,26 @@ export const useNotebooks = (userId) => {
     }
   }
 
+  // Reorder notebooks within the sidebar (drag-and-drop). Reindex sort_order to
+  // index + 1, update local state optimistically, then persist each row in
+  // parallel — mirrors reorderTrackers.
+  const reorderNotebooks = useCallback(
+    async (nextNotebooks) => {
+      if (!userId || !Array.isArray(nextNotebooks)) return
+      const reordered = reindexSortOrder(nextNotebooks)
+      setNotebooks(reordered)
+      const updates = reordered.map((item) =>
+        supabase.from('notebooks').update({ sort_order: item.sort_order }).eq('id', item.id),
+      )
+      const results = await Promise.all(updates)
+      const error = results.find((result) => result.error)?.error
+      if (error) {
+        setMessage(error.message)
+      }
+    },
+    [userId],
+  )
+
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const activeNotebookType = activeNotebook?.type ?? 'tracker'
   const isRecipesNotebook = activeNotebookType === 'recipes'
@@ -209,5 +230,6 @@ export const useNotebooks = (userId) => {
     createNotebook,
     renameNotebook,
     deleteNotebook,
+    reorderNotebooks,
   }
 }
