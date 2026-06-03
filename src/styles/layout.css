@@ -344,12 +344,6 @@
   border-color: var(--border);
 }
 
-.tree-page-row.drag-over .tree-node-page,
-.tree-node-page.drag-over {
-  background: var(--accent-bg);
-  border-color: var(--accent-subtle);
-}
-
 .tree-node-page.active {
   background: var(--accent-bg);
   border-color: var(--accent-subtle);
@@ -402,6 +396,91 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+}
+
+/* Drag-and-drop reorder (dnd-kit). Each row is a flex container with a dedicated
+   grip handle on the left; only the handle initiates a drag, so the rest of the
+   row keeps its tap-to-select and long-press-context-menu gestures. */
+.tree-sortable-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.tree-sortable-row > .tree-node {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.6rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  border-radius: var(--radius-sm);
+  /* Hidden until hover on pointer devices to keep the tree visually clean. */
+  opacity: 0;
+  touch-action: none;
+  transition: opacity var(--duration-short) var(--ease-out);
+}
+
+.tree-drag-handle svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.tree-drag-handle:active {
+  cursor: grabbing;
+}
+
+.tree-drag-handle:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+.tree-sortable-row:hover > .tree-drag-handle,
+.tree-sortable-row:focus-within > .tree-drag-handle {
+  opacity: 1;
+}
+
+/* On touch devices there is no hover, so keep the handle visible. */
+@media (hover: none) {
+  .tree-drag-handle {
+    opacity: 0.6;
+  }
+}
+
+/* The original row is dimmed while its DragOverlay ghost follows the pointer. */
+.tree-sortable-row.dragging {
+  opacity: 0.4;
+}
+
+/* Floating ghost rendered in the DragOverlay portal. */
+.tree-drag-overlay {
+  display: flex;
+  align-items: center;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md, 0 8px 24px rgba(28, 25, 23, 0.18));
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: grabbing;
+  max-width: 16rem;
+}
+
+.tree-drag-overlay .tree-label {
+  font-weight: 500;
 }
 
 .nav-tree-footer {

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { generateJSON } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
+import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { supabase } from '../../lib/supabase'
 import { resizeAndEncode } from '../../utils/imageResize'
 import PasteRecipeModal from '../editor/PasteRecipeModal'
+import SortableTreeRow from './SortableTreeRow'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../../utils/sectionPages'
 import { useLocalStorageState } from '../../hooks/useLocalStorageState'
+import { useSidebarDnd } from '../../hooks/useSidebarDnd'
 
 function NavigationTree({
   className = '',
   notebooks,
   sections,
-  trackers,
   sectionPageCache = {},
   activeNotebookId,
   activeSectionId,
@@ -27,13 +30,29 @@ function NavigationTree({
   onCreateNotebook,
   onCreateSection,
   onCreatePage,
+  onReorderNotebooks,
+  onReorderSections,
   onReorderPages,
   onOpenContextMenu,
   onLoadSectionPages,
   onCreateWithContent,
 }) {
-  const dragIdRef = useRef(null)
-  const [overId, setOverId] = useState(null)
+  const {
+    sensors,
+    activeItem,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+    onDragCancel,
+    onKeyboardMove,
+  } = useSidebarDnd({
+    notebooks,
+    sections,
+    sectionPageCache,
+    onReorderNotebooks,
+    onReorderSections,
+    onReorderPages,
+  })
   const [expandedNotebooksRaw, setExpandedNotebooks] = useLocalStorageState(
     `nav-tree-expanded:notebooks:${userId ?? 'anon'}`,
     activeNotebookId ? [activeNotebookId] : [],
@@ -121,50 +140,6 @@ function NavigationTree({
       })
     }
   }, [activeSectionId])
-
-  const reorderList = (items, draggedId, targetId) => {
-    const fromIndex = items.findIndex((item) => item.id === draggedId)
-    const toIndex = items.findIndex((item) => item.id === targetId)
-    if (fromIndex === -1 || toIndex === -1) return items
-    const next = [...items]
-    const [moved] = next.splice(fromIndex, 1)
-    next.splice(toIndex, 0, moved)
-    return next
-  }
-
-  const handleDragStart = (id) => (event) => {
-    if (loading) return
-    dragIdRef.current = id
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', id)
-  }
-
-  const handleDragOver = (id) => (event) => {
-    if (loading) return
-    event.preventDefault()
-    if (overId !== id) setOverId(id)
-    event.dataTransfer.dropEffect = 'move'
-  }
-
-  const handleDrop = (id) => (event) => {
-    if (loading) return
-    event.preventDefault()
-    const draggedId = dragIdRef.current || event.dataTransfer.getData('text/plain')
-    if (!draggedId || draggedId === id) {
-      dragIdRef.current = null
-      setOverId(null)
-      return
-    }
-    const next = reorderList(trackers, draggedId, id)
-    dragIdRef.current = null
-    setOverId(null)
-    onReorderPages?.(next)
-  }
-
-  const handleDragEnd = () => {
-    dragIdRef.current = null
-    setOverId(null)
-  }
 
   const handleOpenContextMenu = (type, item) => (event) => {
     event.preventDefault()
@@ -273,151 +248,210 @@ function NavigationTree({
           </button>
         </div>
 
-        <div className="nav-tree-scroll" role="tree" aria-label="Notebook navigation">
-          {notebooks.map((notebook) => {
-            const notebookActive = notebook.id === activeNotebookId
-            const notebookExpanded = expandedNotebooks.has(notebook.id)
-            const notebookSections = sections.filter((s) => s.notebook_id === notebook.id)
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+          onDragCancel={onDragCancel}
+        >
+          <div className="nav-tree-scroll" role="tree" aria-label="Notebook navigation">
+            <SortableContext
+              items={notebooks.map((notebook) => notebook.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {notebooks.map((notebook) => {
+                const notebookActive = notebook.id === activeNotebookId
+                const notebookExpanded = expandedNotebooks.has(notebook.id)
+                const notebookSections = sections.filter((s) => s.notebook_id === notebook.id)
 
-            return (
-              <div key={notebook.id} className="tree-branch">
-                <button
-                  type="button"
-                  role="treeitem"
-                  aria-expanded={notebookExpanded}
-                  className={`tree-node tree-node-notebook ${notebookActive ? 'active' : ''}`}
-                  onClick={() => handleSelectNotebook(notebook.id)}
-                  onContextMenu={handleOpenContextMenu('notebook', notebook)}
-                  onTouchStart={handleTouchStart('notebook', notebook)}
-                  onTouchEnd={cancelLongPress}
-                  onTouchMove={cancelLongPress}
-                >
-                  <span
-                    className={`tree-chevron ${notebookExpanded ? 'expanded' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); toggleNotebook(notebook.id) }}
-                    role="button"
-                    aria-label={notebookExpanded ? 'Collapse notebook' : 'Expand notebook'}
-                  >
-                    <ChevronIcon />
-                  </span>
-                  <span className="tree-label sidebar-title">{notebook.title}</span>
-                </button>
+                return (
+                  <div key={notebook.id} className="tree-branch">
+                    <SortableTreeRow
+                      id={notebook.id}
+                      data={{ type: 'notebook', parentId: null, label: notebook.title }}
+                      handleLabel={`Reorder notebook ${notebook.title}`}
+                      onKeyboardMove={(direction) =>
+                        onKeyboardMove(notebook.id, { type: 'notebook', parentId: null }, direction)
+                      }
+                    >
+                      <button
+                        type="button"
+                        role="treeitem"
+                        aria-expanded={notebookExpanded}
+                        className={`tree-node tree-node-notebook ${notebookActive ? 'active' : ''}`}
+                        onClick={() => handleSelectNotebook(notebook.id)}
+                        onContextMenu={handleOpenContextMenu('notebook', notebook)}
+                        onTouchStart={handleTouchStart('notebook', notebook)}
+                        onTouchEnd={cancelLongPress}
+                        onTouchMove={cancelLongPress}
+                      >
+                        <span
+                          className={`tree-chevron ${notebookExpanded ? 'expanded' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); toggleNotebook(notebook.id) }}
+                          role="button"
+                          aria-label={notebookExpanded ? 'Collapse notebook' : 'Expand notebook'}
+                        >
+                          <ChevronIcon />
+                        </span>
+                        <span className="tree-label sidebar-title">{notebook.title}</span>
+                      </button>
+                    </SortableTreeRow>
 
-                {notebookExpanded ? (
-                  <div className="tree-children tree-children-sections" role="group">
-                    {notebookSections.length === 0 ? (
-                      <p className="subtle tree-empty">No sections yet.</p>
-                    ) : (
-                      notebookSections.map((section) => {
-                        const sectionActive = section.id === activeSectionId
-                        const sectionExpanded = expandedSections.has(section.id)
-                        const sectionPageEntry = getSectionPageEntry(sectionPageCache, section.id)
-                        const sectionPages = sectionPageEntry.pages
-                        const pagesLoading =
-                          (sectionActive && loading && sectionPageEntry.status !== SECTION_PAGE_STATUS.LOADED) ||
-                          sectionPageEntry.status === SECTION_PAGE_STATUS.LOADING
-                        const showPageSkeleton = pagesLoading && sectionPages.length === 0
-                        const showEmptyPages =
-                          sectionPageEntry.status === SECTION_PAGE_STATUS.LOADED &&
-                          sectionPages.length === 0
+                    {notebookExpanded ? (
+                      <div className="tree-children tree-children-sections" role="group">
+                        {notebookSections.length === 0 ? (
+                          <p className="subtle tree-empty">No sections yet.</p>
+                        ) : (
+                          <SortableContext
+                            items={notebookSections.map((section) => section.id)}
+                            strategy={verticalListSortingStrategy}
+                          >
+                            {notebookSections.map((section) => {
+                              const sectionActive = section.id === activeSectionId
+                              const sectionExpanded = expandedSections.has(section.id)
+                              const sectionPageEntry = getSectionPageEntry(sectionPageCache, section.id)
+                              const sectionPages = sectionPageEntry.pages
+                              const pagesLoading =
+                                (sectionActive && loading && sectionPageEntry.status !== SECTION_PAGE_STATUS.LOADED) ||
+                                sectionPageEntry.status === SECTION_PAGE_STATUS.LOADING
+                              const showPageSkeleton = pagesLoading && sectionPages.length === 0
+                              const showEmptyPages =
+                                sectionPageEntry.status === SECTION_PAGE_STATUS.LOADED &&
+                                sectionPages.length === 0
 
-                        return (
-                          <div key={section.id} className="tree-branch">
-                            <button
-                              type="button"
-                              role="treeitem"
-                              aria-expanded={sectionExpanded}
-                              className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
-                              onClick={() => handleSelectSection(section)}
-                              onContextMenu={handleOpenContextMenu('section', section)}
-                              onTouchStart={handleTouchStart('section', section)}
-                              onTouchEnd={cancelLongPress}
-                              onTouchMove={cancelLongPress}
-                            >
-                              <span
-                                className={`tree-chevron ${sectionExpanded ? 'expanded' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); toggleSection(section.id) }}
-                                role="button"
-                                aria-label={sectionExpanded ? 'Collapse section' : 'Expand section'}
-                              >
-                                <ChevronIcon />
-                              </span>
-                              <span
-                                className="tree-section-color"
-                                style={{ backgroundColor: section.color || '#F5F5F4' }}
-                                aria-hidden="true"
-                              />
-                              <span className="tree-label sidebar-title">{section.title}</span>
-                            </button>
-
-                            {sectionExpanded ? (
-                              <div className="tree-children tree-children-pages" role="group">
-                                {showPageSkeleton ? (
-                                  <div
-                                    className="tree-page-skeleton"
-                                    role="status"
-                                    aria-label="Loading pages"
+                              return (
+                                <div key={section.id} className="tree-branch">
+                                  <SortableTreeRow
+                                    id={section.id}
+                                    data={{ type: 'section', parentId: section.notebook_id, label: section.title }}
+                                    handleLabel={`Reorder section ${section.title}`}
+                                    onKeyboardMove={(direction) =>
+                                      onKeyboardMove(
+                                        section.id,
+                                        { type: 'section', parentId: section.notebook_id },
+                                        direction,
+                                      )
+                                    }
                                   >
-                                    <span />
-                                    <span />
-                                  </div>
-                                ) : showEmptyPages ? (
-                                  <p className="subtle tree-empty">No pages yet.</p>
-                                ) : (
-                                  sectionPages.map((tracker) => (
-                                    <div
-                                      key={tracker.id}
-                                      className={`tree-page-row ${overId === tracker.id ? 'drag-over' : ''}`}
-                                      draggable={sectionActive && !loading}
-                                      onDragStart={sectionActive ? handleDragStart(tracker.id) : undefined}
-                                      onDragOver={sectionActive ? handleDragOver(tracker.id) : undefined}
-                                      onDrop={sectionActive ? handleDrop(tracker.id) : undefined}
-                                      onDragEnd={sectionActive ? handleDragEnd : undefined}
+                                    <button
+                                      type="button"
+                                      role="treeitem"
+                                      aria-expanded={sectionExpanded}
+                                      className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
+                                      onClick={() => handleSelectSection(section)}
+                                      onContextMenu={handleOpenContextMenu('section', section)}
+                                      onTouchStart={handleTouchStart('section', section)}
+                                      onTouchEnd={cancelLongPress}
+                                      onTouchMove={cancelLongPress}
                                     >
-                                      <button
-                                        type="button"
-                                        role="treeitem"
-                                        aria-current={tracker.id === activeTrackerId ? 'page' : undefined}
-                                        className={`tree-node tree-node-page ${
-                                          tracker.id === activeTrackerId ? 'active' : ''
-                                        } ${overId === tracker.id ? 'drag-over' : ''}`}
-                                        onClick={() => onSelectPage?.({
-                                          notebookId: section.notebook_id,
-                                          sectionId: section.id,
-                                          pageId: tracker.id,
-                                        })}
-                                        onContextMenu={handleOpenContextMenu('page', tracker)}
-                                        onTouchStart={handleTouchStart('page', tracker)}
-                                        onTouchEnd={cancelLongPress}
-                                        onTouchMove={cancelLongPress}
+                                      <span
+                                        className={`tree-chevron ${sectionExpanded ? 'expanded' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); toggleSection(section.id) }}
+                                        role="button"
+                                        aria-label={sectionExpanded ? 'Collapse section' : 'Expand section'}
                                       >
-                                        <span className="tree-page-marker" aria-hidden="true" />
-                                        <span className="tree-label sidebar-title">{tracker.title}</span>
-                                        {tracker.is_tracker_page ? (
-                                          <span
-                                            className={`tracker-page-badge ${compactBadges ? 'compact' : ''}`}
-                                            title="Tracker page for AI Daily"
-                                            aria-label="Tracker page for AI Daily"
-                                          >
-                                            {compactBadges ? 'T' : 'TRACKER'}
-                                          </span>
-                                        ) : null}
-                                      </button>
+                                        <ChevronIcon />
+                                      </span>
+                                      <span
+                                        className="tree-section-color"
+                                        style={{ backgroundColor: section.color || '#F5F5F4' }}
+                                        aria-hidden="true"
+                                      />
+                                      <span className="tree-label sidebar-title">{section.title}</span>
+                                    </button>
+                                  </SortableTreeRow>
+
+                                  {sectionExpanded ? (
+                                    <div className="tree-children tree-children-pages" role="group">
+                                      {showPageSkeleton ? (
+                                        <div
+                                          className="tree-page-skeleton"
+                                          role="status"
+                                          aria-label="Loading pages"
+                                        >
+                                          <span />
+                                          <span />
+                                        </div>
+                                      ) : showEmptyPages ? (
+                                        <p className="subtle tree-empty">No pages yet.</p>
+                                      ) : (
+                                        <SortableContext
+                                          items={sectionPages.map((tracker) => tracker.id)}
+                                          strategy={verticalListSortingStrategy}
+                                        >
+                                          {sectionPages.map((tracker) => (
+                                            <SortableTreeRow
+                                              key={tracker.id}
+                                              id={tracker.id}
+                                              className="tree-page-row"
+                                              data={{ type: 'page', parentId: section.id, label: tracker.title }}
+                                              handleLabel={`Reorder page ${tracker.title}`}
+                                              onKeyboardMove={(direction) =>
+                                                onKeyboardMove(
+                                                  tracker.id,
+                                                  { type: 'page', parentId: section.id },
+                                                  direction,
+                                                )
+                                              }
+                                            >
+                                              <button
+                                                type="button"
+                                                role="treeitem"
+                                                aria-current={tracker.id === activeTrackerId ? 'page' : undefined}
+                                                className={`tree-node tree-node-page ${
+                                                  tracker.id === activeTrackerId ? 'active' : ''
+                                                }`}
+                                                onClick={() => onSelectPage?.({
+                                                  notebookId: section.notebook_id,
+                                                  sectionId: section.id,
+                                                  pageId: tracker.id,
+                                                })}
+                                                onContextMenu={handleOpenContextMenu('page', tracker)}
+                                                onTouchStart={handleTouchStart('page', tracker)}
+                                                onTouchEnd={cancelLongPress}
+                                                onTouchMove={cancelLongPress}
+                                              >
+                                                <span className="tree-page-marker" aria-hidden="true" />
+                                                <span className="tree-label sidebar-title">{tracker.title}</span>
+                                                {tracker.is_tracker_page ? (
+                                                  <span
+                                                    className={`tracker-page-badge ${compactBadges ? 'compact' : ''}`}
+                                                    title="Tracker page for AI Daily"
+                                                    aria-label="Tracker page for AI Daily"
+                                                  >
+                                                    {compactBadges ? 'T' : 'TRACKER'}
+                                                  </span>
+                                                ) : null}
+                                              </button>
+                                            </SortableTreeRow>
+                                          ))}
+                                        </SortableContext>
+                                      )}
                                     </div>
-                                  ))
-                                )}
-                              </div>
-                            ) : null}
-                          </div>
-                        )
-                      })
-                    )}
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </SortableContext>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                )
+              })}
+            </SortableContext>
+          </div>
+
+          <DragOverlay>
+            {activeItem ? (
+              <div className={`tree-drag-overlay tree-drag-overlay-${activeItem.type}`}>
+                <span className="tree-label sidebar-title">{activeItem.label}</span>
               </div>
-            )
-          })}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         <div className="nav-tree-footer">
           {activeNotebook ? (

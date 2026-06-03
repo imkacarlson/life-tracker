@@ -134,6 +134,7 @@ function App() {
     createNotebook,
     renameNotebook,
     deleteNotebook,
+    reorderNotebooks,
   } = useNotebooks(userId)
 
   // Keep the boot splash up until BOTH auth and the initial notebooks fetch
@@ -153,6 +154,7 @@ function App() {
     deleteSection,
     moveSection,
     copySection,
+    reorderSections,
   } = useSections(userId, activeNotebookId)
 
   const {
@@ -175,7 +177,7 @@ function App() {
     handleTitleChange,
     createTracker,
     createTrackerWithContent,
-    reorderTrackers,
+    reorderSectionPages,
     setTrackerPage,
     deleteTracker,
     draftConflict,
@@ -712,7 +714,6 @@ function App() {
           className={`${isSidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
           notebooks={notebooks}
           sections={sections}
-          trackers={trackers}
           sectionPageCache={sectionPageCache}
           activeNotebookId={activeNotebookId}
           activeSectionId={activeSectionId}
@@ -728,7 +729,9 @@ function App() {
           onCreateNotebook={() => createNotebook(session)}
           onCreateSection={() => createSection(session, activeNotebookId)}
           onCreatePage={() => createTracker(session, activeSectionId)}
-          onReorderPages={reorderTrackers}
+          onReorderNotebooks={reorderNotebooks}
+          onReorderSections={reorderSections}
+          onReorderPages={reorderSectionPages}
           onOpenContextMenu={handleOpenTreeContextMenu}
           onLoadSectionPages={loadSectionPagesMeta}
           onCreateWithContent={(title, content) =>
