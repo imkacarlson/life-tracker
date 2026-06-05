@@ -7,7 +7,15 @@ import { buildSystemPrompt } from './prompt.ts'
 import { formatNowInZone } from './datetime.ts'
 import { callClaude } from './anthropic.ts'
 import { buildTools } from './tools.ts'
-import { registerCommands, sendReply, startTyping } from './telegram.ts'
+import { selectCurrentMonthTracker } from './trackerText.ts'
+import { pickContextBlockId, renderTrackerPreview } from './preview.ts'
+import {
+  registerCommands,
+  sendDocument,
+  sendPhoto,
+  sendReply,
+  startTyping,
+} from './telegram.ts'
 import {
   closeActiveSessions,
   loadRecentTurns,
@@ -68,6 +76,37 @@ bot.use(async (ctx, next) => {
 bot.command('new', async (ctx) => {
   await closeActiveSessions(supabase, ctx.chat.id)
   await ctx.reply('Starting fresh ✨')
+})
+
+// TEMPORARY (Phase A verification): render the current month's tracker to a
+// screenshot and send it both ways (compressed photo + crisp file) so we can
+// compare and confirm the end-to-end edge -> Vercel -> Telegram path. Phase B
+// replaces this with the real add-to-tracker propose/preview/confirm flow.
+bot.command('preview', async (ctx) => {
+  const chatId = ctx.chat.id
+  const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
+  try {
+    const userId = await getUserId()
+    const { data } = await supabase
+      .from('pages')
+      .select('id, title, content, is_tracker_page, updated_at')
+      .eq('user_id', userId)
+      .eq('is_tracker_page', true)
+    const page = selectCurrentMonthTracker(data ?? [], new Date(), USER_TIMEZONE)
+    if (!page?.id) {
+      await ctx.reply('No tracker page found for this month.')
+      return
+    }
+    const blockId = pickContextBlockId(page.content)
+    const png = await renderTrackerPreview(page.id, blockId)
+    await sendPhoto(ctx.api, chatId, png, `${page.title} — as photo (compressed)`)
+    await sendDocument(ctx.api, chatId, png, `${page.title} — as file (crisp)`)
+  } catch (err) {
+    console.error('preview command error:', String(err))
+    await sendReply(ctx.api, chatId, `Preview failed: ${String(err)}`)
+  } finally {
+    stopTyping()
+  }
 })
 
 bot.on('message:text', async (ctx) => {
