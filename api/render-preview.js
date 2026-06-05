@@ -48,39 +48,6 @@ async function renderPage(pageId, blockId) {
 }
 
 export default async function handler(req, res) {
-  // TEMPORARY diagnostics (no auth) — remove once the deploy is verified healthy.
-  if (req.method === 'GET' && req.query?.diag) {
-    // ?diag=render&pageId=<uuid>[&blockId=<id>] — full render self-test.
-    if (req.query.diag === 'render' && req.query.pageId) {
-      try {
-        const png = await renderPage(req.query.pageId, req.query.blockId)
-        res.setHeader('Content-Type', 'image/png')
-        res.status(200).send(png)
-      } catch (err) {
-        res.status(500).json({ error: 'diag render failed', detail: String(err?.stack || err).slice(0, 1500) })
-      }
-      return
-    }
-    // ?diag=1 — module-load probe + env-var presence (booleans only, no values).
-    const mods = ['linkedom', '@tiptap/core', '@tiptap/pm/model', 'puppeteer-core', '@sparticuz/chromium', '@supabase/supabase-js', './_lib/renderTracker.js']
-    const results = {}
-    for (const m of mods) {
-      try {
-        await import(m)
-        results[m] = 'ok'
-      } catch (e) {
-        results[m] = String(e?.message || e)
-      }
-    }
-    const env = {
-      SUPABASE_URL: !!process.env.SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      RENDER_SHARED_SECRET: !!process.env.RENDER_SHARED_SECRET,
-    }
-    res.status(200).json({ node: process.version, results, env })
-    return
-  }
-
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
     return
