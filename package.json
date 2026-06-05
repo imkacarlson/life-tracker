@@ -43,7 +43,7 @@
     "@tiptap/pm": "^3.18.0",
     "@tiptap/react": "^3.18.0",
     "@tiptap/starter-kit": "^3.18.0",
-    "jsdom": "^29.1.1",
+    "linkedom": "^0.18.12",
     "puppeteer-core": "^25.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

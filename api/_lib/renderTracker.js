@@ -12,8 +12,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { JSDOM } from 'jsdom'
-import { generateHTML } from '@tiptap/core'
+import { parseHTML } from 'linkedom'
+import { getSchema } from '@tiptap/core'
+import { DOMSerializer, Node as PMNode } from '@tiptap/pm/model'
 import puppeteer from 'puppeteer-core'
 import chromium from '@sparticuz/chromium'
 import { renderExtensions } from './renderExtensions.js'
@@ -28,14 +29,25 @@ const VIEWPORT_WIDTH = CONTENT_WIDTH + PAGE_PADDING * 2 // 768
 // Vertical context to include above/below a highlighted block when cropping.
 const CROP_CONTEXT_PX = 160
 
-// generateHTML uses the global `document`; provide one once via jsdom.
-let domReady = false
-function ensureDom() {
-  if (domReady) return
-  const dom = new JSDOM('<!doctype html><html><body></body></html>')
-  globalThis.window = dom.window
-  globalThis.document = dom.window.document
-  domReady = true
+// Serialize Tiptap JSON to an HTML string without a global DOM. ProseMirror's
+// DOMSerializer just needs *a* document to create elements in; we give it a
+// linkedom one (lightweight + serverless-clean, unlike jsdom which fails to
+// load on Vercel's Node 22). This replaces @tiptap/core's generateHTML, which
+// hard-depends on a global `document` + `createHTMLDocument`.
+let cachedSchema = null
+function getRenderSchema() {
+  if (!cachedSchema) cachedSchema = getSchema(renderExtensions)
+  return cachedSchema
+}
+
+function generateTrackerHtml(contentJson) {
+  const schema = getRenderSchema()
+  const node = PMNode.fromJSON(schema, contentJson)
+  const { document } = parseHTML('<!doctype html><html><body></body></html>')
+  const fragment = DOMSerializer.fromSchema(schema).serializeFragment(node.content, { document })
+  const container = document.createElement('div')
+  container.appendChild(fragment)
+  return container.innerHTML
 }
 
 // Read the app's actual stylesheets so the preview can't drift from the editor.
@@ -51,8 +63,7 @@ function loadEditorCss() {
 }
 
 function buildHtmlDocument(contentJson, highlightBlockId) {
-  ensureDom()
-  const innerHtml = generateHTML(contentJson, renderExtensions)
+  const innerHtml = generateTrackerHtml(contentJson)
   const css = loadEditorCss()
 
   // Reuse the app's deep-link highlight treatment for the targeted block.
