@@ -4,10 +4,10 @@
 // module handles the network side (formatting conversion, sending, typing).
 
 import telegramifyMarkdown from 'npm:telegramify-markdown@1'
-import { InputFile } from 'https://deno.land/x/grammy@v1.30.0/mod.ts'
 import { splitMessage } from './format.ts'
 
 const TG_MAX = 4096
+const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
 
 /**
  * Send a reply, splitting long text and converting Markdown to Telegram's
@@ -29,33 +29,49 @@ export async function sendReply(api: any, chatId: number, text: string): Promise
 }
 
 /**
- * Send a PNG as an inline photo. Telegram re-compresses photos, so small text
- * softens — convenient for a quick look, less sharp for reading.
+ * Send a PNG to a chat via Telegram's Bot API using multipart FormData. We call
+ * the HTTP API directly (rather than grammY's InputFile) because grammY's file
+ * upload machinery hits a runtime incompatibility in the Supabase Edge runtime.
  */
-export async function sendPhoto(
-  api: any,
+async function uploadPng(
+  method: 'sendPhoto' | 'sendDocument',
+  field: 'photo' | 'document',
   chatId: number,
   png: Uint8Array,
   caption?: string,
 ): Promise<void> {
-  await api.sendPhoto(chatId, new InputFile(png, 'preview.png'), caption ? { caption } : undefined)
+  const form = new FormData()
+  form.append('chat_id', String(chatId))
+  form.append(field, new Blob([png], { type: 'image/png' }), 'preview.png')
+  if (caption) form.append('caption', caption)
+  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`telegram ${method} failed (${resp.status}) ${detail}`.trim())
+  }
 }
 
-/**
- * Send a PNG as an uncompressed document/file. Stays crisp (tap to view full
- * resolution) — best when the preview text needs to be readable.
- */
-export async function sendDocument(
-  api: any,
+/** Send a PNG as an inline (compressed) photo — quick look, softer text. */
+export async function sendPhoto(
+  _api: unknown,
   chatId: number,
   png: Uint8Array,
   caption?: string,
 ): Promise<void> {
-  await api.sendDocument(
-    chatId,
-    new InputFile(png, 'preview.png'),
-    caption ? { caption } : undefined,
-  )
+  await uploadPng('sendPhoto', 'photo', chatId, png, caption)
+}
+
+/** Send a PNG as an uncompressed document/file — crisp, tap to view full res. */
+export async function sendDocument(
+  _api: unknown,
+  chatId: number,
+  png: Uint8Array,
+  caption?: string,
+): Promise<void> {
+  await uploadPng('sendDocument', 'document', chatId, png, caption)
 }
 
 /**
