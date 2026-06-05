@@ -3,24 +3,46 @@
 // authenticates with a shared secret. Runs on Node 22 (see package.json engines)
 // because @sparticuz/chromium requires it.
 //
-// Phase A: accepts { pageId, blockId? } and renders the saved page content.
-// Phase B will add proposed-edit jobs (insert-then-preview) on top of this.
+// Heavy modules (chromium, puppeteer, jsdom, tiptap) are imported lazily inside
+// the handler so a load failure surfaces as a catchable error with detail,
+// instead of an opaque FUNCTION_INVOCATION_FAILED at cold start.
 
-import { createClient } from '@supabase/supabase-js'
-import { renderTrackerPng } from './_lib/renderTracker.js'
 import { collectStoragePaths, applySignedUrls } from './_lib/hydrateImages.js'
 
 const IMAGE_BUCKET = 'tracker-images'
 const SIGNED_URL_TTL = 3600
 
 export default async function handler(req, res) {
+  // TEMPORARY diagnostic (no auth): GET ?diag=1 reports which heavy modules load.
+  // Remove once the deploy is healthy.
+  if (req.method === 'GET' && req.query?.diag) {
+    const mods = [
+      'jsdom',
+      '@tiptap/core',
+      'puppeteer-core',
+      '@sparticuz/chromium',
+      '@supabase/supabase-js',
+      './_lib/renderExtensions.js',
+      './_lib/renderTracker.js',
+    ]
+    const results = {}
+    for (const m of mods) {
+      try {
+        await import(m)
+        results[m] = 'ok'
+      } catch (e) {
+        results[m] = String(e?.message || e)
+      }
+    }
+    res.status(200).json({ node: process.version, results })
+    return
+  }
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
     return
   }
 
-  // Shared-secret auth (the edge function sets this header). Constant work,
-  // no early-return difference that leaks timing in a meaningful way here.
   const provided = req.headers['x-render-secret']
   const expected = process.env.RENDER_SHARED_SECRET
   if (!expected || provided !== expected) {
@@ -35,6 +57,9 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'pageId is required' })
       return
     }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const { renderTrackerPng } = await import('./_lib/renderTracker.js')
 
     const supabase = createClient(
       process.env.SUPABASE_URL,
@@ -71,6 +96,6 @@ export default async function handler(req, res) {
     res.status(200).send(png)
   } catch (err) {
     console.error('render-preview error:', err)
-    res.status(500).json({ error: 'Render failed' })
+    res.status(500).json({ error: 'Render failed', detail: String(err?.stack || err).slice(0, 1200) })
   }
 }
