@@ -70,47 +70,63 @@ function cellShadingPrefix(node: TiptapNode): string {
   return bg ? `(cell shaded ${bg}) ` : ''
 }
 
+// Options threaded through serialization. `withIds` appends a {{id:<block-id>}}
+// marker to each block so the model can name an exact insertion anchor (the same
+// marker convention as src/lib/serializeDoc.js and the ai-insert edge function).
+type SerializeOpts = { withIds?: boolean }
+
+function idMarker(node: TiptapNode, opts: SerializeOpts): string {
+  if (!opts.withIds) return ''
+  const id = node.attrs?.id
+  return typeof id === 'string' && id ? ` {{id:${id}}}` : ''
+}
+
 function serializeNode(
   node: TiptapNode,
   lines: string[],
   indent = 0,
   listIndex: number | 'bullet' | 'task' | null = null,
+  opts: SerializeOpts = {},
 ): void {
   const prefix = '  '.repeat(indent)
 
   switch (node.type) {
     case 'doc':
-      node.content?.forEach((child) => serializeNode(child, lines, indent))
+      node.content?.forEach((child) => serializeNode(child, lines, indent, null, opts))
       break
 
     case 'paragraph': {
-      lines.push(prefix + serializeInline(node.content))
+      lines.push(prefix + serializeInline(node.content) + idMarker(node, opts))
       break
     }
 
     case 'heading': {
       const text = serializeInline(node.content)
       if (lines.length > 0) lines.push('')
-      lines.push(prefix + text.toUpperCase())
+      lines.push(prefix + text.toUpperCase() + idMarker(node, opts))
       lines.push('')
       break
     }
 
     case 'bulletList':
-      node.content?.forEach((child) => serializeNode(child, lines, indent, 'bullet'))
+      node.content?.forEach((child) => serializeNode(child, lines, indent, 'bullet', opts))
+      // Marker line lets the model target the whole list (append_to_list).
+      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
       break
 
     case 'orderedList': {
       let counter = 1
       node.content?.forEach((child) => {
-        serializeNode(child, lines, indent, counter)
+        serializeNode(child, lines, indent, counter, opts)
         counter += 1
       })
+      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
       break
     }
 
     case 'taskList':
-      node.content?.forEach((child) => serializeNode(child, lines, indent, 'task'))
+      node.content?.forEach((child) => serializeNode(child, lines, indent, 'task', opts))
+      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
       break
 
     case 'listItem':
@@ -126,9 +142,9 @@ function serializeNode(
       const children = node.content || []
       children.forEach((child, i) => {
         if (i === 0 && child.type === 'paragraph') {
-          lines.push(prefix + marker + serializeInline(child.content))
+          lines.push(prefix + marker + serializeInline(child.content) + idMarker(child, opts))
         } else {
-          serializeNode(child, lines, indent + 1)
+          serializeNode(child, lines, indent + 1, null, opts)
         }
       })
       break
@@ -147,7 +163,7 @@ function serializeNode(
           if (cell) {
             const shading = cellShadingPrefix(cell)
             if (shading) lines.push(prefix + shading.trim())
-            cell.content?.forEach((child) => serializeNode(child, lines, indent))
+            cell.content?.forEach((child) => serializeNode(child, lines, indent, null, opts))
           }
           if (rowIdx < rows.length - 1) {
             lines.push('')
@@ -160,7 +176,7 @@ function serializeNode(
         rows.forEach((row, rowIdx) => {
           const cells = (row.content || []).map((cell) => {
             const cellLines: string[] = []
-            cell.content?.forEach((child) => serializeNode(child, cellLines, 0))
+            cell.content?.forEach((child) => serializeNode(child, cellLines, 0, null, opts))
             const body = cellLines.join(' ').trim()
             return cellShadingPrefix(cell) + body
           })
@@ -177,11 +193,11 @@ function serializeNode(
     case 'tableRow':
     case 'tableCell':
     case 'tableHeader':
-      node.content?.forEach((child) => serializeNode(child, lines, indent))
+      node.content?.forEach((child) => serializeNode(child, lines, indent, null, opts))
       break
 
     case 'blockquote':
-      node.content?.forEach((child) => serializeNode(child, lines, indent + 1))
+      node.content?.forEach((child) => serializeNode(child, lines, indent + 1, null, opts))
       break
 
     case 'codeBlock': {
@@ -198,7 +214,7 @@ function serializeNode(
 
     default:
       if (node.content) {
-        node.content.forEach((child) => serializeNode(child, lines, indent))
+        node.content.forEach((child) => serializeNode(child, lines, indent, null, opts))
       }
       break
   }
@@ -216,7 +232,32 @@ export function flattenTrackerToText(content: TiptapNode | null | undefined, tit
     lines.push(title.trim().toUpperCase())
     lines.push('')
   }
-  serializeNode(content, lines)
+  serializeNode(content, lines, 0, null, {})
+
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}
+
+/**
+ * Same flattening as flattenTrackerToText, but every block is annotated with a
+ * {{id:<block-id>}} marker. The capture flow's read_tracker_structure tool uses
+ * this so the model can name an exact insertion anchor for propose_tracker_addition.
+ */
+export function flattenTrackerToTextWithIds(
+  content: TiptapNode | null | undefined,
+  title?: string,
+): string {
+  if (!content || typeof content !== 'object') return ''
+
+  const lines: string[] = []
+  if (title) {
+    lines.push(title.trim().toUpperCase())
+    lines.push('')
+  }
+  serializeNode(content, lines, 0, null, { withIds: true })
 
   return lines
     .join('\n')

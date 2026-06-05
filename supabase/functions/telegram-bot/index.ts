@@ -7,9 +7,15 @@ import { buildSystemPrompt } from './prompt.ts'
 import { formatNowInZone } from './datetime.ts'
 import { callClaude } from './anthropic.ts'
 import { buildTools } from './tools.ts'
-import { selectCurrentMonthTracker } from './trackerText.ts'
-import { pickContextBlockId, renderTrackerPreview } from './preview.ts'
+import { renderProposedPreview } from './render.ts'
 import { registerCommands, sendPhoto, sendReply, startTyping } from './telegram.ts'
+import {
+  applyPendingJob,
+  classifyReply,
+  deleteJob,
+  findPendingJob,
+  purgeExpiredJobs,
+} from './capture.ts'
 import {
   closeActiveSessions,
   loadRecentTurns,
@@ -72,45 +78,21 @@ bot.command('new', async (ctx) => {
   await ctx.reply('Starting fresh ✨')
 })
 
-// TEMPORARY (Phase A verification): render the current month's tracker to a
-// screenshot and send it both ways (compressed photo + crisp file) so we can
-// compare and confirm the end-to-end edge -> Vercel -> Telegram path. Phase B
-// replaces this with the real add-to-tracker propose/preview/confirm flow.
-bot.command('preview', async (ctx) => {
-  const chatId = ctx.chat.id
-  const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
-  try {
-    const userId = await getUserId()
-    const { data } = await supabase
-      .from('pages')
-      .select('id, title, content, is_tracker_page, updated_at')
-      .eq('user_id', userId)
-      .eq('is_tracker_page', true)
-    const page = selectCurrentMonthTracker(data ?? [], new Date(), USER_TIMEZONE)
-    if (!page?.id) {
-      await ctx.reply('No tracker page found for this month.')
-      return
-    }
-    const blockId = pickContextBlockId(page.content)
-    const png = await renderTrackerPreview(page.id, blockId)
-    await sendPhoto(ctx.api, chatId, png, page.title)
-  } catch (err) {
-    console.error('preview command error:', String(err))
-    await sendReply(ctx.api, chatId, `Preview failed: ${String(err)}`)
-  } finally {
-    stopTyping()
-  }
-})
-
 bot.on('message:text', async (ctx) => {
   const chatId = ctx.chat.id
   const text = ctx.message.text
   const messageId = ctx.message.message_id
+  // A quote-reply to a preview photo lets the user re-activate that exact
+  // proposal, even past the idle window.
+  const replyToMessageId = ctx.message.reply_to_message?.message_id ?? null
 
   const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
   try {
     const userId = await getUserId()
     const now = new Date()
+
+    // Opportunistic cleanup so expired proposals never accumulate.
+    await purgeExpiredJobs(supabase)
 
     const sessionId = await resolveSession(supabase, userId, chatId, IDLE_MINUTES, now)
 
@@ -118,9 +100,58 @@ bot.on('message:text', async (ctx) => {
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
     if (duplicate) return
 
+    // --- Capture: is this message responding to a pending proposal? ---
+    const pendingJob = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
+    if (pendingJob) {
+      const { decision } = await classifyReply(text, MODEL)
+
+      if (decision === 'confirm') {
+        const result = await applyPendingJob(supabase, pendingJob, now)
+        let reply: string
+        if (result.ok) {
+          await deleteJob(supabase, pendingJob.id)
+          reply = `Added ✅\n${result.deepLink}`
+        } else if (result.reason === 'anchor_missing') {
+          await deleteJob(supabase, pendingJob.id)
+          reply =
+            'Your tracker changed since I drafted that, so the spot I picked is gone. ' +
+            'Send me the addition again and I’ll re-propose.'
+        } else {
+          // conflict/error — keep the job so the user can simply confirm again.
+          reply = 'Couldn’t save that just now — reply to confirm again in a moment.'
+        }
+        await persistAssistantTurn(supabase, sessionId, reply)
+        await sendReply(ctx.api, chatId, reply)
+        return
+      }
+
+      if (decision === 'cancel') {
+        await deleteJob(supabase, pendingJob.id)
+        const reply = 'Okay, scrapped that — nothing was added.'
+        await persistAssistantTurn(supabase, sessionId, reply)
+        await sendReply(ctx.api, chatId, reply)
+        return
+      }
+
+      if (decision === 'revise') {
+        // Supersede the old proposal; the normal loop below re-proposes from the
+        // conversation, which now includes this revision.
+        await deleteJob(supabase, pendingJob.id)
+      }
+      // 'unclear' falls through too: answer the message normally and leave the
+      // proposal pending, so a later "yes" (or a quote-reply) still applies it.
+    }
+
+    // --- Normal agentic loop (Q&A + propose) ---
     const turns = await loadRecentTurns(supabase, sessionId, MAX_TURNS)
     const nowDisplay = formatNowInZone(now, USER_TIMEZONE).display
-    const tools = buildTools(supabase, userId, now, USER_TIMEZONE)
+    const tools = buildTools(supabase, userId, now, USER_TIMEZONE, {
+      api: ctx.api,
+      chatId,
+      sessionId,
+      sendPhoto,
+      renderPreview: renderProposedPreview,
+    })
 
     const reply = await callClaude({
       system: buildSystemPrompt(true, nowDisplay),

@@ -12,8 +12,12 @@ import { collectStoragePaths, applySignedUrls } from './_lib/hydrateImages.js'
 const IMAGE_BUCKET = 'tracker-images'
 const SIGNED_URL_TTL = 3600
 
-/** Read a page by id, sign its images, and render it to a PNG buffer. */
-async function renderPage(pageId, blockId) {
+/**
+ * Render a tracker doc to a PNG buffer. The doc comes either from a proposed edit
+ * (`content` in the request — not yet saved to `pages`) or, when only a `pageId`
+ * is given, from the stored page. Either way its images are signed before render.
+ */
+async function renderDoc({ pageId, content, blockIds }) {
   const { createClient } = await import('@supabase/supabase-js')
   const { renderTrackerPng } = await import('./_lib/renderTracker.js')
 
@@ -22,19 +26,23 @@ async function renderPage(pageId, blockId) {
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   )
 
-  const { data: page, error } = await supabase
-    .from('pages')
-    .select('content, title')
-    .eq('id', pageId)
-    .single()
-  if (error || !page) {
-    const err = new Error('Page not found')
-    err.code = 'NOT_FOUND'
-    throw err
+  let docContent = content
+  if (!docContent) {
+    const { data: page, error } = await supabase
+      .from('pages')
+      .select('content, title')
+      .eq('id', pageId)
+      .single()
+    if (error || !page) {
+      const err = new Error('Page not found')
+      err.code = 'NOT_FOUND'
+      throw err
+    }
+    docContent = page.content
   }
 
   const paths = new Set()
-  collectStoragePaths(page.content, paths)
+  collectStoragePaths(docContent, paths)
   const signedMap = {}
   for (const storagePath of paths) {
     const { data: signed } = await supabase.storage
@@ -42,9 +50,9 @@ async function renderPage(pageId, blockId) {
       .createSignedUrl(storagePath, SIGNED_URL_TTL)
     if (signed?.signedUrl) signedMap[storagePath] = signed.signedUrl
   }
-  const hydrated = applySignedUrls(page.content, signedMap)
+  const hydrated = applySignedUrls(docContent, signedMap)
 
-  return await renderTrackerPng({ content: hydrated, blockId })
+  return await renderTrackerPng({ content: hydrated, blockIds })
 }
 
 export default async function handler(req, res) {
@@ -62,13 +70,19 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {}
-    const { pageId, blockId } = body
-    if (!pageId) {
-      res.status(400).json({ error: 'pageId is required' })
+    const { pageId, content } = body
+    // Accept blockIds[] (multi-block highlight); keep blockId as a one-element alias.
+    const blockIds = Array.isArray(body.blockIds)
+      ? body.blockIds
+      : body.blockId
+        ? [body.blockId]
+        : []
+    if (!pageId && !content) {
+      res.status(400).json({ error: 'pageId or content is required' })
       return
     }
 
-    const png = await renderPage(pageId, blockId)
+    const png = await renderDoc({ pageId, content, blockIds })
     res.setHeader('Content-Type', 'image/png')
     res.setHeader('Cache-Control', 'no-store')
     res.status(200).send(png)
