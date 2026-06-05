@@ -62,19 +62,21 @@ function loadEditorCss() {
   return cachedCss
 }
 
-function buildHtmlDocument(contentJson, highlightBlockId) {
+function buildHtmlDocument(contentJson, highlightBlockIds) {
   const innerHtml = generateTrackerHtml(contentJson)
   const css = loadEditorCss()
 
-  // Reuse the app's deep-link highlight treatment for the targeted block.
-  const highlightCss = highlightBlockId
-    ? `.editor-shell .ProseMirror [id="${cssEscape(highlightBlockId)}"] {
+  // Reuse the app's deep-link highlight treatment for each targeted block.
+  const highlightCss = (highlightBlockIds ?? [])
+    .map(
+      (id) => `.editor-shell .ProseMirror [id="${cssEscape(id)}"] {
          background: rgba(250, 204, 21, 0.22);
          outline: 2px solid rgba(245, 158, 11, 0.85);
          outline-offset: 2px;
          border-radius: 8px;
-       }`
-    : ''
+       }`,
+    )
+    .join('\n')
 
   return `<!doctype html>
 <html lang="en">
@@ -112,12 +114,15 @@ function cssEscape(value) {
  * Render tracker content to a PNG.
  * @param {object} params
  * @param {object} params.content  Tiptap JSON doc (images already hydrated with signed URLs).
- * @param {string} [params.blockId] If set, crop to this block + surrounding context.
+ * @param {string[]} [params.blockIds] If set, highlight these blocks and crop to the
+ *   bounding box spanning all of them + surrounding context.
+ * @param {string} [params.blockId] Single-id alias for blockIds (back-compat).
  * @param {number} [params.deviceScaleFactor] Pixel density (default 2 = retina-crisp).
  * @returns {Promise<Buffer>} PNG bytes.
  */
-export async function renderTrackerPng({ content, blockId, deviceScaleFactor = 2 }) {
-  const html = buildHtmlDocument(content, blockId)
+export async function renderTrackerPng({ content, blockIds, blockId, deviceScaleFactor = 2 }) {
+  const ids = (blockIds ?? (blockId ? [blockId] : [])).filter(Boolean)
+  const html = buildHtmlDocument(content, ids)
 
   const browser = await puppeteer.launch({
     args: chromium.args,
@@ -135,22 +140,25 @@ export async function renderTrackerPng({ content, blockId, deviceScaleFactor = 2
     })
 
     let clip = null
-    if (blockId) {
+    if (ids.length) {
       clip = await page.evaluate(
-        (id, contextPx, viewportWidth) => {
-          const el = document.getElementById(id)
-          if (!el) return null
-          const r = el.getBoundingClientRect()
-          const top = Math.max(0, r.top - contextPx)
-          const bottom = r.bottom + contextPx
-          return {
-            x: 0,
-            y: top,
-            width: viewportWidth,
-            height: bottom - top,
+        (highlightIds, contextPx, viewportWidth) => {
+          // Bounding box spanning every highlighted block that actually rendered.
+          let minTop = Infinity
+          let maxBottom = -Infinity
+          for (const id of highlightIds) {
+            const el = document.getElementById(id)
+            if (!el) continue
+            const r = el.getBoundingClientRect()
+            if (r.top < minTop) minTop = r.top
+            if (r.bottom > maxBottom) maxBottom = r.bottom
           }
+          if (!Number.isFinite(minTop) || !Number.isFinite(maxBottom)) return null
+          const top = Math.max(0, minTop - contextPx)
+          const bottom = maxBottom + contextPx
+          return { x: 0, y: top, width: viewportWidth, height: bottom - top }
         },
-        blockId,
+        ids,
         CROP_CONTEXT_PX,
         VIEWPORT_WIDTH,
       )

@@ -39,7 +39,7 @@ export async function sendPhoto(
   chatId: number,
   png: Uint8Array,
   caption?: string,
-): Promise<void> {
+): Promise<number | null> {
   const form = new FormData()
   form.append('chat_id', String(chatId))
   form.append('photo', new Blob([png], { type: 'image/png' }), 'preview.png')
@@ -52,6 +52,11 @@ export async function sendPhoto(
     const detail = await resp.text().catch(() => '')
     throw new Error(`telegram sendPhoto failed (${resp.status}) ${detail}`.trim())
   }
+  // Return the sent photo's message_id so a quote-reply can re-activate the
+  // proposal it belongs to (the capture flow stores it on the preview job).
+  const data = await resp.json().catch(() => null)
+  const id = data?.result?.message_id
+  return typeof id === 'number' ? id : null
 }
 
 /**
@@ -73,7 +78,6 @@ export async function registerCommands(api: any): Promise<void> {
   try {
     await api.setMyCommands([
       { command: 'new', description: 'Start a fresh conversation' },
-      { command: 'preview', description: 'Preview this month’s tracker (test)' },
     ])
   } catch (_err) {
     // Non-fatal: the command still works even if the menu fails to register.
