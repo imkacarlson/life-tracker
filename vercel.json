@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/render-preview.js": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "includeFiles": "src/styles/**"
+    }
+  }
+}
