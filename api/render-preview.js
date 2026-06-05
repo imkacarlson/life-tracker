@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       }
       return
     }
-    // ?diag=1 — module-load probe.
+    // ?diag=1 — module-load probe + env-var presence (booleans only, no values).
     const mods = ['linkedom', '@tiptap/core', '@tiptap/pm/model', 'puppeteer-core', '@sparticuz/chromium', '@supabase/supabase-js', './_lib/renderTracker.js']
     const results = {}
     for (const m of mods) {
@@ -72,7 +72,12 @@ export default async function handler(req, res) {
         results[m] = String(e?.message || e)
       }
     }
-    res.status(200).json({ node: process.version, results })
+    const env = {
+      SUPABASE_URL: !!process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      RENDER_SHARED_SECRET: !!process.env.RENDER_SHARED_SECRET,
+    }
+    res.status(200).json({ node: process.version, results, env })
     return
   }
 
