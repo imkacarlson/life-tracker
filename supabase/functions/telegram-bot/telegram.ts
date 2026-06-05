@@ -29,49 +29,29 @@ export async function sendReply(api: any, chatId: number, text: string): Promise
 }
 
 /**
- * Send a PNG to a chat via Telegram's Bot API using multipart FormData. We call
- * the HTTP API directly (rather than grammY's InputFile) because grammY's file
- * upload machinery hits a runtime incompatibility in the Supabase Edge runtime.
+ * Send a PNG to a chat as an inline photo via Telegram's Bot API using multipart
+ * FormData. We call the HTTP API directly (rather than grammY's InputFile)
+ * because grammY's file upload machinery hits a runtime incompatibility in the
+ * Supabase Edge runtime.
  */
-async function uploadPng(
-  method: 'sendPhoto' | 'sendDocument',
-  field: 'photo' | 'document',
-  chatId: number,
-  png: Uint8Array,
-  caption?: string,
-): Promise<void> {
-  const form = new FormData()
-  form.append('chat_id', String(chatId))
-  form.append(field, new Blob([png], { type: 'image/png' }), 'preview.png')
-  if (caption) form.append('caption', caption)
-  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
-    method: 'POST',
-    body: form,
-  })
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => '')
-    throw new Error(`telegram ${method} failed (${resp.status}) ${detail}`.trim())
-  }
-}
-
-/** Send a PNG as an inline (compressed) photo — quick look, softer text. */
 export async function sendPhoto(
   _api: unknown,
   chatId: number,
   png: Uint8Array,
   caption?: string,
 ): Promise<void> {
-  await uploadPng('sendPhoto', 'photo', chatId, png, caption)
-}
-
-/** Send a PNG as an uncompressed document/file — crisp, tap to view full res. */
-export async function sendDocument(
-  _api: unknown,
-  chatId: number,
-  png: Uint8Array,
-  caption?: string,
-): Promise<void> {
-  await uploadPng('sendDocument', 'document', chatId, png, caption)
+  const form = new FormData()
+  form.append('chat_id', String(chatId))
+  form.append('photo', new Blob([png], { type: 'image/png' }), 'preview.png')
+  if (caption) form.append('caption', caption)
+  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!resp.ok) {
+    const detail = await resp.text().catch(() => '')
+    throw new Error(`telegram sendPhoto failed (${resp.status}) ${detail}`.trim())
+  }
 }
 
 /**

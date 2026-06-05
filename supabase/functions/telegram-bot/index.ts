@@ -9,13 +9,7 @@ import { callClaude } from './anthropic.ts'
 import { buildTools } from './tools.ts'
 import { selectCurrentMonthTracker } from './trackerText.ts'
 import { pickContextBlockId, renderTrackerPreview } from './preview.ts'
-import {
-  registerCommands,
-  sendDocument,
-  sendPhoto,
-  sendReply,
-  startTyping,
-} from './telegram.ts'
+import { registerCommands, sendPhoto, sendReply, startTyping } from './telegram.ts'
 import {
   closeActiveSessions,
   loadRecentTurns,
@@ -99,8 +93,7 @@ bot.command('preview', async (ctx) => {
     }
     const blockId = pickContextBlockId(page.content)
     const png = await renderTrackerPreview(page.id, blockId)
-    await sendPhoto(ctx.api, chatId, png, `${page.title} — as photo (compressed)`)
-    await sendDocument(ctx.api, chatId, png, `${page.title} — as file (crisp)`)
+    await sendPhoto(ctx.api, chatId, png, page.title)
   } catch (err) {
     console.error('preview command error:', String(err))
     await sendReply(ctx.api, chatId, `Preview failed: ${String(err)}`)
