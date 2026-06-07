@@ -175,7 +175,15 @@ bot.on('message:text', async (ctx) => {
 registerCommands(bot.api)
 
 // grammY verifies the secret-token header; mismatches get 401.
-const handleUpdate = webhookCallback(bot, 'std/http', { secretToken: WEBHOOK_SECRET })
+// timeoutMilliseconds: grammY's default is 10s, after which it abandons the
+// handler and the edge worker is torn down mid-flight. The capture flow (a few
+// Claude calls + a headless-Chrome render + photo send) routinely needs longer,
+// so we raise the ceiling well under Telegram's ~60s webhook tolerance and
+// Supabase's wall-clock limit. Slow flows still complete and reply.
+const handleUpdate = webhookCallback(bot, 'std/http', {
+  secretToken: WEBHOOK_SECRET,
+  timeoutMilliseconds: 55_000,
+})
 
 Deno.serve(async (req) => {
   try {
