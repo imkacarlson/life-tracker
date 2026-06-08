@@ -2,9 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/render-preview.js": {
-      "memory": 1024,
+      "memory": 2048,
       "maxDuration": 30,
-      "includeFiles": "src/styles/**"
+      "includeFiles": "{src/styles/**,api/_lib/fonts/**}"
     }
   }
 }

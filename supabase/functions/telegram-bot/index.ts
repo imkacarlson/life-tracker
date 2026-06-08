@@ -27,7 +27,10 @@ import {
 // --- Constants (tunable) ---
 const IDLE_MINUTES = 30 // continue same conversation if last reply was within this window
 const MAX_TURNS = 12 // recent turns loaded into context (sessions are short by design)
-const MODEL = 'claude-sonnet-4-6' // matches the app's default
+const MODEL = 'claude-sonnet-4-6' // main reasoning: placement choice + Q&A (accuracy-sensitive)
+// The confirm/cancel classification is a tiny, well-scoped yes/no/change call —
+// run it on the fastest model so the "yes" → "Added ✅" round-trip feels instant.
+const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001'
 const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s expiry
 
 // --- Secrets / config ---
@@ -103,7 +106,7 @@ bot.on('message:text', async (ctx) => {
     // --- Capture: is this message responding to a pending proposal? ---
     const pendingJob = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
     if (pendingJob) {
-      const { decision } = await classifyReply(text, MODEL)
+      const { decision } = await classifyReply(text, CLASSIFY_MODEL)
 
       if (decision === 'confirm') {
         const result = await applyPendingJob(supabase, pendingJob, now)
