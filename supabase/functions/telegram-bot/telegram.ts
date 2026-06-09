@@ -40,14 +40,36 @@ export async function sendPhoto(
   png: Uint8Array,
   caption?: string,
 ): Promise<number | null> {
-  const form = new FormData()
-  form.append('chat_id', String(chatId))
-  form.append('photo', new Blob([png], { type: 'image/png' }), 'preview.png')
-  if (caption) form.append('caption', caption)
-  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
-    method: 'POST',
-    body: form,
-  })
+  // Build a fresh multipart body each attempt (a FormData/Blob can't be reused).
+  const buildForm = (cap: { text: string; markdown: boolean } | null): FormData => {
+    const form = new FormData()
+    form.append('chat_id', String(chatId))
+    form.append('photo', new Blob([png], { type: 'image/png' }), 'preview.png')
+    if (cap) {
+      if (cap.markdown) {
+        // Same Markdown -> MarkdownV2 path sendReply uses (e.g. **bold** section name).
+        form.append('caption', telegramifyMarkdown(cap.text, 'escape'))
+        form.append('parse_mode', 'MarkdownV2')
+      } else {
+        form.append('caption', cap.text)
+      }
+    }
+    return form
+  }
+
+  const post = (form: FormData) =>
+    fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form })
+
+  let resp = await post(buildForm(caption ? { text: caption, markdown: true } : null))
+
+  // If a formatted caption was rejected, retry once with the caption stripped to
+  // plain text — a formatting edge case should degrade to an unbolded caption,
+  // never drop the preview (which would roll back the staged proposal).
+  if (!resp.ok && caption) {
+    const plain = caption.replace(/\*\*/g, '')
+    resp = await post(buildForm({ text: plain, markdown: false }))
+  }
+
   if (!resp.ok) {
     const detail = await resp.text().catch(() => '')
     throw new Error(`telegram sendPhoto failed (${resp.status}) ${detail}`.trim())

@@ -15,6 +15,7 @@ import {
   selectCurrentMonthTracker,
 } from './trackerText.ts'
 import { buildItems, insertRelativeToBlock } from './insertContent.ts'
+import { findSectionTitle } from './sectionTitle.ts'
 import type { Format, Placement, TiptapNode } from './insertContent.ts'
 import type { ToolDef } from './anthropic.ts'
 
@@ -206,9 +207,18 @@ export function buildTools(
       return 'Could not stage the proposal. Please try again.'
     }
 
+    // Name the target section in the caption so the user knows where it lands
+    // even though the cropped screenshot may not show the category title.
+    const section = targetBlockId
+      ? findSectionTitle(page.content as TiptapNode, targetBlockId)
+      : null
+    const caption = section
+      ? `📍 Adding to **${section}**`
+      : '📍 Adding to the end of your tracker'
+
     try {
       const png = await capture.renderPreview(doc, insertedBlockIds)
-      const messageId = await capture.sendPhoto(capture.api, capture.chatId, png)
+      const messageId = await capture.sendPhoto(capture.api, capture.chatId, png, caption)
       if (messageId != null) {
         await supabase
           .from('bot_preview_jobs')
