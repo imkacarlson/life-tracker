@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildItems, insertRelativeToBlock } from './insertContent.ts'
+import { buildInlineRuns, buildItems, insertRelativeToBlock } from './insertContent.ts'
 import type { TiptapNode } from './insertContent.ts'
+
+const CYAN = '#67e8f9'
+
+// The highlight mark a cyan-highlighted date run should carry.
+const dateHighlight = [{ type: 'highlight', attrs: { color: CYAN } }]
+
+// The first paragraph's inline runs for a single built item.
+function runsForItem(item: string): TiptapNode[] {
+  const para = buildItems('paragraphs', [item])[0]
+  return para.content ?? []
+}
 
 // Find a block by id anywhere in the doc (depth-first).
 function findById(node: TiptapNode, id: string): TiptapNode | null {
@@ -60,6 +71,79 @@ describe('buildItems', () => {
     const nodes = buildItems('paragraphs', ['x', 'y'])
     const ids = nodes.map((n) => n.attrs?.id)
     expect(new Set(ids).size).toBe(2)
+  })
+})
+
+describe('buildInlineRuns — cyan date highlighting', () => {
+  it('splits a {{date:…}} token into a plain run + a cyan-highlighted run', () => {
+    const runs = runsForItem('renew pass {{date:6/15}}')
+    expect(runs).toHaveLength(2)
+    expect(runs[0]).toEqual({ type: 'text', text: 'renew pass ' })
+    expect(runs[1]).toEqual({ type: 'text', text: '6/15', marks: dateHighlight })
+    // Visible text is unchanged (no token, no braces).
+    expect(textOf({ type: 'paragraph', content: runs })).toBe('renew pass 6/15')
+  })
+
+  it('highlights only the date, leaving qualifier words ("by EOD") plain', () => {
+    // The user highlights the date alone; "by EOD" stays outside the token.
+    const runs = runsForItem('finish report by EOD {{date:2/8}}')
+    expect(runs[0]).toEqual({ type: 'text', text: 'finish report by EOD ' })
+    expect(runs[1]).toEqual({ type: 'text', text: '2/8', marks: dateHighlight })
+  })
+
+  it('keeps a clock time inside the highlighted date ("6/16 6:59 PM")', () => {
+    const runs = runsForItem('call w/ Sam {{date:6/16 6:59 PM}}')
+    const highlighted = runs.find((r) => r.marks)
+    expect(highlighted).toEqual({ type: 'text', text: '6/16 6:59 PM', marks: dateHighlight })
+  })
+
+  it('handles a token at the start of the item', () => {
+    const runs = buildInlineRuns('{{date:3/13}} kickoff')
+    expect(runs).toHaveLength(2)
+    expect(runs[0]).toEqual({ type: 'text', text: '3/13', marks: dateHighlight })
+    expect(runs[1]).toEqual({ type: 'text', text: ' kickoff' })
+  })
+
+  it('handles a token in the middle of the item', () => {
+    const runs = buildInlineRuns('pay rent {{date:6/1}} via portal')
+    expect(runs.map((r) => r.text)).toEqual(['pay rent ', '6/1', ' via portal'])
+    expect(runs[1].marks).toEqual(dateHighlight)
+    expect(runs[0].marks).toBeUndefined()
+    expect(runs[2].marks).toBeUndefined()
+  })
+
+  it('handles a token at the end of the item', () => {
+    const runs = buildInlineRuns('submit taxes {{date:4/15}}')
+    expect(runs[runs.length - 1]).toEqual({ type: 'text', text: '4/15', marks: dateHighlight })
+  })
+
+  it('handles multiple tokens in one item', () => {
+    const runs = buildInlineRuns('trip {{date:6/10}} to {{date:6/14}}')
+    const highlighted = runs.filter((r) => r.marks)
+    expect(highlighted.map((r) => r.text)).toEqual(['6/10', '6/14'])
+    expect(textOf({ type: 'paragraph', content: runs })).toBe('trip 6/10 to 6/14')
+  })
+
+  it('handles an item that is only a token', () => {
+    const runs = buildInlineRuns('{{date:6/15}}')
+    expect(runs).toEqual([{ type: 'text', text: '6/15', marks: dateHighlight }])
+  })
+
+  it('trims whitespace inside the token', () => {
+    const runs = buildInlineRuns('renew {{date:  6/15  }}')
+    expect(runs[1]).toEqual({ type: 'text', text: '6/15', marks: dateHighlight })
+  })
+
+  it('leaves a no-token item as a single plain text node', () => {
+    const runs = runsForItem('buy more gels')
+    expect(runs).toEqual([{ type: 'text', text: 'buy more gels' }])
+  })
+
+  it('still yields content: [] for an empty item', () => {
+    // Blank items are dropped by buildItems' clean step, so build the paragraph
+    // path directly: an all-whitespace token leaves no runs.
+    expect(buildInlineRuns('')).toEqual([])
+    expect(buildInlineRuns('{{date:   }}')).toEqual([])
   })
 })
 

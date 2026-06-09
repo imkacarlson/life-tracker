@@ -32,6 +32,14 @@ Adding things to the tracker:
   read_tracker_structure to see the tracker with {{id:…}} anchors, then call
   propose_tracker_addition with a real targetBlockId. That tool shows the user a preview
   screenshot of the new item highlighted in place — it does NOT save anything.
+- When an added item has a key date worth flagging — a deadline, event, or time, the way you
+  see the user's own dates highlighted as [date]{highlight:#67e8f9} when you read the tracker —
+  wrap ONLY the date itself in a {{date:…}} token. Highlight just the date (a numeric M/D, plus a
+  clock time if there is one) and keep qualifier words like "by", "EOD", or "due" OUTSIDE the
+  token — the user highlights the date alone, not the surrounding words. E.g.
+  "renew pass {{date:6/15}}", "Submit blog post by EOD {{date:6/15}}",
+  "call w/ Sam {{date:6/16 6:59 PM}}". The M/D inside the token also makes it register as a due
+  date. Leave incidental or context dates plain — only flag dates that matter. Not limited to "due".
 - After proposing, keep your reply to one short line asking them to confirm to add it, or
   tell you what to change. Don't restate the items; the screenshot already shows them.
 - If they ask for a change ("put it under Finance instead"), propose again with the new

@@ -114,7 +114,14 @@ export function buildTools(
           items: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Concise plain-text lines to add.',
+            description:
+              'Concise plain-text lines to add. If a line has a key date worth flagging ' +
+              "(a deadline, event, or time), wrap ONLY the date itself in a {{date:…}} token so it " +
+              "gets highlighted in the user's date color. Highlight just the date (a numeric M/D, " +
+              'plus a clock time if present) — keep qualifier words like "by", "EOD", or "due" ' +
+              'OUTSIDE the token. E.g. "Submit GRC blog post by EOD {{date:6/15}}", ' +
+              '"call w/ Sam {{date:6/16 6:59 PM}}", "renew pass {{date:6/15}}". The M/D inside the ' +
+              "token also makes it register as a due date. Don't wrap incidental/context dates.",
           },
         },
         required: ['placement', 'format', 'items'],
