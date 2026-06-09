@@ -114,7 +114,14 @@ export function buildTools(
           items: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Concise plain-text lines to add.',
+            description:
+              'Concise plain-text lines to add. If a line has a key date worth flagging ' +
+              "(a deadline, event, or time — the way the user highlights dates in their tracker), " +
+              'wrap just that date phrase in a {{date:…}} token so it gets highlighted in the ' +
+              'user\'s date color. The phrase is however the user would write it — e.g. ' +
+              '"Submit GRC blog post {{date:by EOD 6/15}}", "call w/ Sam {{date:6/16 6:59 PM}}", ' +
+              '"renew pass {{date:6/15}}". Keep a numeric M/D inside the phrase so it also registers ' +
+              "as a due date. Don't wrap incidental/context dates; leave those plain.",
           },
         },
         required: ['placement', 'format', 'items'],
