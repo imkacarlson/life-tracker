@@ -84,13 +84,14 @@ describe('buildInlineRuns — cyan date highlighting', () => {
     expect(textOf({ type: 'paragraph', content: runs })).toBe('renew pass 6/15')
   })
 
-  it('highlights the whole phrase span, not just the number ("by EOD 2/8")', () => {
-    const runs = runsForItem('finish report {{date:by EOD 2/8}}')
-    const highlighted = runs.find((r) => r.marks)
-    expect(highlighted).toEqual({ type: 'text', text: 'by EOD 2/8', marks: dateHighlight })
+  it('highlights only the date, leaving qualifier words ("by EOD") plain', () => {
+    // The user highlights the date alone; "by EOD" stays outside the token.
+    const runs = runsForItem('finish report by EOD {{date:2/8}}')
+    expect(runs[0]).toEqual({ type: 'text', text: 'finish report by EOD ' })
+    expect(runs[1]).toEqual({ type: 'text', text: '2/8', marks: dateHighlight })
   })
 
-  it('keeps a time inside the highlighted phrase ("6/16 6:59 PM")', () => {
+  it('keeps a clock time inside the highlighted date ("6/16 6:59 PM")', () => {
     const runs = runsForItem('call w/ Sam {{date:6/16 6:59 PM}}')
     const highlighted = runs.find((r) => r.marks)
     expect(highlighted).toEqual({ type: 'text', text: '6/16 6:59 PM', marks: dateHighlight })
