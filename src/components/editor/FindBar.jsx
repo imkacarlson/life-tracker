@@ -2,6 +2,9 @@ function FindBar({
   inputRef,
   findQuery,
   findStatus,
+  aiSearchMode,
+  aiSearchLoading,
+  onToggleAiMode,
   onFindQueryChange,
   onFindPrev,
   onFindNext,
@@ -9,11 +12,20 @@ function FindBar({
 }) {
   return (
     <div className="find-bar">
+      <button
+        type="button"
+        className={`find-ai-toggle${aiSearchMode ? ' active' : ''}`}
+        onClick={onToggleAiMode}
+        aria-pressed={aiSearchMode}
+        title={aiSearchMode ? 'AI find on — searching by meaning' : 'AI find off — exact text only'}
+      >
+        AI
+      </button>
       <input
         ref={inputRef}
         type="text"
         className="find-input"
-        placeholder="Find in tracker"
+        placeholder={aiSearchMode ? 'Describe what to find' : 'Find in tracker'}
         value={findQuery}
         onChange={(event) => onFindQueryChange(event.target.value)}
         onKeyDown={(event) => {
@@ -36,6 +48,9 @@ function FindBar({
           }
         }}
       />
+      {aiSearchMode && aiSearchLoading && (
+        <span className="find-ai-spinner" aria-label="Thinking" title="Thinking…" />
+      )}
       <span className="find-count">
         {findStatus.matches.length > 0 ? findStatus.index + 1 : 0} of {findStatus.matches.length}
       </span>

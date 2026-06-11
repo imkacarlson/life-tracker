@@ -142,6 +142,20 @@
     top: auto;
     bottom: calc(100% + 4px);
   }
+
+  /* On narrow phones the find bar's controls won't fit on one row. Let the
+     search field take a full row (order:-1 puts it above the AI toggle) and
+     wrap the remaining controls onto a second row, so every button stays
+     inside the fixed toolbar's width and remains tappable. */
+  .find-input {
+    flex-basis: 100%;
+    min-width: 0;
+    order: -1;
+  }
+
+  .find-count {
+    flex: 1;
+  }
 }
 
 @media (max-width: 600px) {

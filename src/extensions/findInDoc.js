@@ -92,6 +92,7 @@ const createEmptyState = () => ({
   query: '',
   matches: [],
   index: -1,
+  mode: 'literal',
 })
 
 const FindInDoc = Extension.create({
@@ -115,6 +116,27 @@ const FindInDoc = Extension.create({
           const index = matches.length > 0 ? 0 : -1
           const nextTr = tr.setMeta(findInDocPluginKey, {
             query: normalized,
+            index,
+          })
+          if (matches.length > 0) {
+            const { from, to } = matches[0]
+            nextTr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView()
+          }
+          dispatch(nextTr)
+          return true
+        },
+      // AI find supplies whole-block ranges (resolved from matching block ids)
+      // instead of literal substring ranges. Everything downstream — counter,
+      // next/prev, scroll — reuses the same `matches` array.
+      setAiMatches:
+        (ranges) =>
+        ({ tr, state, dispatch }) => {
+          if (!dispatch) return true
+          const matches = Array.isArray(ranges) ? ranges : []
+          const index = matches.length > 0 ? 0 : -1
+          const nextTr = tr.setMeta(findInDocPluginKey, {
+            aiMatches: matches,
+            mode: 'ai',
             index,
           })
           if (matches.length > 0) {
@@ -204,9 +226,45 @@ const FindInDoc = Extension.create({
             let query = prev.query
             let matches = prev.matches
             let index = prev.index
+            let mode = prev.mode || 'literal'
 
+            // Switching into AI mode: adopt the supplied whole-block ranges and
+            // stop running literal substring matching.
+            if (Array.isArray(meta?.aiMatches)) {
+              mode = 'ai'
+              matches = meta.aiMatches
+              index = matches.length > 0 ? 0 : -1
+              return { query, matches, index, mode }
+            }
+
+            // A literal query always reverts to literal mode.
             if (typeof meta?.query === 'string') {
+              mode = 'literal'
               query = normalizeQuery(meta.query)
+            }
+
+            if (mode === 'ai') {
+              // Keep AI matches; remap their positions across edits so the
+              // block highlights survive document changes.
+              if (tr.docChanged && matches.length) {
+                matches = matches
+                  .map((m) => {
+                    const from = tr.mapping.map(m.from, 1)
+                    const to = tr.mapping.map(m.to, -1)
+                    return to > from ? { from, to } : null
+                  })
+                  .filter(Boolean)
+              }
+              if (!matches.length) {
+                index = -1
+              } else if (typeof meta?.index === 'number') {
+                index = Math.max(0, Math.min(meta.index, matches.length - 1))
+              } else if (index >= matches.length) {
+                index = matches.length - 1
+              } else if (index < 0) {
+                index = 0
+              }
+              return { query, matches, index, mode }
             }
 
             const shouldRecompute = tr.docChanged || typeof meta?.query === 'string'
@@ -224,13 +282,28 @@ const FindInDoc = Extension.create({
               index = matches.length - 1
             }
 
-            return { query, matches, index }
+            return { query, matches, index, mode }
           },
         },
         props: {
           decorations(state) {
             const pluginState = findInDocPluginKey.getState(state)
-            if (!pluginState?.matches?.length || !pluginState?.query) {
+            if (!pluginState?.matches?.length) {
+              return DecorationSet.empty
+            }
+
+            // AI mode: whole-block node decorations using the deep-link look.
+            if (pluginState.mode === 'ai') {
+              const decorations = pluginState.matches.map((match, idx) =>
+                Decoration.node(match.from, match.to, {
+                  class: idx === pluginState.index ? 'ai-find-match current' : 'ai-find-match',
+                }),
+              )
+              return DecorationSet.create(state.doc, decorations)
+            }
+
+            // Literal mode: inline substring decorations (unchanged).
+            if (!pluginState.query) {
               return DecorationSet.empty
             }
             const decorations = pluginState.matches.map((match, idx) =>

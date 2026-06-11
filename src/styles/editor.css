@@ -168,6 +168,20 @@
   border-radius: 8px;
 }
 
+/* AI find matches reuse the deep-link palette as whole-block highlights. The
+   current match is slightly stronger so the cycled-to block stands out. */
+.editor-shell .ProseMirror .ai-find-match {
+  background: rgba(250, 204, 21, 0.18);
+  outline: 2px solid rgba(245, 158, 11, 0.55);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.editor-shell .ProseMirror .ai-find-match.current {
+  background: rgba(250, 204, 21, 0.28);
+  outline: 2px solid rgba(245, 158, 11, 0.95);
+}
+
 .editor-shell th,
 .editor-shell td {
   border: 1px solid var(--table-border);

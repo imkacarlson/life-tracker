@@ -38,7 +38,8 @@
   pointer-events: none;
 }
 
-.toolbar-collapsed:not(.disabled) .toolbar-core {
+.toolbar-collapsed:not(.disabled) .toolbar-core,
+.toolbar-collapsed:not(.disabled) .find-bar {
   pointer-events: auto;
 }
 
@@ -162,7 +163,9 @@
 .find-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.4rem;
+  row-gap: 0.4rem;
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -185,6 +188,60 @@
   color: var(--text-secondary);
   min-width: 70px;
   text-align: right;
+}
+
+/* AI find toggle — a small pill, on by default. Active = teal accent. */
+.find-ai-toggle {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.find-ai-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.find-ai-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.find-ai-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Subtle "thinking" spinner shown while an AI find request is in flight. */
+.find-ai-spinner {
+  flex: 0 0 auto;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 2px solid var(--accent-subtle);
+  border-top-color: var(--accent);
+  animation: find-ai-spin 0.6s linear infinite;
+}
+
+@keyframes find-ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .find-ai-spinner {
+    animation-duration: 1.4s;
+  }
 }
 
 .highlight-control,
