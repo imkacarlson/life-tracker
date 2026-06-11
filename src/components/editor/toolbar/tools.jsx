@@ -996,7 +996,7 @@ export const TOOL_DEFINITIONS = {
  */
 export const CORE_GROUPS = [
   { id: 'core-inline', tools: ['bold', 'italic', 'strike', 'h1', 'bulletList', 'outdent', 'indent'] },
-  { id: 'core-link-undo', tools: ['link', 'find', 'undo'] },
+  { id: 'core-find-undo', tools: ['find', 'undo'] },
 ]
 
 /**
@@ -1008,7 +1008,7 @@ export const EXTRA_GROUPS = [
   { id: 'extra-headings', tools: ['h2', 'orderedList', 'taskList'] },
   { id: 'extra-align', tools: ['alignLeft', 'alignCenter', 'alignRight'] },
   { separator: true, id: 'sep-1' },
-  { id: 'extra-insert', tools: ['unlink', 'image', 'table', 'addRow', 'addCol', 'shading', 'deleteTable'] },
+  { id: 'extra-insert', tools: ['link', 'unlink', 'image', 'table', 'addRow', 'addCol', 'shading', 'deleteTable'] },
   { separator: true, id: 'sep-2' },
   { id: 'extra-utility', tools: ['redo', 'export', 'copy'] },
   { id: 'extra-ai', tools: ['aiDaily', 'aiInsert'], visible: (ctx) => Boolean(ctx.showAiDaily) },
