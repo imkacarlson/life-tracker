@@ -996,7 +996,7 @@ export const TOOL_DEFINITIONS = {
  */
 export const CORE_GROUPS = [
   { id: 'core-inline', tools: ['bold', 'italic', 'strike', 'h1', 'bulletList', 'outdent', 'indent'] },
-  { id: 'core-link-undo', tools: ['link', 'undo'] },
+  { id: 'core-link-undo', tools: ['link', 'find', 'undo'] },
 ]
 
 /**
@@ -1012,5 +1012,5 @@ export const EXTRA_GROUPS = [
   { separator: true, id: 'sep-2' },
   { id: 'extra-utility', tools: ['redo', 'export', 'copy'] },
   { id: 'extra-ai', tools: ['aiDaily', 'aiInsert'], visible: (ctx) => Boolean(ctx.showAiDaily) },
-  { id: 'extra-find-more', tools: ['find', 'more'] },
+  { id: 'extra-more', tools: ['more'] },
 ]

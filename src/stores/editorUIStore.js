@@ -22,6 +22,13 @@ export const useEditorUIStore = create((set, get) => ({
   setFindQuery: (q) => set({ findQuery: q }),
   setFindStatus: (s) => set({ findStatus: s }),
 
+  // AI Find — semantic mode layered over the literal find bar. Defaults on and
+  // persists for the session so the user isn't re-opting-out each time.
+  aiSearchMode: true,
+  aiSearchLoading: false,
+  setAiSearchMode: (v) => set({ aiSearchMode: v }),
+  setAiSearchLoading: (v) => set({ aiSearchLoading: v }),
+
   // AI Insert modal
   aiInsertOpen: false,
   aiInsertLoading: false,
@@ -85,6 +92,7 @@ export const useEditorUIStore = create((set, get) => ({
     findOpen: false,
     findQuery: '',
     findStatus: { query: '', matches: [], index: -1 },
+    aiSearchLoading: false,
     aiInsertOpen: false,
     aiInsertText: '',
     contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false },

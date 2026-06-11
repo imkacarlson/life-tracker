@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useKeepCursorVisible } from '../../hooks/useKeepCursorVisible'
 import { useEditorUIStore } from '../../stores/editorUIStore'
 import FindBar from './FindBar'
@@ -7,6 +7,7 @@ import { ToolbarContext } from './toolbar/ToolbarContext'
 import ToolbarGroup from './toolbar/ToolbarGroup'
 import { CORE_GROUPS, EXTRA_GROUPS } from './toolbar/tools'
 import { useFindBar } from './toolbar/useFindBar'
+import { useAiSearch } from './toolbar/useAiSearch'
 
 function Toolbar({
   editor,
@@ -32,11 +33,50 @@ function Toolbar({
   const findOpen = useEditorUIStore((s) => s.findOpen)
   const findQuery = useEditorUIStore((s) => s.findQuery)
   const findStatus = useEditorUIStore((s) => s.findStatus)
+  const aiSearchMode = useEditorUIStore((s) => s.aiSearchMode)
+  const aiSearchLoading = useEditorUIStore((s) => s.aiSearchLoading)
+  const setAiSearchMode = useEditorUIStore((s) => s.setAiSearchMode)
 
   const findInputRef = useRef(null)
 
   const { openFind, closeFind, handleFindQueryChange, handleFindNext, handleFindPrev } =
     useFindBar({ editor, hasTracker, controlsDisabled, editorPanelRef, findInputRef })
+
+  const { scheduleAiSearch, cancelAiSearch } = useAiSearch({ editor })
+
+  // On query change: always give instant literal feedback (handleFindQueryChange
+  // updates the store + literal highlights). In AI mode, additionally schedule
+  // the debounced semantic search, which replaces the literal matches on settle.
+  const onFindQueryChange = useCallback(
+    (value) => {
+      handleFindQueryChange(value)
+      if (aiSearchMode) {
+        scheduleAiSearch(value)
+      } else {
+        cancelAiSearch()
+      }
+    },
+    [handleFindQueryChange, aiSearchMode, scheduleAiSearch, cancelAiSearch],
+  )
+
+  // Toggling AI mode is one tap. Off = cancel any pending/in-flight request and
+  // immediately revert to literal find for the current query (zero AI calls).
+  const handleToggleAiMode = useCallback(() => {
+    const next = !aiSearchMode
+    setAiSearchMode(next)
+    if (next) {
+      if (findQuery) scheduleAiSearch(findQuery)
+    } else {
+      cancelAiSearch()
+      editor?.commands?.setFindQuery?.(findQuery)
+    }
+  }, [aiSearchMode, setAiSearchMode, findQuery, scheduleAiSearch, cancelAiSearch, editor])
+
+  // Closing the bar must also stop any pending/in-flight AI request.
+  const handleCloseFind = useCallback(() => {
+    cancelAiSearch()
+    closeFind()
+  }, [cancelAiSearch, closeFind])
 
   // Mobile cursor visibility when the toolbar lifts.
   useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef, editorPanelRef })
@@ -124,10 +164,13 @@ function Toolbar({
             inputRef={findInputRef}
             findQuery={findQuery}
             findStatus={findStatus}
-            onFindQueryChange={handleFindQueryChange}
+            aiSearchMode={aiSearchMode}
+            aiSearchLoading={aiSearchLoading}
+            onToggleAiMode={handleToggleAiMode}
+            onFindQueryChange={onFindQueryChange}
             onFindPrev={handleFindPrev}
             onFindNext={handleFindNext}
-            onClose={closeFind}
+            onClose={handleCloseFind}
           />
         )}
       </div>
