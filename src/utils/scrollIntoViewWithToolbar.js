@@ -61,3 +61,74 @@ export function pickScrollSurface(container) {
     getRect: () => ({ top: 0, bottom: window.innerHeight }),
   }
 }
+
+export function getToolbarSafeBottom({ surfaceBottom, toolbarEl, padding = 0 }) {
+  if (!toolbarEl) return surfaceBottom
+  const toolbarRect = toolbarEl.getBoundingClientRect()
+  if (toolbarRect.height <= 0) return surfaceBottom
+  if (toolbarRect.bottom <= padding) return surfaceBottom
+  if (toolbarRect.top >= surfaceBottom) return surfaceBottom
+  return Math.max(padding, Math.min(surfaceBottom, toolbarRect.top))
+}
+
+export function scrollRectIntoViewWithToolbar({
+  rect,
+  container = null,
+  toolbarEl = null,
+  padding = 16,
+}) {
+  if (!rect) return 0
+  const surface = pickScrollSurface(container)
+  const surfaceRect = surface.getRect()
+  const safeBottom = getToolbarSafeBottom({
+    surfaceBottom: surfaceRect.bottom,
+    toolbarEl,
+    padding,
+  })
+  const delta = computeScrollAdjustment({
+    cursorTop: rect.top,
+    cursorBottom: rect.bottom,
+    safeTop: surfaceRect.top,
+    safeBottom,
+    padding,
+  })
+
+  if (delta !== 0) surface.scrollBy({ top: delta })
+  return delta
+}
+
+export function scrollElementIntoViewWithToolbar({
+  element,
+  container = null,
+  toolbarEl = null,
+  padding = 16,
+}) {
+  if (!element) return 0
+  return scrollRectIntoViewWithToolbar({
+    rect: element.getBoundingClientRect(),
+    container,
+    toolbarEl,
+    padding,
+  })
+}
+
+export function scrollSelectionIntoViewWithToolbar({
+  view,
+  container = null,
+  toolbarEl = null,
+  padding = 16,
+}) {
+  if (!view?.state?.selection || !view.coordsAtPos) return 0
+  const resolvedContainer = container ?? view.dom?.closest?.('.editor-panel') ?? null
+  const resolvedToolbar =
+    toolbarEl ??
+    resolvedContainer?.querySelector?.('.toolbar') ??
+    (typeof document !== 'undefined' ? document.querySelector('.toolbar') : null)
+  const coords = view.coordsAtPos(view.state.selection.head)
+  return scrollRectIntoViewWithToolbar({
+    rect: coords,
+    container: resolvedContainer,
+    toolbarEl: resolvedToolbar,
+    padding,
+  })
+}

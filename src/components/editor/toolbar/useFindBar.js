@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { findInDocPluginKey } from '../../../extensions/findInDoc'
 import { useEditorUIStore } from '../../../stores/editorUIStore'
+import { scrollRectIntoViewWithToolbar } from '../../../utils/scrollIntoViewWithToolbar'
 
 /**
  * Owns the FindBar's wiring:
@@ -36,44 +37,40 @@ export function useFindBar({ editor, hasTracker, controlsDisabled, editorPanelRe
     })
   }, [editor, controlsDisabled, setFindOpen, setFindQuery])
 
-  const handleFindQueryChange = useCallback((value) => {
-    setFindQuery(value)
-    editor?.commands?.setFindQuery?.(value)
-  }, [editor, setFindQuery])
-
   const scrollMatchIntoView = useCallback(() => {
     if (!editor) return
     requestAnimationFrame(() => {
       const container = editorPanelRef?.current
       if (!container) return
       const { view } = editor
+      const toolbarEl = container.querySelector('.toolbar')
+      const activeMatch = view.dom.querySelector('.find-match.current, .ai-find-match.current')
+      if (activeMatch) {
+        scrollRectIntoViewWithToolbar({
+          rect: activeMatch.getBoundingClientRect(),
+          container,
+          toolbarEl,
+          padding: 20,
+        })
+        return
+      }
+
       const { from } = view.state.selection
       const coords = view.coordsAtPos(from)
-      const containerRect = container.getBoundingClientRect()
-      const toolbarEl = container.querySelector('.toolbar')
-      const bottomPadding = 50
-
-      const isScrollContainer =
-        container.scrollHeight > container.clientHeight &&
-        getComputedStyle(container).overflowY !== 'visible'
-
-      if (isScrollContainer) {
-        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : containerRect.top
-        if (coords.top < toolbarBottom) {
-          container.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
-        } else if (coords.bottom > containerRect.bottom - bottomPadding) {
-          container.scrollBy({ top: coords.bottom - containerRect.bottom + bottomPadding + 20, behavior: 'instant' })
-        }
-      } else {
-        const toolbarBottom = toolbarEl ? toolbarEl.getBoundingClientRect().bottom : 0
-        if (coords.top < toolbarBottom) {
-          window.scrollBy({ top: -(toolbarBottom - coords.top + 20), behavior: 'instant' })
-        } else if (coords.bottom > window.innerHeight - bottomPadding) {
-          window.scrollBy({ top: coords.bottom - window.innerHeight + bottomPadding + 20, behavior: 'instant' })
-        }
-      }
+      scrollRectIntoViewWithToolbar({
+        rect: coords,
+        container,
+        toolbarEl,
+        padding: 20,
+      })
     })
   }, [editor, editorPanelRef])
+
+  const handleFindQueryChange = useCallback((value) => {
+    setFindQuery(value)
+    editor?.commands?.setFindQuery?.(value)
+    scrollMatchIntoView()
+  }, [editor, setFindQuery, scrollMatchIntoView])
 
   const handleFindNext = useCallback(() => {
     editor?.commands?.findNext?.()
@@ -93,13 +90,15 @@ export function useFindBar({ editor, hasTracker, controlsDisabled, editorPanelRe
     if (!findStorage) return undefined
     findStorage.open = openFind
     findStorage.close = closeFind
+    findStorage.scrollCurrentMatch = scrollMatchIntoView
     return () => {
       if (editor.storage?.findInDoc) {
         editor.storage.findInDoc.open = null
         editor.storage.findInDoc.close = null
+        editor.storage.findInDoc.scrollCurrentMatch = null
       }
     }
-  }, [editor, openFind, closeFind])
+  }, [editor, openFind, closeFind, scrollMatchIntoView])
 
   // Mirror plugin state (matches, index, query) into the store on every txn.
   useEffect(() => {

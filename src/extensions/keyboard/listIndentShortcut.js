@@ -1,6 +1,7 @@
 import { Extension } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { Fragment } from '@tiptap/pm/model'
+import { scrollSelectionIntoViewWithToolbar } from '../../utils/scrollIntoViewWithToolbar'
 
 export const ListIndentShortcut = Extension.create({
   name: 'listIndentShortcut',
@@ -137,6 +138,9 @@ export const ListIndentShortcut = Extension.create({
 
       tr.setSelection(TextSelection.create(tr.doc, selectionPos))
       view.dispatch(tr.scrollIntoView())
+      requestAnimationFrame(() => {
+        scrollSelectionIntoViewWithToolbar({ view, padding: 20 })
+      })
       view.focus()
       return true
     }

@@ -1,3 +1,5 @@
+import { scrollElementIntoViewWithToolbar } from './scrollIntoViewWithToolbar'
+
 export const buildHash = ({ notebookId, sectionId, pageId, blockId }) => {
   const params = new URLSearchParams()
   if (notebookId) params.set('nb', notebookId)
@@ -83,6 +85,17 @@ const applyDeepLinkHighlight = (blockId) => {
   return target
 }
 
+const scrollDeepLinkTargetIntoView = (target) => {
+  const container = target.closest?.('.editor-panel') ?? null
+  const toolbarEl = container?.querySelector?.('.toolbar') ?? document.querySelector('.toolbar')
+  scrollElementIntoViewWithToolbar({
+    element: target,
+    container,
+    toolbarEl,
+    padding: 24,
+  })
+}
+
 export const clearDeepLinkHighlight = () => {
   activeDeepLinkBlockId = null
   clearDeepLinkHighlightInDocument()
@@ -95,7 +108,7 @@ export const scrollToBlock = (blockId, attempts = 0) => {
     activeDeepLinkBlockId = blockId
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        target.scrollIntoView({ behavior: 'auto', block: 'center' })
+        scrollDeepLinkTargetIntoView(target)
       })
     })
     ;[80, 200, 400].forEach((delay) => {
@@ -104,7 +117,7 @@ export const scrollToBlock = (blockId, attempts = 0) => {
         const refreshed = applyDeepLinkHighlight(blockId)
         if (!refreshed) return
         if (delay <= 200) {
-          refreshed.scrollIntoView({ behavior: 'auto', block: 'center' })
+          scrollDeepLinkTargetIntoView(refreshed)
         }
       }, delay)
     })

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
+import { scrollElementIntoViewWithToolbar, scrollRectIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { useContentZoom } from '../hooks/useContentZoom'
 import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
 import { useEditorUIStore } from '../stores/editorUIStore'
@@ -97,7 +98,23 @@ function EditorPanel({
   useEffect(() => {
     if (!editor) return
     const handleFocus = () => {
-      requestAnimationFrame(() => editor.commands.scrollIntoView?.())
+      requestAnimationFrame(() => {
+        editor.commands.scrollIntoView?.()
+        requestAnimationFrame(() => {
+          try {
+            const { head } = editor.state.selection
+            const coords = editor.view.coordsAtPos(head)
+            scrollRectIntoViewWithToolbar({
+              rect: coords,
+              container: editorPanelRef.current,
+              toolbarEl: toolbarRef.current,
+              padding: 20,
+            })
+          } catch {
+            // ProseMirror may not have a measurable selection during teardown.
+          }
+        })
+      })
     }
     editor.on('focus', handleFocus)
     return () => { editor.off('focus', handleFocus) }
@@ -133,7 +150,12 @@ function EditorPanel({
     requestAnimationFrame(() => {
       const insertedElement = document.getElementById(insertedBlockId)
       if (!insertedElement) return
-      insertedElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      scrollElementIntoViewWithToolbar({
+        element: insertedElement,
+        container: editorPanelRef.current,
+        toolbarEl: toolbarRef.current,
+        padding: 24,
+      })
     })
   }
 

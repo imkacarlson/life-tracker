@@ -118,7 +118,15 @@ test.describe('Internal link navigation', () => {
     // 5. Target block element should be in the viewport (scrolled to)
     const targetBlock = page.locator(`[id="${blockId}"]`)
     await expect(targetBlock).toBeVisible({ timeout: 5000 })
-    await expect(targetBlock).toBeInViewport()
+    await expect(async () => {
+      const visibleAboveToolbar = await targetBlock.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const toolbar = document.querySelector('.toolbar')
+        const toolbarTop = toolbar?.getBoundingClientRect().top ?? window.innerHeight
+        return r.top >= 0 && r.bottom <= toolbarTop - 16
+      })
+      expect(visibleAboveToolbar).toBe(true)
+    }).toPass({ timeout: 5000 })
 
     // 6. Click a different paragraph in the editor to dismiss the highlight
     const otherParagraph = page.locator(`.ProseMirror p:not([id="${blockId}"])`).first()

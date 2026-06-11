@@ -1,5 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
+import { scrollSelectionIntoViewWithToolbar } from '../../utils/scrollIntoViewWithToolbar'
 
 export const ArrowMoveToLineEnd = Extension.create({
   name: 'arrowMoveToLineEnd',
@@ -80,6 +81,9 @@ export const ArrowMoveToLineEnd = Extension.create({
         .setSelection(TextSelection.create(state.doc, selectionPos))
         .scrollIntoView()
       view.dispatch(tr)
+      requestAnimationFrame(() => {
+        scrollSelectionIntoViewWithToolbar({ view, padding: 20 })
+      })
       view.focus()
       return true
     }

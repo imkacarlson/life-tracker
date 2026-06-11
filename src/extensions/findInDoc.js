@@ -1,8 +1,24 @@
 import { Extension } from '@tiptap/core'
-import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 export const findInDocPluginKey = new PluginKey('findInDoc')
+
+// Build the selection used to scroll a match into view.
+//
+// Literal matches are inline text ranges, so {from,to} is a valid TextSelection.
+// AI matches are whole-block node ranges; selecting across a node's *outer*
+// boundaries is not a valid inline selection (ProseMirror warns "endpoint not
+// pointing into a node with inline content" inside table cells) and leaves the
+// selection degenerate, so scrollIntoView has nothing to scroll to. For AI
+// matches we snap to a valid position just inside the block instead.
+const selectionForMatch = (doc, match, mode) => {
+  if (mode === 'ai') {
+    const inside = Math.min(match.from + 1, doc.content.size)
+    return Selection.near(doc.resolve(inside), 1)
+  }
+  return TextSelection.create(doc, match.from, match.to)
+}
 
 const normalizeQuery = (input) => {
   if (typeof input !== 'string') return ''
@@ -102,6 +118,7 @@ const FindInDoc = Extension.create({
     return {
       open: null,
       close: null,
+      scrollCurrentMatch: null,
     }
   },
 
@@ -123,6 +140,7 @@ const FindInDoc = Extension.create({
             nextTr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView()
           }
           dispatch(nextTr)
+          if (matches.length > 0) this.storage.scrollCurrentMatch?.()
           return true
         },
       // AI find supplies whole-block ranges (resolved from matching block ids)
@@ -140,10 +158,12 @@ const FindInDoc = Extension.create({
             index,
           })
           if (matches.length > 0) {
-            const { from, to } = matches[0]
-            nextTr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView()
+            nextTr
+              .setSelection(selectionForMatch(state.doc, matches[0], 'ai'))
+              .scrollIntoView()
           }
           dispatch(nextTr)
+          if (matches.length > 0) this.storage.scrollCurrentMatch?.()
           return true
         },
       clearFind:
@@ -162,12 +182,12 @@ const FindInDoc = Extension.create({
           if (!dispatch) return true
           const currentIndex = typeof pluginState?.index === 'number' ? pluginState.index : -1
           const nextIndex = (currentIndex + 1) % matches.length
-          const { from, to } = matches[nextIndex]
           const nextTr = tr
             .setMeta(findInDocPluginKey, { index: nextIndex })
-            .setSelection(TextSelection.create(state.doc, from, to))
+            .setSelection(selectionForMatch(state.doc, matches[nextIndex], pluginState?.mode))
             .scrollIntoView()
           dispatch(nextTr)
+          this.storage.scrollCurrentMatch?.()
           return true
         },
       findPrev:
@@ -179,12 +199,12 @@ const FindInDoc = Extension.create({
           if (!dispatch) return true
           const currentIndex = typeof pluginState?.index === 'number' ? pluginState.index : -1
           const nextIndex = (currentIndex - 1 + matches.length) % matches.length
-          const { from, to } = matches[nextIndex]
           const nextTr = tr
             .setMeta(findInDocPluginKey, { index: nextIndex })
-            .setSelection(TextSelection.create(state.doc, from, to))
+            .setSelection(selectionForMatch(state.doc, matches[nextIndex], pluginState?.mode))
             .scrollIntoView()
           dispatch(nextTr)
+          this.storage.scrollCurrentMatch?.()
           return true
         },
     }

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { computeScrollAdjustment } from '../scrollIntoViewWithToolbar'
+import {
+  computeScrollAdjustment,
+  getToolbarSafeBottom,
+  scrollRectIntoViewWithToolbar,
+} from '../scrollIntoViewWithToolbar'
 
 // Bidirectional scroll math used to keep the cursor in the visible band
 // between the top of a scroll surface and a bottom obstruction such as the
@@ -89,5 +93,50 @@ describe('computeScrollAdjustment', () => {
       padding: 16,
     })
     expect(delta).toBeLessThan(0)
+  })
+})
+
+describe('getToolbarSafeBottom', () => {
+  it('uses the toolbar top when the toolbar overlaps the scroll surface bottom', () => {
+    const toolbarEl = {
+      getBoundingClientRect: () => ({ top: 720, bottom: 852, height: 132 }),
+    }
+
+    expect(getToolbarSafeBottom({ surfaceBottom: 852, toolbarEl, padding: 16 })).toBe(720)
+  })
+
+  it('ignores a toolbar that is outside the scroll surface', () => {
+    const toolbarEl = {
+      getBoundingClientRect: () => ({ top: 900, bottom: 1030, height: 130 }),
+    }
+
+    expect(getToolbarSafeBottom({ surfaceBottom: 852, toolbarEl, padding: 16 })).toBe(852)
+  })
+})
+
+describe('scrollRectIntoViewWithToolbar', () => {
+  it('scrolls a rect above a bottom toolbar', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    globalThis.window = {
+      innerHeight: 852,
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      const toolbarEl = {
+        getBoundingClientRect: () => ({ top: 720, bottom: 852, height: 132 }),
+      }
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 762, bottom: 807 },
+        toolbarEl,
+        padding: 20,
+      })
+
+      expect(delta).toBe(107)
+      expect(scrollCalls).toEqual([{ top: 107, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
   })
 })

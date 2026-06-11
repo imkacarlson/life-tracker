@@ -156,3 +156,130 @@ test.describe('AI Find', () => {
     expect(aiCalls).toBe(0)
   })
 })
+
+// Regression: an AI match whose block lives inside a table cell, below the
+// fold, must scroll into view. The block-range selection used for scrolling
+// must resolve to a valid inline position inside the cell (not the node
+// boundary, which is invalid inside table cells) or scrollIntoView is a no-op.
+const TALL_SEED = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'aifind-delta-top' },
+      content: [{ type: 'text', text: 'Delta Airlines top reference' }],
+    },
+    // Filler to push the table well below the fold.
+    ...Array.from({ length: 40 }, (_, i) => ({
+      type: 'paragraph',
+      attrs: { id: `aifind-filler-${i}` },
+      content: [{ type: 'text', text: `Filler line ${i} with some words to take vertical space` }],
+    })),
+    {
+      type: 'table',
+      attrs: { id: 'aifind-table' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [
+                {
+                  type: 'paragraph',
+                  attrs: { id: 'aifind-delta' },
+                  content: [{ type: 'text', text: 'Delta Airlines: SkyMiles rewards number' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+}
+
+test.describe('AI Find scroll-into-view', () => {
+  let notebookId = null
+  let testPage = null
+
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const nb = await createNotebook(client, userId, `AIFind Scroll ${Date.now()}`)
+    notebookId = nb.id
+    const sec = await createSection(client, userId, nb.id, 'AIFind Scroll Section')
+    testPage = await createPage(client, userId, sec.id, 'AIFind Scroll Page', TALL_SEED)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
+  })
+
+  test('a match inside a table cell below the fold scrolls into view', async ({ page }) => {
+    await page.route('**/functions/v1/ai-find', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { matchIds: ['aifind-delta'] } }),
+      })
+    })
+
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Filler line 0' })
+
+    // The table-cell match starts off-screen (below the fold).
+    const match = page.locator('.ProseMirror #aifind-delta')
+    await expect(match).toHaveCount(1)
+
+    await page.keyboard.press('Control+f')
+    const input = page.locator('.find-input')
+    await expect(input).toBeVisible()
+    await input.fill('the airline loyalty program number')
+
+    await expect(page.locator('.ProseMirror .ai-find-match.current')).toHaveCount(1, { timeout: 5000 })
+
+    // The matched cell must be scrolled into the viewport (above the toolbar).
+    await expect(async () => {
+      const visible = await match.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const toolbar = document.querySelector('.toolbar')
+        const toolbarTop = toolbar?.getBoundingClientRect().top ?? window.innerHeight
+        return r.top >= 0 && r.bottom <= toolbarTop - 16
+      })
+      expect(visible).toBe(true)
+    }).toPass({ timeout: 5000 })
+  })
+
+  test('literal Find Next keeps the current highlight above the mobile toolbar', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'Mobile toolbar coverage regression')
+
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Delta Airlines top reference' })
+
+    await page.keyboard.press('Control+f')
+    const toggle = page.getByRole('button', { name: 'AI', exact: true })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    const input = page.locator('.find-input')
+    await expect(input).toBeVisible()
+    await input.fill('Delta')
+    await expect(page.locator('.find-count')).toHaveText('1 of 2')
+
+    await page.evaluate(() => window.scrollTo(0, 2900))
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.locator('.find-count')).toHaveText('2 of 2')
+
+    const current = page.locator('.ProseMirror .find-match.current')
+    await expect(current).toHaveCount(1)
+    await expect(async () => {
+      const visibleAboveToolbar = await current.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const toolbar = document.querySelector('.toolbar')
+        const toolbarTop = toolbar?.getBoundingClientRect().top ?? window.innerHeight
+        return r.top >= 0 && r.bottom <= toolbarTop - 16
+      })
+      expect(visibleAboveToolbar).toBe(true)
+    }).toPass({ timeout: 5000 })
+  })
+})
