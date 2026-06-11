@@ -995,7 +995,7 @@ export const TOOL_DEFINITIONS = {
  * desktop by the renderer.
  */
 export const CORE_GROUPS = [
-  { id: 'core-inline', tools: ['bold', 'italic', 'h1', 'bulletList', 'outdent', 'indent'] },
+  { id: 'core-inline', tools: ['bold', 'italic', 'strike', 'h1', 'bulletList', 'outdent', 'indent'] },
   { id: 'core-link-undo', tools: ['link', 'undo'] },
 ]
 
@@ -1004,7 +1004,7 @@ export const CORE_GROUPS = [
  * Order is verbatim from the legacy Toolbar.jsx render path.
  */
 export const EXTRA_GROUPS = [
-  { id: 'extra-text', tools: ['underline', 'strike', 'highlight', 'textColor'] },
+  { id: 'extra-text', tools: ['underline', 'highlight', 'textColor'] },
   { id: 'extra-headings', tools: ['h2', 'orderedList', 'taskList'] },
   { id: 'extra-align', tools: ['alignLeft', 'alignCenter', 'alignRight'] },
   { separator: true, id: 'sep-1' },
