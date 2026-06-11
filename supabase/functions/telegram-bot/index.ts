@@ -113,7 +113,7 @@ bot.on('message:text', async (ctx) => {
         let reply: string
         if (result.ok) {
           await deleteJob(supabase, pendingJob.id)
-          reply = `Added ✅\n${result.deepLink}`
+          reply = `Added ✅ — [Open in tracker](${result.deepLink})`
         } else if (result.reason === 'anchor_missing') {
           await deleteJob(supabase, pendingJob.id)
           reply =
