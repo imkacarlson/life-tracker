@@ -5,6 +5,7 @@ import {
   createSection,
   createPage,
   deleteNotebookById,
+  isElementStartInEditorSafeView,
   waitForApp,
 } from './test-helpers'
 
@@ -239,19 +240,10 @@ test.describe('AI Find scroll-into-view', () => {
 
     await expect(page.locator('.ProseMirror .ai-find-match.current')).toHaveCount(1, { timeout: 5000 })
 
-    // The matched cell must be scrolled into the viewport and clear of the
-    // toolbar — whether the toolbar is sticky at the top (desktop) or fixed at
-    // the bottom (mobile). The single chrome-aware scroll handles both.
+    // The matched block start must be scrolled into the editor's safe visible
+    // band, clear of either a sticky top toolbar or fixed bottom toolbar.
     await expect(async () => {
-      const visible = await match.evaluate((el) => {
-        const r = el.getBoundingClientRect()
-        const toolbar = document.querySelector('.toolbar')
-        const tb = toolbar?.getBoundingClientRect()
-        const inViewport = r.top >= 0 && r.bottom <= window.innerHeight
-        if (!tb) return inViewport
-        const clearOfToolbar = r.bottom <= tb.top + 1 || r.top >= tb.bottom - 1
-        return inViewport && clearOfToolbar
-      })
+      const visible = await isElementStartInEditorSafeView(match)
       expect(visible).toBe(true)
     }).toPass({ timeout: 5000 })
   })

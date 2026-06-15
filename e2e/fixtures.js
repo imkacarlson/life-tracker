@@ -127,7 +127,8 @@ export const test = base.extend({
     // `provide` is Playwright's fixture callback (passed positionally); it is
     // not React's `use` hook. Naming it `provide` avoids react-hooks/rules-of-hooks
     // false positives, and the named first param avoids no-empty-pattern.
-    async (_fixtures, provide, testInfo) => {
+    async ({ baseURL }, provide, testInfo) => {
+      void baseURL
       if (testInfo.project.name === 'setup') {
         await provide()
         return

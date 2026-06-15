@@ -6,6 +6,7 @@ import {
   createSection,
   deleteNotebookById,
   getSupabase,
+  isElementStartInEditorSafeView,
   waitForApp,
 } from './test-helpers'
 
@@ -119,13 +120,8 @@ test.describe('Internal link navigation', () => {
     const targetBlock = page.locator(`[id="${blockId}"]`)
     await expect(targetBlock).toBeVisible({ timeout: 5000 })
     await expect(async () => {
-      const visibleAboveToolbar = await targetBlock.evaluate((el) => {
-        const r = el.getBoundingClientRect()
-        const toolbar = document.querySelector('.toolbar')
-        const toolbarTop = toolbar?.getBoundingClientRect().top ?? window.innerHeight
-        return r.top >= 0 && r.bottom <= toolbarTop - 16
-      })
-      expect(visibleAboveToolbar).toBe(true)
+      const visible = await isElementStartInEditorSafeView(targetBlock)
+      expect(visible).toBe(true)
     }).toPass({ timeout: 5000 })
 
     // 6. Click a different paragraph in the editor to dismiss the highlight
