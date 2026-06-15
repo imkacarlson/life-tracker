@@ -95,19 +95,9 @@ const restoreSnapshot = async (snapshot) => {
     .map((row) => row.id)
     .filter((id) => !baselineNotebookIds.has(id))
 
-  if (snapshot.notebooks.length > 0) {
-    const { error } = await supabase.from('notebooks').upsert(snapshot.notebooks, { onConflict: 'id' })
-    if (error) throw error
-  }
-  if (snapshot.sections.length > 0) {
-    const { error } = await supabase.from('sections').upsert(snapshot.sections, { onConflict: 'id' })
-    if (error) throw error
-  }
-  if (snapshot.pages.length > 0) {
-    const { error } = await supabase.from('pages').upsert(snapshot.pages, { onConflict: 'id' })
-    if (error) throw error
-  }
-
+  // Remove test-created rows before restoring the baseline. Some app flows
+  // delete sections/notebooks and rely on cascade behavior; running those
+  // deletes after baseline upserts can race later tests into missing parents.
   if (extraPageIds.length > 0) {
     const { error } = await supabase.from('pages').delete().in('id', extraPageIds)
     if (error) throw error
@@ -118,6 +108,19 @@ const restoreSnapshot = async (snapshot) => {
   }
   if (extraNotebookIds.length > 0) {
     const { error } = await supabase.from('notebooks').delete().in('id', extraNotebookIds)
+    if (error) throw error
+  }
+
+  if (snapshot.notebooks.length > 0) {
+    const { error } = await supabase.from('notebooks').upsert(snapshot.notebooks, { onConflict: 'id' })
+    if (error) throw error
+  }
+  if (snapshot.sections.length > 0) {
+    const { error } = await supabase.from('sections').upsert(snapshot.sections, { onConflict: 'id' })
+    if (error) throw error
+  }
+  if (snapshot.pages.length > 0) {
+    const { error } = await supabase.from('pages').upsert(snapshot.pages, { onConflict: 'id' })
     if (error) throw error
   }
 }
