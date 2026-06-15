@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TOOL_DEFINITIONS, CORE_GROUPS, EXTRA_GROUPS } from '../tools'
+import { TOOL_DEFINITIONS, CORE_GROUPS, EXTRA_GROUPS } from '../toolRegistry'
 
 describe('toolbar tool registry', () => {
   const allGroupToolIds = [...CORE_GROUPS, ...EXTRA_GROUPS]

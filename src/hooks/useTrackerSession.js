@@ -63,6 +63,7 @@ export function useTrackerSession({
 
     if (syncStatus === 'idle') {
       lastHydratedSessionKeyRef.current = null
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session state when sync transitions to idle
       setSession({
         id: sessionKey,
         trackerId: null,

@@ -65,6 +65,7 @@ export function useMobileToolbarTransform({ enabled, toolbarRef }) {
       if (rafId !== null) cancelAnimationFrame(rafId)
       viewport.removeEventListener('resize', schedule)
       viewport.removeEventListener('scroll', schedule)
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- reading toolbarRef.current in cleanup is intentional: we reset whatever node is current
       const toolbar = toolbarRef.current
       if (toolbar) toolbar.style.transform = ''
     }

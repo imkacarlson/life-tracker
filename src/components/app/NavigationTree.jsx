@@ -129,6 +129,7 @@ function NavigationTree({
         return [...new Set(prevSet).add(activeNotebookId)]
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires only when activeNotebookId changes; setter is stable
   }, [activeNotebookId])
 
   useEffect(() => {
@@ -139,6 +140,7 @@ function NavigationTree({
         return [...new Set(prevSet).add(activeSectionId)]
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires only when activeSectionId changes; setter is stable
   }, [activeSectionId])
 
   const handleOpenContextMenu = (type, item) => (event) => {

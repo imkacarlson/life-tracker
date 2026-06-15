@@ -60,6 +60,7 @@ export function useFindBar({ editor, hasTracker, controlsDisabled, findInputRef 
     if (!editor) return undefined
     const findStorage = editor.storage.findInDoc
     if (!findStorage) return undefined
+    // eslint-disable-next-line react-hooks/immutability -- Tiptap's prescribed mutable editor.storage bridge (see comment above)
     findStorage.open = openFind
     findStorage.close = closeFind
     return () => {
