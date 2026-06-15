@@ -1,4 +1,4 @@
-import { TOOL_DEFINITIONS } from './tools'
+import { TOOL_DEFINITIONS } from './toolRegistry'
 import { useToolbarContext } from './ToolbarContext'
 
 /**

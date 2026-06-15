@@ -5,7 +5,7 @@ import FindBar from './FindBar'
 import ToolButton from './ToolButton'
 import { ToolbarContext } from './toolbar/ToolbarContext'
 import ToolbarGroup from './toolbar/ToolbarGroup'
-import { CORE_GROUPS, EXTRA_GROUPS } from './toolbar/tools'
+import { CORE_GROUPS, EXTRA_GROUPS } from './toolbar/toolRegistry'
 import { useFindBar } from './toolbar/useFindBar'
 import { useAiSearch } from './toolbar/useAiSearch'
 
