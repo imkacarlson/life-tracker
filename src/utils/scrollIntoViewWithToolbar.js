@@ -62,13 +62,44 @@ export function pickScrollSurface(container) {
   }
 }
 
-export function getToolbarSafeBottom({ surfaceBottom, toolbarEl, padding = 0 }) {
-  if (!toolbarEl) return surfaceBottom
+/**
+ * Decide how a toolbar (or any fixed/sticky chrome) shrinks the safe band of a
+ * scroll surface. The toolbar can live at the *top* of the surface (desktop:
+ * `position: sticky; top: 0`) or at the *bottom* (mobile: `position: fixed;
+ * bottom: 0`). We compare the toolbar's center to the surface's center to figure
+ * out which edge it obstructs, then pull that edge inward.
+ *
+ * - Top obstruction    → raise safeTop to the toolbar's bottom edge.
+ * - Bottom obstruction → lower safeBottom to the toolbar's top edge.
+ *
+ * A toolbar that is missing, has zero height, or sits entirely outside the
+ * surface is ignored (safe band unchanged).
+ *
+ * @param {{ surfaceTop: number, surfaceBottom: number, toolbarEl: HTMLElement | null, padding?: number }} params
+ * @returns {{ safeTop: number, safeBottom: number }}
+ */
+export function getToolbarSafeBounds({ surfaceTop, surfaceBottom, toolbarEl }) {
+  let safeTop = surfaceTop
+  let safeBottom = surfaceBottom
+  if (!toolbarEl) return { safeTop, safeBottom }
+
   const toolbarRect = toolbarEl.getBoundingClientRect()
-  if (toolbarRect.height <= 0) return surfaceBottom
-  if (toolbarRect.bottom <= padding) return surfaceBottom
-  if (toolbarRect.top >= surfaceBottom) return surfaceBottom
-  return Math.max(padding, Math.min(surfaceBottom, toolbarRect.top))
+  if (toolbarRect.height <= 0) return { safeTop, safeBottom }
+  // Toolbar entirely above or below the surface → it obstructs nothing.
+  if (toolbarRect.bottom <= surfaceTop) return { safeTop, safeBottom }
+  if (toolbarRect.top >= surfaceBottom) return { safeTop, safeBottom }
+
+  const surfaceCenter = (surfaceTop + surfaceBottom) / 2
+  const toolbarCenter = (toolbarRect.top + toolbarRect.bottom) / 2
+
+  if (toolbarCenter < surfaceCenter) {
+    // Toolbar is in the upper half → it covers the top of the surface.
+    safeTop = Math.min(surfaceBottom, Math.max(surfaceTop, toolbarRect.bottom))
+  } else {
+    // Toolbar is in the lower half → it covers the bottom of the surface.
+    safeBottom = Math.max(surfaceTop, Math.min(surfaceBottom, toolbarRect.top))
+  }
+  return { safeTop, safeBottom }
 }
 
 export function scrollRectIntoViewWithToolbar({
@@ -80,15 +111,15 @@ export function scrollRectIntoViewWithToolbar({
   if (!rect) return 0
   const surface = pickScrollSurface(container)
   const surfaceRect = surface.getRect()
-  const safeBottom = getToolbarSafeBottom({
+  const { safeTop, safeBottom } = getToolbarSafeBounds({
+    surfaceTop: surfaceRect.top,
     surfaceBottom: surfaceRect.bottom,
     toolbarEl,
-    padding,
   })
   const delta = computeScrollAdjustment({
     cursorTop: rect.top,
     cursorBottom: rect.bottom,
-    safeTop: surfaceRect.top,
+    safeTop,
     safeBottom,
     padding,
   })

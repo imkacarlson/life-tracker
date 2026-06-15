@@ -127,6 +127,10 @@
      behind it. --toolbar-height is written by a ResizeObserver in Toolbar.jsx. */
   .editor-panel {
     padding-bottom: calc(var(--toolbar-height, 52px) + env(safe-area-inset-bottom, 0px));
+    /* On mobile the toolbar is at the bottom, so native scrollIntoView should
+       clear it from below — not from the top (overrides editor.css). */
+    scroll-padding-top: 0;
+    scroll-padding-bottom: calc(var(--toolbar-height, 52px) + env(safe-area-inset-bottom, 0px));
   }
 
   /* Pickers open upward on mobile */

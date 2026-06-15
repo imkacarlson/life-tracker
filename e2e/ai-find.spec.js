@@ -239,13 +239,18 @@ test.describe('AI Find scroll-into-view', () => {
 
     await expect(page.locator('.ProseMirror .ai-find-match.current')).toHaveCount(1, { timeout: 5000 })
 
-    // The matched cell must be scrolled into the viewport (above the toolbar).
+    // The matched cell must be scrolled into the viewport and clear of the
+    // toolbar — whether the toolbar is sticky at the top (desktop) or fixed at
+    // the bottom (mobile). The single chrome-aware scroll handles both.
     await expect(async () => {
       const visible = await match.evaluate((el) => {
         const r = el.getBoundingClientRect()
         const toolbar = document.querySelector('.toolbar')
-        const toolbarTop = toolbar?.getBoundingClientRect().top ?? window.innerHeight
-        return r.top >= 0 && r.bottom <= toolbarTop - 16
+        const tb = toolbar?.getBoundingClientRect()
+        const inViewport = r.top >= 0 && r.bottom <= window.innerHeight
+        if (!tb) return inViewport
+        const clearOfToolbar = r.bottom <= tb.top + 1 || r.top >= tb.bottom - 1
+        return inViewport && clearOfToolbar
       })
       expect(visible).toBe(true)
     }).toPass({ timeout: 5000 })
@@ -280,6 +285,43 @@ test.describe('AI Find scroll-into-view', () => {
         return r.top >= 0 && r.bottom <= toolbarTop - 16
       })
       expect(visibleAboveToolbar).toBe(true)
+    }).toPass({ timeout: 5000 })
+  })
+
+  test('desktop Find Next keeps the current highlight below the sticky toolbar', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'Desktop sticky top-toolbar coverage')
+
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Delta Airlines top reference' })
+
+    await page.keyboard.press('Control+f')
+    const toggle = page.getByRole('button', { name: 'AI', exact: true })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    const input = page.locator('.find-input')
+    await expect(input).toBeVisible()
+    await input.fill('Delta')
+    await expect(page.locator('.find-count')).toHaveText('1 of 2')
+
+    // Scroll the panel so the next match starts off-screen, then jump to it.
+    await page.locator('.editor-panel').evaluate((el) => el.scrollTo(0, el.scrollHeight))
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.locator('.find-count')).toHaveText('2 of 2')
+
+    const current = page.locator('.ProseMirror .find-match.current')
+    await expect(current).toHaveCount(1)
+    // The match must be visible and clear of the sticky toolbar — i.e. fully
+    // below the toolbar's bottom edge, not hidden behind/above it.
+    await expect(async () => {
+      const visibleBelowToolbar = await current.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const toolbar = document.querySelector('.toolbar')
+        const tb = toolbar?.getBoundingClientRect()
+        const inViewport = r.top >= 0 && r.bottom <= window.innerHeight
+        if (!tb) return inViewport
+        return inViewport && r.top >= tb.bottom - 1
+      })
+      expect(visibleBelowToolbar).toBe(true)
     }).toPass({ timeout: 5000 })
   })
 })

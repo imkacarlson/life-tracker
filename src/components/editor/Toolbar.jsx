@@ -40,7 +40,7 @@ function Toolbar({
   const findInputRef = useRef(null)
 
   const { openFind, closeFind, handleFindQueryChange, handleFindNext, handleFindPrev } =
-    useFindBar({ editor, hasTracker, controlsDisabled, editorPanelRef, findInputRef })
+    useFindBar({ editor, hasTracker, controlsDisabled, findInputRef })
 
   const { scheduleAiSearch, cancelAiSearch } = useAiSearch({ editor })
 

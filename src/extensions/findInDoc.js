@@ -118,7 +118,6 @@ const FindInDoc = Extension.create({
     return {
       open: null,
       close: null,
-      scrollCurrentMatch: null,
     }
   },
 
@@ -140,7 +139,6 @@ const FindInDoc = Extension.create({
             nextTr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView()
           }
           dispatch(nextTr)
-          if (matches.length > 0) this.storage.scrollCurrentMatch?.()
           return true
         },
       // AI find supplies whole-block ranges (resolved from matching block ids)
@@ -163,7 +161,6 @@ const FindInDoc = Extension.create({
               .scrollIntoView()
           }
           dispatch(nextTr)
-          if (matches.length > 0) this.storage.scrollCurrentMatch?.()
           return true
         },
       clearFind:
@@ -187,7 +184,6 @@ const FindInDoc = Extension.create({
             .setSelection(selectionForMatch(state.doc, matches[nextIndex], pluginState?.mode))
             .scrollIntoView()
           dispatch(nextTr)
-          this.storage.scrollCurrentMatch?.()
           return true
         },
       findPrev:
@@ -204,7 +200,6 @@ const FindInDoc = Extension.create({
             .setSelection(selectionForMatch(state.doc, matches[nextIndex], pluginState?.mode))
             .scrollIntoView()
           dispatch(nextTr)
-          this.storage.scrollCurrentMatch?.()
           return true
         },
     }

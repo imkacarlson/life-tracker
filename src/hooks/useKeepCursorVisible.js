@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import {
   computeScrollAdjustment,
-  getToolbarSafeBottom,
+  getToolbarSafeBounds,
   pickScrollSurface,
 } from '../utils/scrollIntoViewWithToolbar'
 
@@ -71,16 +71,16 @@ export function useKeepCursorVisible({
 
       const surface = pickScrollSurface(editorPanelRef?.current ?? null)
       const surfaceRect = surface.getRect()
-      const safeBottom = getToolbarSafeBottom({
+      const { safeTop, safeBottom } = getToolbarSafeBounds({
+        surfaceTop: surfaceRect.top,
         surfaceBottom: surfaceRect.bottom,
         toolbarEl,
-        padding,
       })
 
       const delta = computeScrollAdjustment({
         cursorTop,
         cursorBottom,
-        safeTop: surfaceRect.top,
+        safeTop,
         safeBottom,
         padding,
       })

@@ -7,6 +7,12 @@
   flex: 1;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  /* Native backstop for browser/element scrollIntoView (deep links, anchor
+     focus): keep targets clear of the sticky top toolbar. The JS
+     handleScrollToSelection override stays primary; this is defense-in-depth.
+     --toolbar-height is published on mobile (bottom toolbar) where the top
+     padding is reset to 0 and a bottom padding is used instead (responsive.css). */
+  scroll-padding-top: var(--toolbar-height, 52px);
 }
 
 .editor-panel::-webkit-scrollbar {
