@@ -146,6 +146,7 @@ export const useSections = (userId, activeNotebookId) => {
   useEffect(() => {
     if (!userId) {
       loadRequestIdRef.current += 1
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset section state when the userId prop clears (logout)
       setSections([])
       setActiveSectionId(null)
       setSectionsLoading(false)
@@ -158,6 +159,7 @@ export const useSections = (userId, activeNotebookId) => {
   // When the active notebook changes, pick the right section from already-loaded data
   useEffect(() => {
     if (!activeNotebookId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset active section when the activeNotebookId prop clears
       setActiveSectionId(null)
       return
     }

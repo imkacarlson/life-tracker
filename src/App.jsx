@@ -357,6 +357,7 @@ function App() {
       }
       clearBlockAnchorIfPresent()
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- suppressFocusRef is a stable ref deliberately omitted; including it is a no-op
     [clearBlockAnchorIfPresent, setTouchNavigationGuardValue],
   )
   const handleAppPointerCancelCapture = useCallback(() => {

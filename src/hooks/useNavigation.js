@@ -156,6 +156,7 @@ export const useNavigation = ({
 
   useEffect(() => {
     if (!session) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset nav state when the session prop transitions to null
       clearPendingTarget()
       setInitialNavReady(false)
       return
@@ -208,6 +209,7 @@ export const useNavigation = ({
     if (step.type === 'wait') return
 
     if (step.type === 'missing') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- transition nav state when the resolved target is missing
       clearPendingTarget()
       setInitialNavReady(true)
       return

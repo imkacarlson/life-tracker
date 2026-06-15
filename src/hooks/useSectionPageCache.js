@@ -27,6 +27,7 @@ export function useSectionPageCache(userId) {
     userIdRef.current = userId
     if (userId) return
     inFlightBySectionRef.current = {}
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset cache when the userId prop changes (sign-out/user switch)
     setSectionPageCache({})
   }, [userId])
 

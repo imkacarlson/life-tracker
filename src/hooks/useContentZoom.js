@@ -203,6 +203,7 @@ export function useContentZoom(shellRef, isTouchOnly) {
     // Also check immediately in case content is already loaded
     const wrapper = el.querySelector('.tableWrapper')
     if (wrapper && wrapper.scrollWidth > wrapper.clientWidth) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time derive of UI hint from observed overflow on mount
       setShowHint(true)
       observer.disconnect()
       scheduleAutoDismiss()

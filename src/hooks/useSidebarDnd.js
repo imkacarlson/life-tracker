@@ -84,6 +84,7 @@ export function useSidebarDnd({
     onReorderSections,
     onReorderPages,
   })
+  // eslint-disable-next-line react-hooks/refs -- latest-value ref so dnd-kit handlers avoid stale closures
   latestRef.current = {
     notebooks,
     sections,
