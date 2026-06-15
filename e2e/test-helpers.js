@@ -1,3 +1,4 @@
+/* global process */
 // Shared test helpers for self-contained E2E seed data.
 // Each test creates its own notebooks/sections/pages in beforeAll
 // and the isolateSupabaseData fixture in fixtures.js handles cleanup.
@@ -482,3 +483,26 @@ export const ensureToolbarExpanded = async (page) => {
 
   await expect(toolbar).toHaveAttribute('data-expanded', 'true', { timeout: 5000 })
 }
+
+export const isElementStartInEditorSafeView = async (locator) =>
+  locator.evaluate((el) => {
+    const rect = el.getBoundingClientRect()
+    const panel = el.closest('.editor-panel') ?? document.querySelector('.editor-panel')
+    const panelRect = panel?.getBoundingClientRect()
+    let safeTop = Math.max(0, panelRect?.top ?? 0)
+    let safeBottom = Math.min(window.innerHeight, panelRect?.bottom ?? window.innerHeight)
+
+    const toolbar = document.querySelector('.toolbar')
+    const toolbarRect = toolbar?.getBoundingClientRect()
+    if (toolbarRect && toolbarRect.height > 0) {
+      const overlapsSafeBand = toolbarRect.bottom > safeTop && toolbarRect.top < safeBottom
+      if (overlapsSafeBand) {
+        const overlapsTopEdge = toolbarRect.top <= safeTop + 1
+        const overlapsBottomEdge = toolbarRect.bottom >= safeBottom - 1
+        if (overlapsTopEdge) safeTop = Math.max(safeTop, toolbarRect.bottom)
+        if (overlapsBottomEdge) safeBottom = Math.min(safeBottom, toolbarRect.top)
+      }
+    }
+
+    return rect.top >= safeTop - 1 && rect.top <= safeBottom - 1
+  })

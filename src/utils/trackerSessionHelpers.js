@@ -19,7 +19,7 @@ export function computeSessionMode(settingsMode, activeTrackerId) {
  * The hook upgrades 'pending-hydration' to 'ready' after hydration completes.
  * @returns {'idle'|'loading'|'pending-hydration'}
  */
-export function computeSessionStatusSync(mode, activeTracker, _dataLoading) {
+export function computeSessionStatusSync(mode, activeTracker) {
   if (mode === 'idle' || mode === 'settings') return 'idle'
   if (mode === 'template') return 'pending-hydration'
   // mode === 'tracker'

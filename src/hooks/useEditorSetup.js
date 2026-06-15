@@ -38,19 +38,17 @@ import {
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
 import { HighlightPreserve } from '../extensions/highlightPreserve'
+import { scrollSelectionIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { usePasteAlignFix } from './usePasteAlignFix'
 import { useEditorFocusRecovery } from './useEditorFocusRecovery'
 
 export const useEditorSetup = ({
-  authSession,
   trackerSession,
   sessionKey,
   scheduleSave,
   scheduleSettingsSave,
   pendingEditTapRef,
-  touchNavigationGuardRef,
   touchNavigationGuard,
-  setTouchNavigationGuard,
   onNavigateHash,
   uploadImageRef,
   deepLinkFocusGuard,
@@ -136,6 +134,14 @@ export const useEditorSetup = ({
       content: trackerSession.content ?? EMPTY_DOC,
       editorProps: {
         attributes: { class: 'editor-content' },
+        // Route *every* selection-driven scroll (typing, arrows, find's
+        // setSelection().scrollIntoView(), etc.) through our single chrome-aware
+        // scroll. Returning true suppresses ProseMirror's native scroll-into-view
+        // so the two never compete (no double-scroll "clank").
+        handleScrollToSelection: (view) => {
+          scrollSelectionIntoViewWithToolbar({ view, padding: 20 })
+          return true
+        },
         transformPasted: (slice) => {
           pasteInfoRef.current = {
             ...pasteInfoRef.current,

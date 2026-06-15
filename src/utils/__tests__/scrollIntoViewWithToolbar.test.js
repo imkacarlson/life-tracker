@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeScrollAdjustment,
-  getToolbarSafeBottom,
+  getToolbarSafeBounds,
   scrollRectIntoViewWithToolbar,
 } from '../scrollIntoViewWithToolbar'
 
@@ -96,26 +96,65 @@ describe('computeScrollAdjustment', () => {
   })
 })
 
-describe('getToolbarSafeBottom', () => {
-  it('uses the toolbar top when the toolbar overlaps the scroll surface bottom', () => {
+describe('getToolbarSafeBounds', () => {
+  it('lowers safeBottom to the toolbar top for a bottom toolbar (mobile)', () => {
+    // Toolbar sits in the lower half of the surface → obstructs the bottom.
     const toolbarEl = {
       getBoundingClientRect: () => ({ top: 720, bottom: 852, height: 132 }),
     }
 
-    expect(getToolbarSafeBottom({ surfaceBottom: 852, toolbarEl, padding: 16 })).toBe(720)
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 0, surfaceBottom: 852, toolbarEl }),
+    ).toEqual({ safeTop: 0, safeBottom: 720 })
   })
 
-  it('ignores a toolbar that is outside the scroll surface', () => {
+  it('raises safeTop to the toolbar bottom for a top toolbar (desktop sticky)', () => {
+    // Toolbar sits in the upper half of the surface → obstructs the top.
+    const toolbarEl = {
+      getBoundingClientRect: () => ({ top: 0, bottom: 48, height: 48 }),
+    }
+
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 0, surfaceBottom: 900, toolbarEl }),
+    ).toEqual({ safeTop: 48, safeBottom: 900 })
+  })
+
+  it('leaves the band untouched when there is no toolbar', () => {
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 10, surfaceBottom: 800, toolbarEl: null }),
+    ).toEqual({ safeTop: 10, safeBottom: 800 })
+  })
+
+  it('ignores a zero-height toolbar', () => {
+    const toolbarEl = {
+      getBoundingClientRect: () => ({ top: 0, bottom: 0, height: 0 }),
+    }
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 0, surfaceBottom: 800, toolbarEl }),
+    ).toEqual({ safeTop: 0, safeBottom: 800 })
+  })
+
+  it('ignores a toolbar entirely below the surface', () => {
     const toolbarEl = {
       getBoundingClientRect: () => ({ top: 900, bottom: 1030, height: 130 }),
     }
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 0, surfaceBottom: 852, toolbarEl }),
+    ).toEqual({ safeTop: 0, safeBottom: 852 })
+  })
 
-    expect(getToolbarSafeBottom({ surfaceBottom: 852, toolbarEl, padding: 16 })).toBe(852)
+  it('ignores a toolbar entirely above the surface', () => {
+    const toolbarEl = {
+      getBoundingClientRect: () => ({ top: -130, bottom: -10, height: 120 }),
+    }
+    expect(
+      getToolbarSafeBounds({ surfaceTop: 0, surfaceBottom: 852, toolbarEl }),
+    ).toEqual({ safeTop: 0, safeBottom: 852 })
   })
 })
 
 describe('scrollRectIntoViewWithToolbar', () => {
-  it('scrolls a rect above a bottom toolbar', () => {
+  it('scrolls a rect above a bottom toolbar (mobile)', () => {
     const originalWindow = globalThis.window
     const scrollCalls = []
     globalThis.window = {
@@ -135,6 +174,59 @@ describe('scrollRectIntoViewWithToolbar', () => {
 
       expect(delta).toBe(107)
       expect(scrollCalls).toEqual([{ top: 107, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
+  })
+
+  it('scrolls a rect down below a sticky top toolbar (desktop)', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    globalThis.window = {
+      innerHeight: 900,
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      // Desktop: sticky toolbar at the top of the surface. A match tucked just
+      // under it must scroll *down* (negative delta) to clear the toolbar.
+      const toolbarEl = {
+        getBoundingClientRect: () => ({ top: 0, bottom: 48, height: 48 }),
+      }
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 50, bottom: 70 },
+        toolbarEl,
+        padding: 20,
+      })
+
+      // safeTop = 48; topEdge = 48 + 20 = 68; cursorTop 50 < 68 → delta 50 - 68 = -18
+      expect(delta).toBe(-18)
+      expect(scrollCalls).toEqual([{ top: -18, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
+  })
+
+  it('is a no-op when the target is already comfortably visible', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    globalThis.window = {
+      innerHeight: 900,
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      const toolbarEl = {
+        getBoundingClientRect: () => ({ top: 0, bottom: 48, height: 48 }),
+      }
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 400, bottom: 420 },
+        toolbarEl,
+        padding: 20,
+      })
+
+      expect(delta).toBe(0)
+      expect(scrollCalls).toEqual([])
     } finally {
       globalThis.window = originalWindow
     }

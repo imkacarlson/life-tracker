@@ -215,7 +215,7 @@ export const useNotebooks = (userId) => {
         .insert({ title: 'General', user_id: session.user.id, notebook_id: nb.id, sort_order: 0 })
       if (sectionError) console.error('Failed to create default Recipes section:', sectionError.message)
     })()
-  }, [userId, notebooks]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId, notebooks])  
 
   return {
     notebooks,

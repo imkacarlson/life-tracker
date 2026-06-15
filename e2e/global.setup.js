@@ -1,3 +1,4 @@
+/* global process */
 import fs from 'fs/promises'
 import path from 'path'
 import { getSupabase, purgeTestUserData } from './test-helpers'

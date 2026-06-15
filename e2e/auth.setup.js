@@ -1,3 +1,4 @@
+/* global process */
 import { test as setup } from '@playwright/test'
 import { config } from 'dotenv'
 import path from 'path'

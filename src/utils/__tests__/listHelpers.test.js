@@ -21,7 +21,7 @@ const schema = new Schema({
   },
 })
 
-const { doc, paragraph, text, bulletList, orderedList, taskList, listItem, taskItem } = schema.nodes
+const { doc, paragraph, bulletList, orderedList, taskList, listItem, taskItem } = schema.nodes
 
 // Helpers to build doc fragments concisely
 const p = (...children) =>

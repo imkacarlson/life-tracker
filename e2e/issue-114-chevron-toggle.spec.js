@@ -15,7 +15,6 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
   let sectionA = null
   let sectionB = null
   let pageA = null
-  let pageB = null
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
@@ -27,7 +26,8 @@ test.describe('Issue #114 chevron toggle expand/collapse', () => {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Alpha content' }] }],
     })
-    pageB = await createPage(client, userId, sectionB.id, 'Page Beta', {
+    // Created for its side effect (seed data); the returned page is unused.
+    await createPage(client, userId, sectionB.id, 'Page Beta', {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Beta content' }] }],
     })

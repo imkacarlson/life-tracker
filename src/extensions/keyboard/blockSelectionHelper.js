@@ -52,7 +52,6 @@ export const getBlockTextRange = (state) => {
 
 export const expandSelectionToBlock = (editor) => {
   const { state, view } = editor
-  const { from, to } = state.selection
 
   const range = getBlockTextRange(state)
   if (!range) return false

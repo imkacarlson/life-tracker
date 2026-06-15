@@ -69,13 +69,13 @@ function EditorPanel({
     aiInsertOpen, setAiInsertOpen,
     aiInsertLoading, setAiInsertLoading,
     aiInsertText, setAiInsertText,
-    inTable, setInTable,
+    setInTable,
     currentBlockId, setCurrentBlockId,
     contextMenu, setContextMenu,
     submenuOpen, setSubmenuOpen,
     submenuDirection, setSubmenuDirection,
     highlightColor, setHighlightColor,
-    shadingColor, setShadingColor,
+    setShadingColor,
     setTextColor,
     resetOnTrackerChange,
   } = useEditorUIStore()
@@ -98,8 +98,11 @@ function EditorPanel({
   useEffect(() => {
     if (!editor) return
     const handleFocus = () => {
+      // Re-measure after the virtual keyboard opens: the viewport shrinks a frame
+      // or two later, so this is a legitimate settle re-scroll, not a competitor
+      // to the handleScrollToSelection override (which already fired on the
+      // selection change). It uses the same chrome-aware math.
       requestAnimationFrame(() => {
-        editor.commands.scrollIntoView?.()
         requestAnimationFrame(() => {
           try {
             const { head } = editor.state.selection
