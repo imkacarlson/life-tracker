@@ -81,7 +81,6 @@ const readSelectionText = async (page) =>
 test.describe.fixme('Issue #67 recorded Ctrl+A cascade flow', () => {
   let notebookId = null
   let sourcePage = null
-  let targetPage = null
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
@@ -90,7 +89,8 @@ test.describe.fixme('Issue #67 recorded Ctrl+A cascade flow', () => {
     notebookId = notebook.id
     const section = await createSection(client, userId, notebook.id, 'T67 Section')
     sourcePage = await createPage(client, userId, section.id, 'Sunday Tasks', SOURCE_CONTENT)
-    targetPage = await createPage(client, userId, section.id, 'Test Scratchpad', TARGET_CONTENT)
+    // Created for its side effect (seed data); navigated by title, not by ref.
+    await createPage(client, userId, section.id, 'Test Scratchpad', TARGET_CONTENT)
   })
 
   test.afterAll(async () => {

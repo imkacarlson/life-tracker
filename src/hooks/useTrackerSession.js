@@ -50,7 +50,7 @@ export function useTrackerSession({
 
   useEffect(() => {
     const mode = computeSessionMode(settingsMode, activeTrackerId)
-    const syncStatus = computeSessionStatusSync(mode, activeTracker, dataLoading)
+    const syncStatus = computeSessionStatusSync(mode, activeTracker)
     const sessionKey = computeSessionKey(mode, activeTrackerId, nonce, activeTracker, settingsContentVersion)
 
     // When switching to a different page, clear the hydration guard so we always

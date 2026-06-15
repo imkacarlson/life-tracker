@@ -38,7 +38,7 @@ export const deleteImagesFromStorage = async (candidatePaths) => {
           return
         }
         for (const page of data ?? []) {
-          try { collectStoragePaths(page.content, allReferencedPaths) } catch {}
+          try { collectStoragePaths(page.content, allReferencedPaths) } catch { /* skip unparsable page content */ }
         }
         if (!data || data.length < PAGE_SIZE) break
         pageOffset += PAGE_SIZE
@@ -53,7 +53,7 @@ export const deleteImagesFromStorage = async (candidatePaths) => {
         return
       }
       for (const row of settingsData ?? []) {
-        try { collectStoragePaths(row.daily_template_content, allReferencedPaths) } catch {}
+        try { collectStoragePaths(row.daily_template_content, allReferencedPaths) } catch { /* skip unparsable template content */ }
       }
 
       // Only delete paths that are truly unreferenced.

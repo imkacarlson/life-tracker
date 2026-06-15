@@ -43,15 +43,12 @@ import { usePasteAlignFix } from './usePasteAlignFix'
 import { useEditorFocusRecovery } from './useEditorFocusRecovery'
 
 export const useEditorSetup = ({
-  authSession,
   trackerSession,
   sessionKey,
   scheduleSave,
   scheduleSettingsSave,
   pendingEditTapRef,
-  touchNavigationGuardRef,
   touchNavigationGuard,
-  setTouchNavigationGuard,
   onNavigateHash,
   uploadImageRef,
   deepLinkFocusGuard,

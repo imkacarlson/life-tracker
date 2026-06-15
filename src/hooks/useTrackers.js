@@ -57,7 +57,6 @@ export const useTrackers = (userId, activeSectionId) => {
     pageContentCache,
     loadPageContent,
     setPageContent,
-    invalidatePage,
     getKnownUpdatedAt,
     setKnownUpdatedAt,
   } = usePageContentCache(userId)

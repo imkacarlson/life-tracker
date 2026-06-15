@@ -42,7 +42,7 @@ export async function resizeAndEncode(file, maxDim = 1024, quality = 0.8) {
         }
 
         resolve({ base64, mediaType: 'image/jpeg', originalName: file.name })
-      } catch (err) {
+      } catch {
         reject(new Error(`Failed to process image: ${file.name}`))
       }
     }

@@ -1,3 +1,4 @@
+/* global process */
 import { test as base, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
@@ -123,15 +124,18 @@ const restoreSnapshot = async (snapshot) => {
 
 export const test = base.extend({
   isolateSupabaseData: [
-    async ({}, use, testInfo) => {
+    // `provide` is Playwright's fixture callback (passed positionally); it is
+    // not React's `use` hook. Naming it `provide` avoids react-hooks/rules-of-hooks
+    // false positives, and the named first param avoids no-empty-pattern.
+    async (_fixtures, provide, testInfo) => {
       if (testInfo.project.name === 'setup') {
-        await use()
+        await provide()
         return
       }
 
       const snapshot = await readSnapshot()
       try {
-        await use()
+        await provide()
       } finally {
         // The app's autosave debounce is 2 000 ms.  Wait at least that long
         // before polling so the debounce has a chance to fire.  Then poll the

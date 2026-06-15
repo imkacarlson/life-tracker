@@ -18,8 +18,6 @@ test.describe('tree expand state persistence', () => {
   let notebookA = null
   let notebookB = null
   let sectionA1 = null
-  let sectionA2 = null
-  let sectionB1 = null
   let pageA = null
 
   test.beforeAll(async () => {
@@ -28,8 +26,9 @@ test.describe('tree expand state persistence', () => {
     notebookA = await createNotebook(client, userId, `Persist A ${stamp}`, -8800)
     notebookB = await createNotebook(client, userId, `Persist B ${stamp}`, -8799)
     sectionA1 = await createSection(client, userId, notebookA.id, 'Persist A One', 0)
-    sectionA2 = await createSection(client, userId, notebookA.id, 'Persist A Two', 1)
-    sectionB1 = await createSection(client, userId, notebookB.id, 'Persist B One', 0)
+    // Created for their side effect (seed data); referenced later by title only.
+    await createSection(client, userId, notebookA.id, 'Persist A Two', 1)
+    await createSection(client, userId, notebookB.id, 'Persist B One', 0)
     pageA = await createPage(client, userId, sectionA1.id, 'Persist Page A', {
       type: 'doc',
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Persist content' }] }],

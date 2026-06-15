@@ -128,7 +128,7 @@ const TableDragEscape = Extension.create({
                       const aPos = view.posAtDOM(anchorCell, 0)
                       const $a = view.state.doc.resolve(aPos)
                       anchorCellPos = cellPosFromResolved($a)
-                    } catch (_) { /* posAtDOM can fail for detached nodes */ }
+                    } catch { /* posAtDOM can fail for detached nodes */ }
                     if (anchorCellPos == null) return
                   }
 
@@ -150,7 +150,7 @@ const TableDragEscape = Extension.create({
                     // via ProseMirror's DOM observer. Clear it so it can't fight back.
                     const domSel = view.root.getSelection?.() || window.getSelection?.()
                     if (domSel) domSel.removeAllRanges()
-                  } catch (_) { /* posAtDOM can fail for detached nodes */ }
+                  } catch { /* posAtDOM can fail for detached nodes */ }
                   return
                 }
 
@@ -208,7 +208,7 @@ const TableDragEscape = Extension.create({
                         cur.$headCell.pos !== sel.$headCell.pos) {
                       view.dispatch(view.state.tr.setSelection(sel))
                     }
-                  } catch (_) { /* positions may be stale after doc change */ }
+                  } catch { /* positions may be stale after doc change */ }
                 }
                 reassert()
                 requestAnimationFrame(reassert)
