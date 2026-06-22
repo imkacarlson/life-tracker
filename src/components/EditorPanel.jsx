@@ -4,9 +4,10 @@ import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
-import { scrollElementIntoViewWithToolbar, scrollRectIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
+import { scrollElementIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { useContentZoom } from '../hooks/useContentZoom'
 import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
+import { useKeepCaretAboveKeyboard } from '../hooks/useKeepCaretAboveKeyboard'
 import { useEditorUIStore } from '../stores/editorUIStore'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
@@ -84,6 +85,13 @@ function EditorPanel({
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
     useContentZoom(editorShellRef, isTouchOnly)
   useMobileToolbarTransform({ enabled: isTouchOnly, toolbarRef })
+  useKeepCaretAboveKeyboard({
+    enabled: isTouchOnly,
+    editor,
+    toolbarRef,
+    editorPanelRef,
+    padding: 20,
+  })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
   // focused — that would open the virtual keyboard.
@@ -93,35 +101,6 @@ function EditorPanel({
       ? editor.chain()
       : editor.chain().focus()
   }, [editor, isTouchOnly])
-
-  // Scroll cursor into view whenever the editor gains focus (keyboard open).
-  useEffect(() => {
-    if (!editor) return
-    const handleFocus = () => {
-      // Re-measure after the virtual keyboard opens: the viewport shrinks a frame
-      // or two later, so this is a legitimate settle re-scroll, not a competitor
-      // to the handleScrollToSelection override (which already fired on the
-      // selection change). It uses the same chrome-aware math.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          try {
-            const { head } = editor.state.selection
-            const coords = editor.view.coordsAtPos(head)
-            scrollRectIntoViewWithToolbar({
-              rect: coords,
-              container: editorPanelRef.current,
-              toolbarEl: toolbarRef.current,
-              padding: 20,
-            })
-          } catch {
-            // ProseMirror may not have a measurable selection during teardown.
-          }
-        })
-      })
-    }
-    editor.on('focus', handleFocus)
-    return () => { editor.off('focus', handleFocus) }
-  }, [editor])
 
   useEffect(() => {
     if (!aiInsertOpen) return
