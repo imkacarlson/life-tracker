@@ -3,9 +3,10 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 import {
   buildCandidatesForModel,
+  buildCidBucketMap,
   filterCandidatesForDaily,
-  mapTasksFromCids,
   parseTaskBuckets,
+  routeTasksToBuckets,
 } from './dailyHelpers.ts'
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
@@ -74,8 +75,6 @@ const jsonResponse = (body: unknown, status = 200) =>
       'Content-Type': 'application/json',
     },
   })
-
-const appendWarning = (existing: string | null, next: string) => (existing ? `${existing} ${next}` : next)
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -178,49 +177,27 @@ If a bucket is empty, return an empty array.`
     const rawText = providerConfig.extractResponse(data)
     const parsed = parseTaskBuckets(rawText)
 
-    const asapAllowedCids = new Set(
-      modelCandidates
-        .filter((candidate) => candidate.due_bucket === 'overdue' || candidate.due_bucket === 'today')
-        .map((candidate) => candidate.cid),
-    )
-    const fyiAllowedCids = new Set(
-      modelCandidates
-        .filter((candidate) => candidate.due_bucket === 'soon')
-        .map((candidate) => candidate.cid),
-    )
+    // The server, not the model, decides which bucket each task belongs in.
+    // Tasks the model mis-bucketed are re-routed to the correct bucket; cids the
+    // model invented or that were never sent (e.g. far-future items) are dropped
+    // silently because nothing real is lost.
+    const cidToBucket = buildCidBucketMap(modelCandidates)
+    const aiTasks = [
+      ...(Array.isArray(parsed.asap) ? parsed.asap : []),
+      ...(Array.isArray(parsed.fyi) ? parsed.fyi : []),
+    ]
 
-    const mappedAsap = mapTasksFromCids(parsed.asap, asapAllowedCids, cidToBlockId, cidToText)
-    const mappedFyi = mapTasksFromCids(parsed.fyi, fyiAllowedCids, cidToBlockId, cidToText)
+    const routed = routeTasksToBuckets(aiTasks, cidToBucket, cidToBlockId, cidToText)
+    const asap = routed.asap
+    const fyi = routed.fyi
 
-    const asap = mappedAsap.mapped
-    const fyi = mappedFyi.mapped
-
-    const totalParsedCount =
-      (parsed.asap?.length || 0) +
-      (parsed.fyi?.length || 0)
-    const totalMappedCount = asap.length + fyi.length
-
-    let warning =
+    // Only warn when the model failed to produce the expected ASAP/FYI shape at
+    // all — that genuinely means results may be incomplete. Dropped/re-routed
+    // cids are handled deterministically and need no user-facing warning.
+    const warning =
       parsed.format === 'asap_fyi'
         ? null
         : 'FYI: AI response did not follow the ASAP/FYI format. Results may be incomplete.'
-
-    if (totalParsedCount > totalMappedCount) {
-      warning = appendWarning(
-        warning,
-        'FYI: Some tasks were removed because AI returned missing or invalid candidate IDs.',
-      )
-    }
-
-    if (
-      mappedAsap.removedForInvalidCids > 0 ||
-      mappedFyi.removedForInvalidCids > 0
-    ) {
-      warning = appendWarning(
-        warning,
-        'FYI: AI output must use matching cids from CANDIDATES_JSON for each bucket. Invalid references were ignored.',
-      )
-    }
 
     return jsonResponse({
       asap,
