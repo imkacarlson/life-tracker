@@ -100,6 +100,7 @@ export async function registerCommands(api: any): Promise<void> {
   try {
     await api.setMyCommands([
       { command: 'new', description: 'Start a fresh conversation' },
+      { command: 'blog', description: 'Draft a GRC blog post from a race recap' },
     ])
   } catch (_err) {
     // Non-fatal: the command still works even if the menu fails to register.

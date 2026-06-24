@@ -30,6 +30,37 @@ supabase secrets set \
 
 `ANTHROPIC_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are already configured.
 
+### `/blog` command secrets (GRC blog drafter)
+
+The `/blog` command formats a pasted race recap into WordPress block markup and creates a **draft**
+post on grcrunning.com. It needs WordPress credentials plus the one-shot formatting example:
+
+```bash
+supabase secrets set \
+  WP_USER='<wordpress username>' \
+  WP_APP_PASSWORD='<wordpress application password>'
+
+# The few-shot example is kept out of the git repo and supplied as a secret.
+# Put the real INPUT/OUTPUT example in a local file (e.g. blog-example.txt) and:
+supabase secrets set BLOG_EXAMPLE="$(cat blog-example.txt)"
+```
+
+- `WP_USER` / `WP_APP_PASSWORD` — a WordPress [Application Password](https://www.grcrunning.com/wp-admin/profile.php)
+  (Users → Profile → Application Passwords). Use an app password, not the account login password.
+- `WP_POSTS_ENDPOINT` — optional; defaults to `https://www.grcrunning.com/wp-json/wp/v2/posts`.
+- `BLOG_EXAMPLE` — the full one-shot formatting example (a previous week's raw recap as the INPUT
+  and the desired WordPress block markup as the OUTPUT). It teaches Claude the two-column layout and
+  profile-link format. It contains real athlete names, so it is **not** committed — it lives only as
+  this secret. `prompt.ts` injects it at request time and fails loudly (`⚠️ Blog draft failed: …`)
+  if it's unset, rather than prompting without an example.
+- `ANTHROPIC_API_KEY` (already set above) is reused for the formatting call.
+
+The team rosters are fetched live from the site at request time, so there's nothing to keep in sync.
+
+> The format the example should follow is captured in the original drafter at
+> `~/projects/grc-blog-drafter-flow/prompt_data.py` (`EXAMPLE_INPUT` / `EXAMPLE_OUTPUT`). Paste that
+> exact INPUT:/OUTPUT: block into the `BLOG_EXAMPLE` secret.
+
 `USER_TIMEZONE` is your local [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 name (e.g. `America/New_York`). The bot uses it to know what "today"/"now" means and to pick the
 right month's tracker — Telegram doesn't send your device's time zone, so it has to be configured
@@ -70,6 +101,9 @@ Message your bot. Some things to confirm:
 - A message from a different Telegram account gets no response.
 - `/new` starts a fresh conversation; replying within ~30 min continues the previous one.
 - The "typing…" indicator shows while it works.
+- `/blog <paste a race recap>` creates a WordPress draft and replies with the edit link. Bare
+  `/blog` with no text returns a usage hint. On any failure (roster fetch, Claude, WordPress) it
+  replies `⚠️ Blog draft failed: <reason>` rather than posting a blank or broken draft.
 
 ## How it works (quick reference)
 
