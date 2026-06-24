@@ -9,6 +9,7 @@ import { callClaude } from './anthropic.ts'
 import { buildTools } from './tools.ts'
 import { renderProposedPreview } from './render.ts'
 import { registerCommands, sendPhoto, sendReply, startTyping } from './telegram.ts'
+import { handleBlog } from './blog/handler.ts'
 import {
   applyPendingJob,
   classifyReply,
@@ -80,6 +81,10 @@ bot.command('new', async (ctx) => {
   await closeActiveSessions(supabase, ctx.chat.id)
   await ctx.reply('Starting fresh ✨')
 })
+
+// /blog <recap> -> format the recap and create a WordPress draft. Registered
+// before the message:text tracker handler so it never collides with it.
+bot.command('blog', handleBlog)
 
 bot.on('message:text', async (ctx) => {
   const chatId = ctx.chat.id
