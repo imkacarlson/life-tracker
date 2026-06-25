@@ -59,18 +59,37 @@ export const SecureImage = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      // Round-trip the storage path through HTML so copy/paste of an internal
+      // image keeps its `storagePath` (the editor re-signs URLs from it). The
+      // signed `src` is intentionally not persisted; storagePath is the anchor.
       storagePath: {
         default: null,
+        parseHTML: (element) => element.getAttribute('data-storage-path') || null,
+        renderHTML: (attributes) =>
+          attributes.storagePath ? { 'data-storage-path': attributes.storagePath } : {},
       },
     }
   },
 })
+
+// Internal deep-link hrefs are bare URL fragments (no protocol). They are never
+// typed as plain text, only inserted programmatically, so they must always be
+// treated as valid link targets regardless of Tiptap's protocol allowlist.
+const INTERNAL_HREF_PREFIXES = ['#pg=', '#sec=', '#nb=']
+
+export const isInternalLinkHref = (href) =>
+  typeof href === 'string' && INTERNAL_HREF_PREFIXES.some((prefix) => href.startsWith(prefix))
 
 export const InternalLink = Link.extend({
   addOptions() {
     return {
       ...this.parent?.(),
       onNavigateHash: null,
+      // Explicitly permit our internal fragment schemes on parse/paste/render,
+      // and delegate everything else to Tiptap's default protocol validation.
+      // This is defensive: the default already allows protocol-less fragments,
+      // but pinning it here keeps internal links safe against upstream changes.
+      isAllowedUri: (url, ctx) => isInternalLinkHref(url) || ctx.defaultValidate(url),
     }
   },
   addProseMirrorPlugins() {
