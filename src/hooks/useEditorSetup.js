@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import ListItem from '@tiptap/extension-list-item'
@@ -11,7 +11,6 @@ import TextAlign from '@tiptap/extension-text-align'
 import { TableRow } from '@tiptap/extension-table'
 import Placeholder from '@tiptap/extension-placeholder'
 import { EMPTY_DOC } from '../utils/constants'
-import { summarizeSlice } from '../utils/pasteHelpers'
 import {
   ParagraphWithId,
   HeadingWithId,
@@ -38,8 +37,8 @@ import {
 import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
 import { HighlightPreserve } from '../extensions/highlightPreserve'
+import { Clipboard } from '../extensions/clipboard'
 import { scrollSelectionIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
-import { usePasteAlignFix } from './usePasteAlignFix'
 import { useEditorFocusRecovery } from './useEditorFocusRecovery'
 
 export const useEditorSetup = ({
@@ -65,16 +64,15 @@ export const useEditorSetup = ({
     trackerSessionRef.current = trackerSession
   }, [trackerSession])
 
-  // Shared refs written by editorProps paste handlers, read by usePasteAlignFix.
-  const pasteInfoRef = useRef({
-    summary: null,
-    preFrom: null,
-    preTo: null,
-    isPmSlice: false,
-    ts: 0,
-    applied: false,
-  })
-  const pendingPasteFixRef = useRef(false)
+  // Stable handler the Clipboard extension calls when a paste/drop carries an
+  // image. Reading the ref inside a callback (not during render) keeps the
+  // extension config referentially stable across renders.
+  const handleImageFile = useCallback(
+    (file) => {
+      uploadImageRef.current?.(file)
+    },
+    [uploadImageRef],
+  )
 
   const editor = useEditor(
     {
@@ -130,6 +128,12 @@ export const useEditorSetup = ({
           placeholder: 'Start writing your tracker...',
         }),
         HighlightPreserve,
+        // onImageFile only fires inside ProseMirror paste/drop handlers (user
+        // events), never during render, so the ref read is safe to defer.
+        // eslint-disable-next-line react-hooks/refs
+        Clipboard.configure({
+          onImageFile: handleImageFile,
+        }),
       ],
       content: trackerSession.content ?? EMPTY_DOC,
       editorProps: {
@@ -142,51 +146,12 @@ export const useEditorSetup = ({
           scrollSelectionIntoViewWithToolbar({ view, padding: 20 })
           return true
         },
-        transformPasted: (slice) => {
-          pasteInfoRef.current = {
-            ...pasteInfoRef.current,
-            summary: summarizeSlice(slice),
-          }
-          return slice
-        },
-        handlePaste: (view, event) => {
-          const html = event.clipboardData?.getData('text/html') ?? ''
-          pasteInfoRef.current = {
-            ...pasteInfoRef.current,
-            preFrom: view.state.selection.from,
-            preTo: view.state.selection.to,
-            isPmSlice: html.includes('data-pm-slice'),
-            ts: Date.now(),
-            applied: false,
-          }
-          pendingPasteFixRef.current = pasteInfoRef.current.isPmSlice
-          const files = event.clipboardData?.files
-          if (files && files.length > 0) {
-            const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
-            if (imageFile) {
-              event.preventDefault()
-              uploadImageRef.current?.(imageFile)
-              return true
-            }
-          }
-          return false
-        },
-        handleDrop: (_view, event, _slice, moved) => {
-          if (moved) return false
-          const files = event.dataTransfer?.files
-          if (!files || files.length === 0) return false
-          const imageFile = Array.from(files).find((file) => file.type.startsWith('image/'))
-          if (!imageFile) return false
-          event.preventDefault()
-          uploadImageRef.current?.(imageFile)
-          return true
-        },
+        // Clipboard fidelity + image-paste/drop routing live in the Clipboard
+        // extension (single owner), not here.
       },
     },
     [sessionKey, onNavigateHash],
   )
-
-  usePasteAlignFix(editor, pasteInfoRef, pendingPasteFixRef)
 
   useEditorFocusRecovery({
     editor,

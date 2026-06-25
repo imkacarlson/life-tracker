@@ -26,6 +26,9 @@ jobs:
   e2e-tests:
     name: E2E Tests
     needs: unit-tests
+    # Skip E2E for a PR by adding the "skip-e2e" label (e.g. when the author has
+    # already run the suite locally). Unit tests always run.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-e2e') }}
     runs-on: ubuntu-latest
 
     steps:
