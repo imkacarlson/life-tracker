@@ -343,6 +343,26 @@ const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedT
   }
 }
 
+const waitForExpectedNavigationTarget = async (page, treeTitles) => {
+  if (!treeTitles) return
+
+  if (treeTitles.notebookTitle) {
+    await expect(page.locator('.tree-node-notebook', { hasText: treeTitles.notebookTitle }).first()).toBeVisible({
+      timeout: 10000,
+    })
+  }
+  if (treeTitles.sectionTitle) {
+    await expect(page.locator('.tree-node-section', { hasText: treeTitles.sectionTitle }).first()).toBeVisible({
+      timeout: 10000,
+    })
+  }
+  if (treeTitles.pageTitle) {
+    await expect(page.locator('.tree-node-page', { hasText: treeTitles.pageTitle }).first()).toBeVisible({
+      timeout: 10000,
+    })
+  }
+}
+
 /** Navigate to the app root (or a hash) and wait for auth + editor to be ready.
  *  Options:
  *    expectedText — if provided, also waits for this text to appear in the editor
@@ -355,7 +375,7 @@ const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedT
  *  same-hash re-navigation (Playwright treats page.goto to the same URL as
  *  a no-op) by clearing the hash first.
  */
-export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
+export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor = true } = {}) => {
   let expectedPageTitle = null
   let treeTitles = null
   if (hash && hash !== '/') {
@@ -377,6 +397,10 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
   try {
     await loadRootWorkspace()
     await navigateViaHashChange(page, hash)
+    if (!waitForEditor) {
+      await waitForExpectedNavigationTarget(page, treeTitles)
+      return
+    }
     await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   } catch (error) {
     if (!hash || hash === '/') {
@@ -393,6 +417,10 @@ export const waitForApp = async (page, hash = '/', { expectedText } = {}) => {
     // loads can still miss page resolution while notebook data is warming up.
     await loadRootWorkspace()
     await navigateViaHashChange(page, hash)
+    if (!waitForEditor) {
+      await waitForExpectedNavigationTarget(page, treeTitles)
+      return
+    }
     try {
       await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
     } catch {
