@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from 'react'
 import { findInDocPluginKey } from '../../../extensions/findInDoc'
 import { useEditorUIStore } from '../../../stores/editorUIStore'
+import { isTouchOnlyDevice } from '../../../utils/device'
+import { isKeyboardShown } from '../../../utils/keyboardShown'
 
 /**
  * Owns the FindBar's wiring:
@@ -36,6 +38,10 @@ export function useFindBar({ editor, hasTracker, controlsDisabled, findInputRef 
     setFindQuery('')
     editor?.commands?.clearFind?.()
     if (!editor || controlsDisabled) return
+    // On touch, only return focus to the editor if the keyboard is already up
+    // (user is mid-edit). If the user dismissed the keyboard, re-focusing would
+    // force it back open — see the same guard in useEditorFocusRecovery Effect 3.
+    if (isTouchOnlyDevice() && !isKeyboardShown()) return
     requestAnimationFrame(() => {
       editor.chain().focus().run()
     })
