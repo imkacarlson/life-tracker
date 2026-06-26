@@ -507,6 +507,17 @@ function App() {
     }
   }
 
+  const handleCreatePage = () => {
+    if (settingsMode) {
+      setSettingsMode(null)
+    }
+    primeTouchNavigationGuard()
+    if (isMobileViewport) {
+      setMobileSidebarOpen(false)
+    }
+    createTracker(session, activeSectionId)
+  }
+
   const handleOpenTreeContextMenu = (event, type, item) => {
     event.preventDefault()
     setTreeContextMenu({ open: true, x: event.clientX, y: event.clientY, type, item })
@@ -727,7 +738,7 @@ function App() {
           onSelectPage={handlePageSelect}
           onCreateNotebook={() => createNotebook(session)}
           onCreateSection={() => createSection(session, activeNotebookId)}
-          onCreatePage={() => createTracker(session, activeSectionId)}
+          onCreatePage={handleCreatePage}
           onReorderNotebooks={reorderNotebooks}
           onReorderSections={reorderSections}
           onReorderPages={reorderSectionPages}
