@@ -9,6 +9,7 @@ import { classifySaveResult } from '../utils/saveConflict'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
+import { getSectionPages } from '../utils/sectionPages'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
@@ -128,7 +129,15 @@ export const useTrackers = (userId, activeSectionId) => {
     handleRemotePageChange({ new: data })
   }, [handleRemotePageChange])
 
-  const activeTrackerServer = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+  const cachedActiveSectionPages = useMemo(
+    () => getSectionPages(sectionPageCache, activeSectionId),
+    [sectionPageCache, activeSectionId],
+  )
+  const activeTrackerServer = useMemo(() => {
+    const trackerFromLoadedSection = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
+    if (trackerFromLoadedSection) return trackerFromLoadedSection
+    return cachedActiveSectionPages.find((tracker) => tracker.id === activeTrackerId) ?? null
+  }, [activeTrackerId, cachedActiveSectionPages, trackers])
   const activeTracker = useMemo(() => {
     if (!activeTrackerServer) return null
     const contentEntry = pageContentCache[activeTrackerId]

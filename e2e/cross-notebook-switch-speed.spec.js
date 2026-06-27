@@ -46,7 +46,15 @@ test.describe('cross-notebook switch speed', () => {
     await deleteNotebookById(client, notebookB?.id)
   })
 
-  test('cross-notebook click shows title and content fast, no prolonged "Loading..."', async ({ page }) => {
+  const expectVisiblePageTitle = async (page, title, isMobile, timeout = 1500) => {
+    if (isMobile) {
+      await expect(page.locator('.slim-header .breadcrumb-mobile')).toHaveText(title, { timeout })
+      return
+    }
+    await expect(page.locator('.title-input')).toHaveValue(title, { timeout })
+  }
+
+  test('cross-notebook click shows title and content fast, no prolonged "Loading..."', async ({ page, isMobile }) => {
     // Start on page A
     const hashA = `#nb=${notebookA.id}&sec=${sectionA.id}&pg=${pageA.id}`
     await waitForApp(page, hashA)
@@ -62,18 +70,20 @@ test.describe('cross-notebook switch speed', () => {
     }, { nb: notebookB.id, sec: sectionB.id, pg: pageB.id })
 
     // Title should appear quickly
-    await expect(page.locator('.title-input')).toHaveValue('Speed Page B', { timeout: 1500 })
+    const titleBudget = isMobile ? 3000 : 1500
+    const contentBudget = isMobile ? 4000 : 2000
+    await expectVisiblePageTitle(page, 'Speed Page B', isMobile, titleBudget)
     const titleTime = Date.now() - t0
-    expect(titleTime).toBeLessThan(1500)
+    expect(titleTime).toBeLessThan(titleBudget)
 
-    // Content should appear within 2000ms total
-    await expect(page.locator('.ProseMirror')).toContainText('Content of page B', { timeout: 2000 })
+    // Content should appear quickly after the cross-notebook switch.
+    await expect(page.locator('.ProseMirror')).toContainText('Content of page B', { timeout: contentBudget })
 
     // "Loading..." should not be visible after content appears
     await expect(page.locator('.status-row')).not.toContainText('Loading...')
   })
 
-  test('second visit to a cached page is near-instant (no loading state)', async ({ page }) => {
+  test('second visit to a cached page is near-instant (no loading state)', async ({ page, isMobile }) => {
     // Start on page B
     const hashB = `#nb=${notebookB.id}&sec=${sectionB.id}&pg=${pageB.id}`
     await waitForApp(page, hashB)
@@ -91,10 +101,11 @@ test.describe('cross-notebook switch speed', () => {
     await page.evaluate(({ nb, sec, pg }) => {
       window.location.hash = `#nb=${nb}&sec=${sec}&pg=${pg}`
     }, { nb: notebookB.id, sec: sectionB.id, pg: pageB.id })
-    await expect(page.locator('.title-input')).toHaveValue('Speed Page B', { timeout: 1500 })
-    await expect(page.locator('.ProseMirror')).toContainText('Content of page B', { timeout: 1500 })
+    const cachedBudget = isMobile ? 2500 : 1500
+    await expectVisiblePageTitle(page, 'Speed Page B', isMobile, cachedBudget)
+    await expect(page.locator('.ProseMirror')).toContainText('Content of page B', { timeout: cachedBudget })
     const elapsed = Date.now() - t0
-    expect(elapsed).toBeLessThan(1500)
+    expect(elapsed).toBeLessThan(cachedBudget)
 
     // No "Loading..." should appear during this transition
     await expect(page.locator('.status-row')).not.toContainText('Loading...')

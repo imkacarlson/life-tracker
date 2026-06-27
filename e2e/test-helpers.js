@@ -17,6 +17,43 @@ const WORKSPACE_SELECTOR = '.workspace'
 const NOTEBOOK_NODE_SELECTOR = '.tree-node-notebook'
 const EDITOR_SELECTOR = '.ProseMirror'
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const protectedSeedRows = {
+  notebooks: new Map(),
+  sections: new Map(),
+  pages: new Map(),
+}
+
+const clone = (value) => JSON.parse(JSON.stringify(value ?? null))
+
+export const getProtectedSeedSnapshot = () => ({
+  notebooks: Array.from(protectedSeedRows.notebooks.values()).map(clone),
+  sections: Array.from(protectedSeedRows.sections.values()).map(clone),
+  pages: Array.from(protectedSeedRows.pages.values()).map(clone),
+})
+
+const protectSeedRow = (table, row) => {
+  if (!row?.id) return
+  protectedSeedRows[table].set(row.id, clone(row))
+}
+
+const forgetProtectedNotebook = (notebookId) => {
+  if (!notebookId) return
+  protectedSeedRows.notebooks.delete(notebookId)
+
+  const sectionIds = new Set()
+  for (const [sectionId, section] of protectedSeedRows.sections) {
+    if (section.notebook_id === notebookId) {
+      sectionIds.add(sectionId)
+      protectedSeedRows.sections.delete(sectionId)
+    }
+  }
+
+  for (const [pageId, page] of protectedSeedRows.pages) {
+    if (sectionIds.has(page.section_id)) {
+      protectedSeedRows.pages.delete(pageId)
+    }
+  }
+}
 
 const waitForReadableRow = async (client, table, id, timeoutMs = 5000) => {
   const start = Date.now()
@@ -174,7 +211,17 @@ export const createNotebook = async (
   title,
   sortOrder = -Math.floor(Date.now() / 1000),
   type = 'tracker',
+  options = {},
 ) => {
+  if (typeof sortOrder === 'object' && sortOrder !== null) {
+    options = sortOrder
+    sortOrder = -Math.floor(Date.now() / 1000)
+  }
+  if (typeof type === 'object' && type !== null) {
+    options = type
+    type = 'tracker'
+  }
+
   const { data, error } = await client
     .from('notebooks')
     .insert({ user_id: userId, title, sort_order: sortOrder, type })
@@ -182,12 +229,14 @@ export const createNotebook = async (
     .single()
   if (error) throw error
   await waitForReadableRow(client, 'notebooks', data.id)
+  if (options.preserveForSuite !== false) protectSeedRow('notebooks', data)
   return data
 }
 
 /** Delete a notebook and rely on DB cascade rules to remove sections/pages. */
 export const deleteNotebookById = async (client, notebookId) => {
   if (!client || !notebookId) return
+  forgetProtectedNotebook(notebookId)
   const { error } = await client.from('notebooks').delete().eq('id', notebookId)
   if (error) throw error
 }
@@ -201,6 +250,7 @@ export const createSection = async (client, userId, notebookId, title, sortOrder
     .single()
   if (error) throw error
   await waitForReadableRow(client, 'sections', data.id)
+  if (protectedSeedRows.notebooks.has(notebookId)) protectSeedRow('sections', data)
   return data
 }
 
@@ -213,6 +263,7 @@ export const createPage = async (client, userId, sectionId, title, content, sort
     .single()
   if (error) throw error
   await waitForReadableRow(client, 'pages', data.id)
+  if (protectedSeedRows.sections.has(sectionId)) protectSeedRow('pages', data)
   return data
 }
 
@@ -293,7 +344,21 @@ const resolveTreeTitlesFromHash = async (hash) => {
   }
 
   if (!notebookTitle && !sectionTitle && !pageTitle) return null
-  return { notebookTitle, sectionTitle, pageTitle }
+  const fullHash = [
+    notebookId ? `nb=${notebookId}` : null,
+    sectionId ? `sec=${sectionId}` : null,
+    pageId ? `pg=${pageId}` : null,
+  ].filter(Boolean).join('&')
+
+  return {
+    notebookId,
+    sectionId,
+    pageId,
+    notebookTitle,
+    sectionTitle,
+    pageTitle,
+    fullHash: fullHash ? `/#${fullHash}` : null,
+  }
 }
 
 const waitForWorkspaceReady = async (page) => {
@@ -333,13 +398,16 @@ const navigateViaHashChange = async (page, hash) => {
   await page.evaluate((h) => { window.location.hash = '#' + h }, hashStr)
 }
 
-const waitForExpectedEditor = async (page, { expectedPageTitle = null, expectedText = null } = {}) => {
-  await page.waitForSelector(EDITOR_SELECTOR, { timeout: 10000 })
+const waitForExpectedEditor = async (
+  page,
+  { expectedPageTitle = null, expectedText = null, timeout = 10000 } = {},
+) => {
+  await page.waitForSelector(EDITOR_SELECTOR, { timeout })
   if (expectedPageTitle) {
-    await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout: 10000 })
+    await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout })
   }
   if (expectedText) {
-    await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout: 10000 })
+    await expect(page.locator('.ProseMirror')).toContainText(expectedText, { timeout })
   }
 }
 
@@ -378,11 +446,13 @@ const waitForExpectedNavigationTarget = async (page, treeTitles) => {
 export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor = true } = {}) => {
   let expectedPageTitle = null
   let treeTitles = null
+  let navigationHash = hash
   if (hash && hash !== '/') {
     const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
     const params = new URLSearchParams(hashStr)
     const pageId = params.get('pg')
     treeTitles = await resolveTreeTitlesFromHash(hash)
+    navigationHash = treeTitles?.fullHash ?? hash
     if (pageId) expectedPageTitle = treeTitles?.pageTitle ?? null
   }
 
@@ -396,12 +466,12 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
 
   try {
     await loadRootWorkspace()
-    await navigateViaHashChange(page, hash)
+    await navigateViaHashChange(page, navigationHash)
     if (!waitForEditor) {
       await waitForExpectedNavigationTarget(page, treeTitles)
       return
     }
-    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText, timeout: 5000 })
   } catch (error) {
     if (!hash || hash === '/') {
       const fallbackHash = await findFallbackPageHash()
@@ -412,21 +482,16 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
       return
     }
 
-    // Retry the stable root → hashchange path instead of cold-loading /#...
-    // directly. Several tests seed state before navigation, and direct hash
-    // loads can still miss page resolution while notebook data is warming up.
     await loadRootWorkspace()
-    await navigateViaHashChange(page, hash)
     if (!waitForEditor) {
+      await navigateViaHashChange(page, navigationHash)
       await waitForExpectedNavigationTarget(page, treeTitles)
       return
     }
-    try {
-      await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
-    } catch {
-      if (!treeTitles) throw error
 
+    if (treeTitles) {
       await loadRootWorkspace()
+      await ensureNavigationVisible(page)
       if (treeTitles.notebookTitle) {
         await clickTreeItemByTitle(page, '.tree-node-notebook', treeTitles.notebookTitle)
       }
@@ -437,7 +502,11 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
         await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
       }
       await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+      return
     }
+
+    await navigateViaHashChange(page, navigationHash)
+    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
   }
 }
 
