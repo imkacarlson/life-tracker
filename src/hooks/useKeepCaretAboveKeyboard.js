@@ -1,6 +1,13 @@
 import { useEffect } from 'react'
 import { isKeyboardShown } from '../utils/keyboardShown'
 import { scrollSelectionIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
+import { createSettleLoop } from '../utils/settleLoop'
+
+// How long to keep re-asserting the caret correction after a qualifying
+// keyboard-open resize. Covers the observed ~206 ms native "scroll caret into
+// view" override and the ~275 ms second viewport resize, with margin. Each new
+// resize refreshes this window (handles the two-phase keyboard open).
+const SETTLE_WINDOW_MS = 500
 
 /**
  * Pure decision: should we re-scroll the caret above the keyboard right now?
@@ -21,13 +28,22 @@ export function shouldKeepCaretAboveKeyboard({ keyboardShown, editorFocused }) {
  *
  * Opening the keyboard is a visualViewport *resize*, not a selection change, so
  * none of the selection-driven scroll paths fire. This hook listens to that
- * resize and re-runs the existing toolbar-aware caret scroll once the viewport
- * has settled — reusing the same math the selection paths use, no new geometry.
+ * resize and re-runs the existing toolbar-aware caret scroll — reusing the same
+ * math the selection paths use, no new geometry.
+ *
+ * A single correction is not enough: Chrome fires its own native "scroll caret
+ * into view" ~206 ms *after* our correction (content-dependent — it happens on
+ * plain/bullet text but not inside table cells), which drops the caret back
+ * behind the fixed toolbar. So instead of one run we drive a bounded settle
+ * loop that re-applies the *idempotent* correction every animation frame until
+ * a deadline. Because the correction only scrolls when the caret is actually
+ * hidden (delta !== 0), it overrides the late native scroll on the next frame,
+ * no-ops once the caret is in-band, and self-terminates at the deadline — it
+ * does not fight intentional user panning that keeps the caret visible.
  *
  * The toolbar lift (useMobileToolbarTransform) is also rAF-scheduled off the
- * same resize event; we use a second rAF before measuring so the toolbar's
- * transform write lands first and getToolbarSafeBounds reads its lifted rect.
- * This mirrors the double-rAF convention in useKeepCursorVisible / EditorPanel.
+ * same resize event; running every frame means the toolbar's lifted transform
+ * is read on subsequent ticks, so getToolbarSafeBounds sees its settled rect.
  *
  * No-ops on desktop / non-touch (`enabled` false) or where visualViewport is
  * absent.
@@ -47,10 +63,12 @@ export function useKeepCaretAboveKeyboard({
     const viewport = window.visualViewport
     if (!viewport) return
 
-    let rafId = null
+    let loop = null
 
-    const run = () => {
-      rafId = null
+    // One frame of work: re-measure the live toolbar + caret rects and scroll
+    // only if the caret is hidden. Idempotent, so re-running it across the
+    // settle window is safe (no-op once the caret is in-band).
+    const tick = () => {
       const editorFocused = Boolean(editor.view?.hasFocus?.())
       if (!shouldKeepCaretAboveKeyboard({ keyboardShown: isKeyboardShown(), editorFocused })) {
         return
@@ -68,19 +86,21 @@ export function useKeepCaretAboveKeyboard({
     }
 
     // Listen to resize only — `scroll` is the user panning, which we must not
-    // fight. Coalesce bursts with a first rAF; a second rAF lets the toolbar
-    // transform (also rAF-scheduled off this resize) settle before we measure.
+    // fight. Each qualifying resize opens (or refreshes) a settle window during
+    // which `tick` re-runs every frame, so a late native scroll gets corrected
+    // on the next frame.
     const schedule = () => {
-      if (rafId !== null) return
-      rafId = requestAnimationFrame(() => {
-        rafId = requestAnimationFrame(run)
-      })
+      if (loop) {
+        loop.refresh()
+        return
+      }
+      loop = createSettleLoop({ durationMs: SETTLE_WINDOW_MS, onTick: tick })
     }
 
     viewport.addEventListener('resize', schedule)
 
     return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (loop) loop.cancel()
       viewport.removeEventListener('resize', schedule)
     }
   }, [enabled, editor, toolbarRef, editorPanelRef, padding])
