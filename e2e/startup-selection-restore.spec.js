@@ -6,7 +6,9 @@ const PAGE_TEXT = 'Saved selection startup regression marker'
 test.describe('startup selection restore', () => {
   test('root load restores a saved page selection before persisting fallback state', async ({ page }) => {
     const { client, userId } = await getSupabase()
-    const notebook = await createNotebook(client, userId, `Saved Selection Notebook ${Date.now()}`, 9999)
+    const notebook = await createNotebook(client, userId, `Saved Selection Notebook ${Date.now()}`, 9999, {
+      preserveForSuite: false,
+    })
     const section = await createSection(client, userId, notebook.id, 'Saved Selection Section', 9999)
     const tracker = await createPage(
       client,

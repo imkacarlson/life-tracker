@@ -3,6 +3,7 @@ import { test as base, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
 import path from 'path'
+import { getProtectedSeedSnapshot } from './test-helpers'
 
 config({ path: path.resolve(process.cwd(), '.env.local') })
 config({ path: path.resolve(process.cwd(), '.env.test'), override: true })
@@ -46,7 +47,7 @@ const readSnapshot = async () => {
   const [notebooksResult, sectionsResult, pagesResult] = await Promise.all([
     supabase
       .from('notebooks')
-      .select('id,user_id,title,sort_order')
+      .select('id,user_id,title,sort_order,type')
       .eq('user_id', userId),
     supabase
       .from('sections')
@@ -69,9 +70,24 @@ const readSnapshot = async () => {
   }
 }
 
-const restoreSnapshot = async (snapshot) => {
+const mergeRowsById = (...rowLists) => Array.from(
+  rowLists
+    .flat()
+    .reduce((rowsById, row) => {
+      if (row?.id) rowsById.set(row.id, row)
+      return rowsById
+    }, new Map())
+    .values(),
+)
+
+const restoreSnapshot = async (snapshot, protectedSnapshot = { notebooks: [], sections: [], pages: [] }) => {
   const supabase = await getSupabaseClient()
   const userId = snapshot.userId
+  const targetSnapshot = {
+    notebooks: mergeRowsById(snapshot.notebooks, protectedSnapshot.notebooks),
+    sections: mergeRowsById(snapshot.sections, protectedSnapshot.sections),
+    pages: mergeRowsById(snapshot.pages, protectedSnapshot.pages),
+  }
   const [currentNotebooksResult, currentSectionsResult, currentPagesResult] = await Promise.all([
     supabase.from('notebooks').select('id').eq('user_id', userId),
     supabase.from('sections').select('id').eq('user_id', userId),
@@ -81,9 +97,9 @@ const restoreSnapshot = async (snapshot) => {
   if (currentSectionsResult.error) throw currentSectionsResult.error
   if (currentPagesResult.error) throw currentPagesResult.error
 
-  const baselineNotebookIds = new Set(snapshot.notebooks.map((row) => row.id))
-  const baselineSectionIds = new Set(snapshot.sections.map((row) => row.id))
-  const baselinePageIds = new Set(snapshot.pages.map((row) => row.id))
+  const baselineNotebookIds = new Set(targetSnapshot.notebooks.map((row) => row.id))
+  const baselineSectionIds = new Set(targetSnapshot.sections.map((row) => row.id))
+  const baselinePageIds = new Set(targetSnapshot.pages.map((row) => row.id))
 
   const extraPageIds = (currentPagesResult.data ?? [])
     .map((row) => row.id)
@@ -111,16 +127,16 @@ const restoreSnapshot = async (snapshot) => {
     if (error) throw error
   }
 
-  if (snapshot.notebooks.length > 0) {
-    const { error } = await supabase.from('notebooks').upsert(snapshot.notebooks, { onConflict: 'id' })
+  if (targetSnapshot.notebooks.length > 0) {
+    const { error } = await supabase.from('notebooks').upsert(targetSnapshot.notebooks, { onConflict: 'id' })
     if (error) throw error
   }
-  if (snapshot.sections.length > 0) {
-    const { error } = await supabase.from('sections').upsert(snapshot.sections, { onConflict: 'id' })
+  if (targetSnapshot.sections.length > 0) {
+    const { error } = await supabase.from('sections').upsert(targetSnapshot.sections, { onConflict: 'id' })
     if (error) throw error
   }
-  if (snapshot.pages.length > 0) {
-    const { error } = await supabase.from('pages').upsert(snapshot.pages, { onConflict: 'id' })
+  if (targetSnapshot.pages.length > 0) {
+    const { error } = await supabase.from('pages').upsert(targetSnapshot.pages, { onConflict: 'id' })
     if (error) throw error
   }
 }
@@ -162,7 +178,7 @@ export const test = base.extend({
           }
           await new Promise((r) => setTimeout(r, 500))
         }
-        await restoreSnapshot(snapshot)
+        await restoreSnapshot(snapshot, getProtectedSeedSnapshot())
       }
     },
     { auto: true },

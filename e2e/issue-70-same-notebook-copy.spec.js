@@ -53,7 +53,7 @@ test.describe('Issue #70 same-notebook section copy', () => {
     targetPageTitle = `Test Page ${unique}`
 
     // Create our own notebook and section for isolation
-    const nb = await createNotebook(client, userId, notebookTitle)
+    const nb = await createNotebook(client, userId, notebookTitle, { preserveForSuite: false })
     notebookId = nb.id
     testSection = await createSection(client, userId, nb.id, sectionTitle, 9999)
 

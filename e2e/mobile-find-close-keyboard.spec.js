@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures'
 import {
   createNotebook,
+  createPage,
   createSection,
   deleteNotebookById,
   getSupabase,
@@ -39,12 +40,23 @@ const getEditorFocusState = async (page) =>
 
 let seedIds = {}
 const seedLabel = `FIND-CLOSE-${Date.now()}`
+const SEED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'find-close-paragraph' },
+      content: [{ type: 'text', text: 'Find close keyboard regression content' }],
+    },
+  ],
+}
 
 test.beforeAll(async () => {
   const { client, userId } = await getSupabase()
   const notebook = await createNotebook(client, userId, `${seedLabel} Notebook`)
   const section = await createSection(client, userId, notebook.id, `${seedLabel} Section`, 0)
-  seedIds = { notebook, section }
+  const page = await createPage(client, userId, section.id, `${seedLabel} Page`, SEED_CONTENT, 0)
+  seedIds = { notebook, section, page }
 })
 
 test.afterAll(async () => {
@@ -58,8 +70,8 @@ test('closing the find bar with the keyboard down does NOT refocus the editor', 
 }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
-  const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}`
-  await waitForApp(page, hash, { waitForEditor: true })
+  const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
+  await waitForApp(page, hash, { expectedText: 'Find close keyboard regression content' })
 
   // Open the find bar (the Find button lives in the always-visible core group).
   await page.getByRole('button', { name: 'Find in page' }).click()
@@ -70,7 +82,7 @@ test('closing the find bar with the keyboard down does NOT refocus the editor', 
 
   // Close the find bar. With the keyboard already down (headless mobile), the
   // editor must not be programmatically refocused.
-  await page.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
 
   await expect(findInput).toHaveCount(0, { timeout: 5000 })
 

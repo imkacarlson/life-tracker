@@ -235,7 +235,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     expect(await waitForStorageFileExistence(client, storagePath)).toBe(true)
 
     // Create test data: notebook → section → page with image
-    const nb = await createNotebook(client, userId, `T1 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T1 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sec = await createSection(client, userId, nb.id, 'T1 Section')
     const pg = await createPage(client, userId, sec.id, 'T1 Page', docWithImage(storagePath))
 
@@ -271,7 +271,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const { client, userId } = await getSupabase()
     const storagePath = await uploadTestImage(client, userId, `t2-${Date.now()}.png`)
 
-    const nb = await createNotebook(client, userId, `T2 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T2 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sec = await createSection(client, userId, nb.id, 'T2 Section')
     const pg = await createPage(client, userId, sec.id, 'T2 Page', docWithImage(storagePath))
 
@@ -308,7 +308,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const { client, userId } = await getSupabase()
     const storagePath = await uploadTestImage(client, userId, `t3-${Date.now()}.png`)
 
-    const nb = await createNotebook(client, userId, `T3 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T3 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sec = await createSection(client, userId, nb.id, 'T3 Section')
     const pg = await createPage(client, userId, sec.id, 'T3 Page', docWithImage(storagePath))
 
@@ -347,7 +347,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const { client, userId } = await getSupabase()
     const storagePath = await uploadTestImage(client, userId, `t4-${Date.now()}.png`)
 
-    const nb = await createNotebook(client, userId, `T4 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T4 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sec = await createSection(client, userId, nb.id, 'T4 Section')
     const pg = await createPage(client, userId, sec.id, 'T4 Page', docWithImage(storagePath))
 
@@ -380,7 +380,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const storagePath1 = await uploadTestImage(client, userId, `t5a-${Date.now()}.png`)
     const storagePath2 = await uploadTestImage(client, userId, `t5b-${Date.now()}.png`)
 
-    const nb = await createNotebook(client, userId, `T5 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T5 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sectionTitle = `T5 Section ${Date.now()}`
     const sec = await createSection(client, userId, nb.id, sectionTitle)
     await createPage(client, userId, sec.id, 'T5 Page 1', docWithImage(storagePath1, 'p1-img'))
@@ -418,7 +418,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
     const { client, userId } = await getSupabase()
     const storagePath = await uploadTestImage(client, userId, `t6-${Date.now()}.png`)
 
-    const nb = await createNotebook(client, userId, `T6 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T6 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sectionTitle = `T6 Section ${Date.now()}`
     const sec = await createSection(client, userId, nb.id, sectionTitle)
     await createPage(client, userId, sec.id, 'T6 Page', docWithImage(storagePath))
@@ -451,7 +451,7 @@ test.describe('Issue #84 orphaned image cleanup', () => {
   test('T7: page without images can be deleted without errors', async ({ page }) => {
     const { client, userId } = await getSupabase()
 
-    const nb = await createNotebook(client, userId, `T7 Notebook ${Date.now()}`)
+    const nb = await createNotebook(client, userId, `T7 Notebook ${Date.now()}`, { preserveForSuite: false })
     const sec = await createSection(client, userId, nb.id, 'T7 Section')
     const pg = await createPage(client, userId, sec.id, 'T7 Page', docWithoutImage())
 
