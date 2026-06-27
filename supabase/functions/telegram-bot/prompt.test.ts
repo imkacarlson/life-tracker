@@ -34,6 +34,14 @@ describe('buildSystemPrompt', () => {
     expect(base).toContain('coming up very soon')
   })
 
+  it('defaults additions to plain bullets at the bottom of the section', () => {
+    const base = buildSystemPrompt(false)
+    // New items default to plain bullets, not checkboxes.
+    expect(base).toContain('Default to a plain bullet list')
+    // And land at the bottom of the section they belong to.
+    expect(base).toContain('BOTTOM of the section')
+  })
+
   it('omits the date anchor when no nowDisplay is given', () => {
     expect(buildSystemPrompt(true)).not.toContain('current local date and time')
     expect(buildSystemPrompt(false)).not.toContain('current local date and time')
