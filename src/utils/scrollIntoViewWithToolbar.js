@@ -73,7 +73,18 @@ export function pickScrollSurface(container) {
   }
   return {
     scrollBy: ({ top }) => window.scrollBy({ top, behavior: 'instant' }),
-    getRect: () => ({ top: 0, bottom: window.innerHeight }),
+    // Prefer the visual viewport so the surface shrinks to the keyboard's top
+    // edge: vv.offsetTop/height are in the same client-coordinate space as
+    // getBoundingClientRect() and coordsAtPos(), so caret, toolbar, and surface
+    // rects all agree (offsetTop also accounts for pinch-zoom pan). A shrunken
+    // surface keeps the bottom toolbar reliably in the lower half so the
+    // getToolbarSafeBounds center heuristic can't flip and misclassify it.
+    // Desktop / environments without visualViewport fall back to innerHeight.
+    getRect: () => {
+      const vv = typeof window !== 'undefined' ? window.visualViewport : null
+      if (vv) return { top: vv.offsetTop, bottom: vv.offsetTop + vv.height }
+      return { top: 0, bottom: window.innerHeight }
+    },
   }
 }
 

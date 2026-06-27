@@ -275,6 +275,94 @@ describe('scrollRectIntoViewWithToolbar', () => {
     }
   })
 
+  it('uses the visual viewport band (offset + height) for the window surface', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    // Keyboard open: layout innerHeight is still 852, but the visual viewport
+    // has shrunk to height 560 starting at offsetTop 0. The bottom toolbar sits
+    // at the top of the keyboard. The surface must follow the visual viewport,
+    // not innerHeight, so the toolbar lands in the lower half and is treated as
+    // a bottom obstruction.
+    globalThis.window = {
+      innerHeight: 852,
+      visualViewport: { offsetTop: 0, height: 560 },
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      const toolbarEl = {
+        getBoundingClientRect: () => ({ top: 480, bottom: 560, height: 80 }),
+      }
+      // Caret tucked behind the toolbar (top 500 > safeBottom-padding).
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 500, bottom: 520 },
+        toolbarEl,
+        padding: 16,
+      })
+
+      // surfaceBottom = 0 + 560 = 560; safeBottom = toolbar top 480;
+      // bottomEdge = 480 - 16 = 464; cursorBottom 520 > 464 → delta 520 - 464 = 56
+      expect(delta).toBe(56)
+      expect(scrollCalls).toEqual([{ top: 56, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
+  })
+
+  it('honors visualViewport offsetTop (pinch-zoom pan) as the surface top', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    globalThis.window = {
+      innerHeight: 852,
+      visualViewport: { offsetTop: 100, height: 600 },
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      // No toolbar; a caret above the panned-in top edge (offsetTop 100) must
+      // scroll up into view.
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 90, bottom: 110 },
+        toolbarEl: null,
+        padding: 16,
+      })
+
+      // safeTop = 100; topEdge = 116; cursorTop 90 < 116 → delta 90 - 116 = -26
+      expect(delta).toBe(-26)
+      expect(scrollCalls).toEqual([{ top: -26, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
+  })
+
+  it('falls back to innerHeight when visualViewport is absent', () => {
+    const originalWindow = globalThis.window
+    const scrollCalls = []
+    // No visualViewport on the mock → desktop / existing-test path.
+    globalThis.window = {
+      innerHeight: 900,
+      scrollBy: (opts) => scrollCalls.push(opts),
+    }
+
+    try {
+      const toolbarEl = {
+        getBoundingClientRect: () => ({ top: 720, bottom: 852, height: 132 }),
+      }
+      const delta = scrollRectIntoViewWithToolbar({
+        rect: { top: 762, bottom: 807 },
+        toolbarEl,
+        padding: 20,
+      })
+
+      // surfaceBottom = innerHeight 900; safeBottom = 720; bottomEdge = 700;
+      // cursorBottom 807 > 700 → delta 107
+      expect(delta).toBe(107)
+      expect(scrollCalls).toEqual([{ top: 107, behavior: 'instant' }])
+    } finally {
+      globalThis.window = originalWindow
+    }
+  })
+
   it('is a no-op when the target is already comfortably visible', () => {
     const originalWindow = globalThis.window
     const scrollCalls = []
