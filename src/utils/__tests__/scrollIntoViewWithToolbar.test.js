@@ -82,6 +82,74 @@ describe('computeScrollAdjustment', () => {
     ).toBe(-10)
   })
 
+  // align: 'center' — used by find navigation so each Prev/Next lands the
+  // match in the vertical middle of the safe band, regardless of focus.
+  describe("align: 'center'", () => {
+    it('returns a negative delta that centers a match above the band center', () => {
+      // rect center = (60 + 80) / 2 = 70; band center = (100 + 700) / 2 = 400.
+      // delta = 70 - 400 = -330 → scroll up so the match rises to the center.
+      expect(
+        computeScrollAdjustment({
+          cursorTop: 60,
+          cursorBottom: 80,
+          safeTop: 100,
+          safeBottom: 700,
+          padding: 16,
+          align: 'center',
+        }),
+      ).toBe(-330)
+    })
+
+    it('returns a positive delta that centers a match below the band center', () => {
+      // rect center = (780 + 800) / 2 = 790; band center = 400.
+      // delta = 790 - 400 = 390 → scroll down so the match drops to the center.
+      expect(
+        computeScrollAdjustment({
+          cursorTop: 780,
+          cursorBottom: 800,
+          safeTop: 100,
+          safeBottom: 700,
+          padding: 16,
+          align: 'center',
+        }),
+      ).toBe(390)
+    })
+
+    it('returns ~0 when the match is already centered', () => {
+      // rect center = (390 + 410) / 2 = 400; band center = 400 → no scroll.
+      expect(
+        computeScrollAdjustment({
+          cursorTop: 390,
+          cursorBottom: 410,
+          safeTop: 100,
+          safeBottom: 700,
+          padding: 16,
+          align: 'center',
+        }),
+      ).toBe(0)
+    })
+
+    it('ignores padding for centering (band center is padding-independent)', () => {
+      const withPadding = computeScrollAdjustment({
+        cursorTop: 60,
+        cursorBottom: 80,
+        safeTop: 100,
+        safeBottom: 700,
+        padding: 40,
+        align: 'center',
+      })
+      const withoutPadding = computeScrollAdjustment({
+        cursorTop: 60,
+        cursorBottom: 80,
+        safeTop: 100,
+        safeBottom: 700,
+        align: 'center',
+      })
+      expect(withPadding).toBe(withoutPadding)
+      expect(withPadding).toBe(-330)
+    })
+  })
+
   it('prefers the "above" branch when the cursor is taller than the safe zone (degenerate viewport)', () => {
     // Very narrow safe zone; both checks could fire. Above-branch wins so we
     // scroll up to expose the start of the selection.

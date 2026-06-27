@@ -1,7 +1,10 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { scrollElementIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
+import {
+  scrollElementIntoViewWithToolbar,
+  scrollRectIntoViewWithToolbar,
+} from '../utils/scrollIntoViewWithToolbar'
 
 export const findInDocPluginKey = new PluginKey('findInDoc')
 
@@ -50,10 +53,48 @@ const scrollAiMatchIntoView = (view, match) => {
         container,
         toolbarEl,
         padding: 20,
+        align: 'center',
       })
     } catch {
       // Selection-based scrolling has already run. This fallback must never
       // break find state if a transient DOM lookup fails.
+    }
+  })
+}
+
+// Explicitly scroll a literal substring match to the vertical center of the
+// editor's safe band. Find navigation runs while the find button is focused
+// (the editor is blurred), so the editor's own handleScrollToSelection override
+// never fires for the dispatched .scrollIntoView(). This helper does the scroll
+// itself — focus-independent — using coordsAtPos for the match range. Scheduled
+// via requestAnimationFrame so it runs after the transaction has applied and
+// the decorations/selection are laid out.
+const scrollLiteralMatchIntoView = (view, match) => {
+  if (!view?.coordsAtPos || !match) return
+  const schedule = globalThis.requestAnimationFrame ?? ((callback) => setTimeout(callback, 0))
+  schedule(() => {
+    try {
+      const fromCoords = view.coordsAtPos(match.from)
+      const toCoords = view.coordsAtPos(match.to)
+      const rect = {
+        top: Math.min(fromCoords.top, toCoords.top),
+        bottom: Math.max(fromCoords.bottom, toCoords.bottom),
+      }
+
+      const container = view.dom?.closest?.('.editor-panel') ?? null
+      const toolbarEl =
+        container?.querySelector?.('.toolbar') ??
+        (typeof document !== 'undefined' ? document.querySelector('.toolbar') : null)
+      scrollRectIntoViewWithToolbar({
+        rect,
+        container,
+        toolbarEl,
+        padding: 20,
+        align: 'center',
+      })
+    } catch {
+      // The dispatched .scrollIntoView() has already run as a fallback. A
+      // transient coordsAtPos failure must never break find navigation.
     }
   })
 }
@@ -163,7 +204,7 @@ const FindInDoc = Extension.create({
     return {
       setFindQuery:
         (query) =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, state, dispatch, view }) => {
           if (!dispatch) return true
           const normalized = normalizeQuery(query)
           const matches = normalized ? computeMatches(state.doc, normalized) : []
@@ -177,6 +218,7 @@ const FindInDoc = Extension.create({
             nextTr.setSelection(TextSelection.create(state.doc, from, to)).scrollIntoView()
           }
           dispatch(nextTr)
+          if (matches.length > 0) scrollLiteralMatchIntoView(view, matches[0])
           return true
         },
       // AI find supplies whole-block ranges (resolved from matching block ids)
@@ -224,6 +266,7 @@ const FindInDoc = Extension.create({
             .scrollIntoView()
           dispatch(nextTr)
           if (pluginState?.mode === 'ai') scrollAiMatchIntoView(view, matches[nextIndex])
+          else scrollLiteralMatchIntoView(view, matches[nextIndex])
           return true
         },
       findPrev:
@@ -241,6 +284,7 @@ const FindInDoc = Extension.create({
             .scrollIntoView()
           dispatch(nextTr)
           if (pluginState?.mode === 'ai') scrollAiMatchIntoView(view, matches[nextIndex])
+          else scrollLiteralMatchIntoView(view, matches[nextIndex])
           return true
         },
     }

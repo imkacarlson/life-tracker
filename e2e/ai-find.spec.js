@@ -317,3 +317,103 @@ test.describe('AI Find scroll-into-view', () => {
     }).toPass({ timeout: 5000 })
   })
 })
+
+// Regression for the core bug: literal Find Next/Prev must scroll an off-screen
+// match into view even though the find button (not the editor) holds focus.
+// Seed: the search term lives only near the top, followed by enough filler to
+// make the editor tall and scrollable. Scroll to the bottom, then Find Next —
+// the viewport must jump up to the centered match.
+const TOP_ONLY_SEED = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'findscroll-zebra-1' },
+      content: [{ type: 'text', text: 'Zebra crossing near the office' }],
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'findscroll-zebra-2' },
+      content: [{ type: 'text', text: 'Zebra print notebook to buy' }],
+    },
+    // Lots of filler with no "Zebra" so every match stays near the top.
+    ...Array.from({ length: 60 }, (_, i) => ({
+      type: 'paragraph',
+      attrs: { id: `findscroll-filler-${i}` },
+      content: [{ type: 'text', text: `Filler line ${i} with several words taking vertical space` }],
+    })),
+  ],
+}
+
+test.describe('Find literal scroll-to-match on navigation', () => {
+  let notebookId = null
+  let testPage = null
+
+  test.beforeAll(async () => {
+    const { client, userId } = await getSupabase()
+    const nb = await createNotebook(client, userId, `FindScroll ${Date.now()}`)
+    notebookId = nb.id
+    const sec = await createSection(client, userId, nb.id, 'FindScroll Section')
+    testPage = await createPage(client, userId, sec.id, 'FindScroll Page', TOP_ONLY_SEED)
+  })
+
+  test.afterAll(async () => {
+    const { client } = await getSupabase()
+    await deleteNotebookById(client, notebookId)
+  })
+
+  test('Find Next scrolls an off-screen match into view while the find input is focused', async ({
+    page,
+    isMobile,
+  }) => {
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Zebra crossing near the office' })
+
+    await page.keyboard.press('Control+f')
+    const toggle = page.getByRole('button', { name: 'AI', exact: true })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    const input = page.locator('.find-input')
+    await expect(input).toBeVisible()
+    await input.fill('Zebra')
+    await expect(page.locator('.find-count')).toHaveText('1 of 2')
+
+    // Push the active scroll surface to the very bottom so both matches are
+    // off-screen above the fold. Mobile uses the page scroll because the editor
+    // panel flows with the document there; desktop uses the editor panel.
+    const scrollContainer = page.locator('.editor-panel')
+    const scrollToBottom = async () => {
+      if (isMobile) {
+        await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }))
+        return page.evaluate(() => window.scrollY)
+      }
+      await scrollContainer.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }))
+      return scrollContainer.evaluate((el) => el.scrollTop)
+    }
+    const getScrollTop = async () => {
+      if (isMobile) return page.evaluate(() => window.scrollY)
+      return scrollContainer.evaluate((el) => el.scrollTop)
+    }
+
+    const beforeTop = await scrollToBottom()
+    expect(beforeTop).toBeGreaterThan(200)
+
+    await page.getByRole('button', { name: 'Next' }).click()
+    await expect(page.locator('.find-count')).toHaveText('2 of 2')
+
+    // The viewport must have moved up substantially toward the (top) match, and
+    // the current match must end up inside the viewport.
+    await expect(async () => {
+      const afterTop = await getScrollTop()
+      expect(beforeTop - afterTop).toBeGreaterThan(200)
+
+      const current = page.locator('.ProseMirror .find-match.current')
+      await expect(current).toHaveCount(1)
+      const inViewport = await current.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        return r.top >= 0 && r.bottom <= window.innerHeight
+      })
+      expect(inViewport).toBe(true)
+    }).toPass({ timeout: 5000 })
+  })
+})
