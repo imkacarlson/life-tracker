@@ -11,7 +11,15 @@
  * Negative return → scrollBy up   (cursor is above the safe zone, hidden by toolbar).
  * Zero return     → cursor is already inside the safe zone.
  *
- * @param {{ cursorTop: number, cursorBottom: number, safeTop: number, safeBottom: number, padding?: number }} params
+ * The `align` param picks the strategy:
+ *   'keep'   (default) → minimal scroll that brings the rect just inside the
+ *                        safe band. Correct for typing/deep-links: don't move
+ *                        the view unless the cursor would be hidden.
+ *   'center'          → always position the rect's vertical center at the safe
+ *                        band's center. Used by find navigation so each
+ *                        Prev/Next lands the match in the middle of the view.
+ *
+ * @param {{ cursorTop: number, cursorBottom: number, safeTop: number, safeBottom: number, padding?: number, align?: 'keep' | 'center' }} params
  */
 export function computeScrollAdjustment({
   cursorTop,
@@ -19,7 +27,14 @@ export function computeScrollAdjustment({
   safeTop,
   safeBottom,
   padding = 0,
+  align = 'keep',
 }) {
+  if (align === 'center') {
+    const rectCenter = (cursorTop + cursorBottom) / 2
+    const bandCenter = (safeTop + safeBottom) / 2
+    return rectCenter - bandCenter
+  }
+
   const topEdge = safeTop + padding
   const bottomEdge = safeBottom - padding
 
@@ -107,6 +122,7 @@ export function scrollRectIntoViewWithToolbar({
   container = null,
   toolbarEl = null,
   padding = 16,
+  align = 'keep',
 }) {
   if (!rect) return 0
   const surface = pickScrollSurface(container)
@@ -122,6 +138,7 @@ export function scrollRectIntoViewWithToolbar({
     safeTop,
     safeBottom,
     padding,
+    align,
   })
 
   if (delta !== 0) surface.scrollBy({ top: delta })
@@ -133,6 +150,7 @@ export function scrollElementIntoViewWithToolbar({
   container = null,
   toolbarEl = null,
   padding = 16,
+  align = 'keep',
 }) {
   if (!element) return 0
   return scrollRectIntoViewWithToolbar({
@@ -140,6 +158,7 @@ export function scrollElementIntoViewWithToolbar({
     container,
     toolbarEl,
     padding,
+    align,
   })
 }
 

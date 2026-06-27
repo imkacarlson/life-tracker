@@ -2,6 +2,11 @@ name: Tests
 
 on:
   pull_request:
+    # `labeled` is included so adding the opt-in E2E label to an existing PR
+    # re-triggers this workflow without needing a new commit.
+    types: [opened, synchronize, reopened, labeled]
+  # Lets you kick off the suite by hand from the Actions tab for any branch.
+  workflow_dispatch:
 
 jobs:
   unit-tests:
@@ -26,9 +31,12 @@ jobs:
   e2e-tests:
     name: E2E Tests
     needs: unit-tests
-    # Skip E2E for a PR by adding the "skip-e2e" label (e.g. when the author has
-    # already run the suite locally). Unit tests always run.
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-e2e') }}
+    # E2E is opt-in: it does NOT run automatically on PRs. Trigger it either by
+    # adding the "run-e2e" label to the PR, or by manually running this workflow
+    # from the Actions tab (workflow_dispatch). Unit tests always run.
+    # To go back to running E2E on every PR, change this to `if: ${{ always() }}`
+    # (or remove the condition) and drop the `labeled` trigger above.
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
 
     steps:
