@@ -420,54 +420,88 @@ export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
   return { asap, fyi, format }
 }
 
-export const mapTasksFromCids = (
-  tasks: any[],
-  allowedCids: Set<string>,
+export type BucketName = 'asap' | 'fyi'
+
+export type MappedTask = {
+  task: string
+  block_ids: string[]
+  priority: string
+}
+
+// Each candidate has exactly one correct destination bucket, decided by the
+// server-computed due_bucket — overdue/today belong in ASAP, soon in FYI.
+// later/none candidates are never sent to the model, so they have no bucket.
+export const buildCidBucketMap = (candidates: CandidateForModel[]): Map<string, BucketName> => {
+  const cidToBucket = new Map<string, BucketName>()
+  for (const candidate of candidates || []) {
+    if (candidate.due_bucket === 'overdue' || candidate.due_bucket === 'today') {
+      cidToBucket.set(candidate.cid, 'asap')
+    } else if (candidate.due_bucket === 'soon') {
+      cidToBucket.set(candidate.cid, 'fyi')
+    }
+  }
+  return cidToBucket
+}
+
+// Routes the model's tasks into ASAP/FYI by each cid's *canonical* bucket rather
+// than the bucket the model chose. This recovers mis-bucketed real tasks (e.g. a
+// "today" item the model put in FYI) instead of dropping them, and silently
+// ignores cids the model invented or that were never sent (e.g. far-future
+// "later" items), which are safe to discard.
+export const routeTasksToBuckets = (
+  aiTasks: any[],
+  cidToBucket: Map<string, BucketName>,
   cidToBlockId: Map<string, string>,
   cidToText: Map<string, string>,
 ) => {
-  let removedForInvalidCids = 0
+  const asap: MappedTask[] = []
+  const fyi: MappedTask[] = []
+  let droppedUnknownCids = 0
 
-  const mapped = (tasks || [])
-    .map((task) => {
-      if (!Array.isArray(task?.cids)) {
-        removedForInvalidCids += 1
-        return null
+  for (const task of aiTasks || []) {
+    if (!Array.isArray(task?.cids)) continue
+
+    // Group this task's cids by where they actually belong. A single task can
+    // (rarely) reference cids spanning both buckets; each group becomes its own
+    // entry in the correct bucket.
+    const cidsByBucket = new Map<BucketName, string[]>()
+    for (const cid of task.cids) {
+      const bucket = cidToBucket.get(cid)
+      if (!bucket) {
+        droppedUnknownCids += 1
+        continue
       }
+      const group = cidsByBucket.get(bucket) || []
+      if (!group.includes(cid)) group.push(cid)
+      cidsByBucket.set(bucket, group)
+    }
 
-      const validCids = task.cids.filter((cid: string) => allowedCids.has(cid))
-      removedForInvalidCids += task.cids.length - validCids.length
-      if (!validCids.length) return null
-
-      const uniqueCids = Array.from(new Set(validCids))
-      const blockIds = uniqueCids
+    for (const [bucket, cids] of cidsByBucket) {
+      const blockIds = cids
         .map((cid) => cidToBlockId.get(cid))
         .filter((id): id is string => Boolean(id))
+      if (!blockIds.length) continue
 
-      if (!blockIds.length) return null
-
-      const fallbackTaskText = uniqueCids
+      const fallbackTaskText = cids
         .map((cid) => cidToText.get(cid))
         .filter((value): value is string => Boolean(value))
         .join(' + ')
 
       const nextTaskText = String(task?.task || '').trim() || fallbackTaskText
-      if (!nextTaskText) return null
+      if (!nextTaskText) continue
 
       const nextPriority = ['high', 'medium', 'low'].includes(task?.priority)
         ? task.priority
         : 'medium'
 
-      return {
+      const mappedTask: MappedTask = {
         task: nextTaskText,
         block_ids: blockIds,
         priority: nextPriority,
       }
-    })
-    .filter((task): task is { task: string, block_ids: string[], priority: string } => Boolean(task))
-
-  return {
-    mapped,
-    removedForInvalidCids,
+      ;(bucket === 'asap' ? asap : fyi).push(mappedTask)
+    }
   }
+
+  return { asap, fyi, droppedUnknownCids }
 }
