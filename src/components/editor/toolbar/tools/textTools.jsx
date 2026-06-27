@@ -8,6 +8,7 @@ import { useEditorUIStore } from '../../../../stores/editorUIStore'
 import HighlightPicker from '../HighlightPicker'
 import { useOutsideClick } from '../useOutsideClick'
 import { cmd } from '../toolHelpers'
+import { getWordRangeAt } from '../../../../utils/wordRange'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../toolConstants'
 import { Btn } from './ToolButton'
 
@@ -102,6 +103,18 @@ export function HighlightTool({ editor }) {
 
   const apply = () => {
     if (!editor) return
+    const { selection } = editor.state
+    if (selection.empty) {
+      const range = getWordRangeAt(editor.state)
+      if (range) {
+        const chain = editor.chain().focus().setTextSelection(range)
+        // Toggle: already highlighted -> remove; otherwise apply current color.
+        if (editor.isActive('highlight') || !highlightColor) chain.unsetHighlight().run()
+        else chain.setHighlight({ color: highlightColor }).run()
+        return
+      }
+    }
+    // Unchanged: explicit selection (or no word under cursor) keeps today's behavior.
     if (!highlightColor) cmd(editor)?.unsetHighlight().run()
     else cmd(editor)?.setHighlight({ color: highlightColor }).run()
   }
