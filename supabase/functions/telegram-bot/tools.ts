@@ -45,14 +45,27 @@ const PLACEMENT_RULES =
   'How to choose the anchor and placement (ported from the app\'s AI-insert rules):\n' +
   '- targetBlockId MUST be one of the {{id:…}} markers from read_tracker_structure. ' +
   'Never invent an id. If no good anchor exists, omit it (the items go at the end).\n' +
+  '- Default placement = the BOTTOM of the section the item belongs to. The user writes ' +
+  'oldest-at-top / newest-at-bottom, so a new item continues at the end of its section.\n' +
   '- placement "append_to_list": targetBlockId is a list (its {{id:…}} sits on its own ' +
-  'line right after the bullets/tasks). Use this to add lines to an EXISTING list — pick ' +
-  'the format (task_list vs bullet_list) that matches that list.\n' +
-  '- placement "after_block": targetBlockId is a heading, paragraph, or table cell line. ' +
-  'The new content is inserted right after it. Use this to start a new list/paragraph under ' +
-  'a category heading or after a specific line.\n' +
-  '- format: "task_list" for checklist/to-do items, "bullet_list" for plain bullets, ' +
-  '"paragraphs" for prose. items are concise plain-text lines (no markdown, no ids).'
+  'line right after the bullets/tasks). This appends to the BOTTOM of that list and keeps ' +
+  'one clean list. PREFER this when the section\'s existing list is already bullets — anchor ' +
+  'on that list so the new bullet lands at the bottom of the section.\n' +
+  '- Bullet-into-a-checkbox-section case: append_to_list forces new items to match the ' +
+  'target list\'s type, so appending into a task/checkbox list always yields checkboxes. ' +
+  'If the section\'s existing list is a checkbox/task list and the user did NOT ask for a ' +
+  'checkbox, use placement "after_block" anchored on the LAST line of that list with ' +
+  'format "bullet_list", so the bullet lands at the bottom of the section as its own plain ' +
+  'bullet. This is the one spot where after_block + bullet_list beats append_to_list.\n' +
+  '- placement "after_block": targetBlockId is a heading, paragraph, table cell, or list ' +
+  'line. The new content is inserted right after it. Use this to start a new list/paragraph ' +
+  'under a category heading, or (per the case above) to add a plain bullet after the last ' +
+  'line of a checkbox list.\n' +
+  '- format: default "bullet_list" for plain bullets, "task_list" only when the user ' +
+  'explicitly asks for a checklist/to-do/checkboxes, "paragraphs" for prose. items are ' +
+  'concise plain-text lines (no markdown, no ids).\n' +
+  '- Last resort: if no section fits, omit targetBlockId and the items go to the end of ' +
+  'the tracker.'
 
 /**
  * Build the tool registry bound to the single known user. The Supabase client
@@ -111,6 +124,11 @@ export function buildTools(
           format: {
             type: 'string',
             enum: ['bullet_list', 'task_list', 'paragraphs'],
+            description:
+              'Default to "bullet_list" — the user almost always adds plain bullets. Use ' +
+              '"task_list" ONLY when the user explicitly asks for a checklist, to-do, or ' +
+              'checkboxes (even if the target section already uses checkboxes). Use ' +
+              '"paragraphs" for prose.',
           },
           items: {
             type: 'array',
