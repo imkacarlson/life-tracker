@@ -57,3 +57,26 @@ export function reindexSortOrder(items) {
   if (!Array.isArray(items)) return items
   return items.map((item, index) => ({ ...item, sort_order: index + 1 }))
 }
+
+/**
+ * Returns a new array with `created` inserted immediately after the page whose
+ * id matches `activeId`. If `activeId` is null/undefined or not found in
+ * `pages`, the created page is appended at the end (matching the legacy
+ * "+ New page" behavior). Does not mutate the input.
+ *
+ * @template {{ id: string }} T
+ * @param {T[]} pages
+ * @param {T} created
+ * @param {string|null} [activeId]
+ * @returns {T[]}
+ */
+export function insertPageAfter(pages, created, activeId) {
+  const base = Array.isArray(pages) ? pages : []
+  const activeIndex = activeId ? base.findIndex((page) => page.id === activeId) : -1
+  if (activeIndex === -1) {
+    return [...base, created]
+  }
+  const next = [...base]
+  next.splice(activeIndex + 1, 0, created)
+  return next
+}

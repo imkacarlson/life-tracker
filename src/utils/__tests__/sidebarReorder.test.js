@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { canReorder, reorderById, reindexSortOrder } from '../sidebarReorder'
+import {
+  canReorder,
+  reorderById,
+  reindexSortOrder,
+  insertPageAfter,
+} from '../sidebarReorder'
 
 describe('canReorder', () => {
   it('returns true for same type and same parentId', () => {
@@ -109,5 +114,56 @@ describe('reindexSortOrder', () => {
 
   it('returns the input unchanged when items is not an array', () => {
     expect(reindexSortOrder(undefined)).toBe(undefined)
+  })
+})
+
+describe('insertPageAfter', () => {
+  const pages = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  const created = { id: 'new' }
+
+  it('inserts immediately after the active page', () => {
+    const next = insertPageAfter(pages, created, 'b')
+    expect(next.map((p) => p.id)).toEqual(['a', 'b', 'new', 'c'])
+  })
+
+  it('appends when the active page is last', () => {
+    const next = insertPageAfter(pages, created, 'c')
+    expect(next.map((p) => p.id)).toEqual(['a', 'b', 'c', 'new'])
+  })
+
+  it('appends when activeId is null', () => {
+    const next = insertPageAfter(pages, created, null)
+    expect(next.map((p) => p.id)).toEqual(['a', 'b', 'c', 'new'])
+  })
+
+  it('appends when activeId is undefined', () => {
+    const next = insertPageAfter(pages, created, undefined)
+    expect(next.map((p) => p.id)).toEqual(['a', 'b', 'c', 'new'])
+  })
+
+  it('appends when activeId is not found in pages', () => {
+    const next = insertPageAfter(pages, created, 'missing')
+    expect(next.map((p) => p.id)).toEqual(['a', 'b', 'c', 'new'])
+  })
+
+  it('handles a single-page section (insert after the only page)', () => {
+    const next = insertPageAfter([{ id: 'a' }], created, 'a')
+    expect(next.map((p) => p.id)).toEqual(['a', 'new'])
+  })
+
+  it('handles an empty section (created becomes the only page)', () => {
+    expect(insertPageAfter([], created, null).map((p) => p.id)).toEqual(['new'])
+    expect(insertPageAfter([], created, 'a').map((p) => p.id)).toEqual(['new'])
+  })
+
+  it('treats a non-array pages argument as empty', () => {
+    expect(insertPageAfter(undefined, created, 'a').map((p) => p.id)).toEqual(['new'])
+  })
+
+  it('does not mutate the input array', () => {
+    const input = [{ id: 'a' }, { id: 'b' }]
+    const next = insertPageAfter(input, created, 'a')
+    expect(next).not.toBe(input)
+    expect(input.map((p) => p.id)).toEqual(['a', 'b'])
   })
 })
