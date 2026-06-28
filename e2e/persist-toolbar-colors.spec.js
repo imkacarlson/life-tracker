@@ -29,6 +29,10 @@ const HIGHLIGHT_GREEN_RGB = 'rgb(134, 239, 172)'
 const TEXT_BLUE_RGB = 'rgb(37, 99, 235)'
 // First swatch under "Standard Colors" in the shading picker (#7f1d1d).
 const SHADING_MAROON_RGB = 'rgb(127, 29, 29)'
+// A yellow the tracker uses pervasively for cell shading (#fef08a). Seeded onto
+// a cell to reproduce the "remembered color reverts to the tracker yellow" bug.
+const SHADING_YELLOW_HEX = '#fef08a'
+const SHADING_YELLOW_RGB = 'rgb(254, 240, 138)'
 
 const buildSeedContent = () => ({
   type: 'doc',
@@ -62,6 +66,35 @@ const buildTableSeedContent = () => ({
               type: 'tableCell',
               attrs: { colspan: 1, rowspan: 1 },
               content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Target cell' }] }],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+})
+
+// A single-row, two-cell table where the first cell is already shaded yellow
+// (the color the user uses throughout their tracker) and the second is unshaded.
+const buildPreShadedTableSeedContent = () => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'table',
+      attrs: { id: 'tbl-preshaded-1' },
+      content: [
+        {
+          type: 'tableRow',
+          content: [
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1, backgroundColor: SHADING_YELLOW_HEX },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Yellow cell' }] }],
+            },
+            {
+              type: 'tableCell',
+              attrs: { colspan: 1, rowspan: 1 },
+              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Empty cell' }] }],
             },
           ],
         },
@@ -147,7 +180,23 @@ test.beforeAll(async () => {
     buildTableSeedContent(),
     3,
   )
-  seedIds = { notebook, section, highlightPage, shortcutPage, textPage, shadingPage }
+  const preShadedPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Pre-shaded Page`,
+    buildPreShadedTableSeedContent(),
+    4,
+  )
+  seedIds = {
+    notebook,
+    section,
+    highlightPage,
+    shortcutPage,
+    textPage,
+    shadingPage,
+    preShadedPage,
+  }
 })
 
 test.afterAll(async () => {
@@ -292,6 +341,40 @@ test('shading color persists across reload and the main button toggles a differe
   await expect(async () => {
     expect(await readCellColor(page, 'Target cell')).toBe('rgba(0, 0, 0, 0)')
   }).toPass({ timeout: 5000 })
+
+  await expect(page.locator('.shading-control .toolbar-color-bar')).toHaveCSS(
+    'background-color',
+    SHADING_MAROON_RGB,
+  )
+})
+
+test('remembered shading color is not clobbered by moving the cursor into a shaded cell', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop-only: shading caret lives in the collapsed extra group on touch')
+
+  await waitForApp(page, seedHash(seedIds.preShadedPage), { expectedText: 'Yellow cell' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  // The seed cell renders with its pervasive tracker yellow.
+  await expect(async () => {
+    expect(await readCellColor(page, 'Yellow cell')).toBe(SHADING_YELLOW_RGB)
+  }).toPass({ timeout: 5000 })
+
+  // From the *unshaded* cell, pick a different color (first Standard swatch).
+  await page.locator('.ProseMirror td', { hasText: 'Empty cell' }).first().click()
+  await page.getByRole('button', { name: 'Shading colors' }).click()
+  await page.getByRole('button', { name: 'Standard color 1', exact: true }).click()
+  await expect(page.locator('.shading-control .toolbar-color-bar')).toHaveCSS(
+    'background-color',
+    SHADING_MAROON_RGB,
+  )
+
+  // Move the cursor into the yellow cell. Regression (#154 gap): cursor position
+  // must NOT overwrite the remembered pick — the swatch should stay maroon, not
+  // revert to the tracker's yellow.
+  await page.locator('.ProseMirror td', { hasText: 'Yellow cell' }).first().click()
 
   await expect(page.locator('.shading-control .toolbar-color-bar')).toHaveCSS(
     'background-color',

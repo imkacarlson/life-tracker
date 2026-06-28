@@ -75,9 +75,7 @@ function EditorPanel({
     contextMenu, setContextMenu,
     submenuOpen, setSubmenuOpen,
     submenuDirection, setSubmenuDirection,
-    highlightColor, setHighlightColor,
-    setShadingColor,
-    setTextColor,
+    highlightColor,
     resetOnTrackerChange,
   } = useEditorUIStore()
 
@@ -689,15 +687,6 @@ function EditorPanel({
 
       const blockId = getActiveBlockId()
       setCurrentBlockId(blockId)
-
-      if (!nextInTable) return
-      // Only update the remembered shading color when the cell actually has a
-      // background. Mirrors the highlight/text-color guards so cursor movement
-      // into an unshaded cell does not clobber the remembered (persisted) color.
-      const headerColor = editor.getAttributes('tableHeader')?.backgroundColor
-      const cellColor = editor.getAttributes('tableCell')?.backgroundColor
-      const cellShading = headerColor || cellColor
-      if (cellShading) setShadingColor(cellShading)
     }
     syncEditorState()
     editor.on('selectionUpdate', syncEditorState)
@@ -706,38 +695,7 @@ function EditorPanel({
       editor.off('selectionUpdate', syncEditorState)
       editor.off('transaction', syncEditorState)
     }
-  }, [editor, getActiveBlockId, setInTable, setCurrentBlockId, setShadingColor])
-
-  // Sync highlight color from editor selection → store
-  useEffect(() => {
-    if (!editor) return
-    const syncHighlight = () => {
-      const color = editor.getAttributes('highlight')?.color
-      if (color) setHighlightColor(color)
-    }
-    editor.on('selectionUpdate', syncHighlight)
-    editor.on('transaction', syncHighlight)
-    return () => {
-      editor.off('selectionUpdate', syncHighlight)
-      editor.off('transaction', syncHighlight)
-    }
-  }, [editor, setHighlightColor])
-
-  // Sync text color from editor selection → store. The store's change-guard
-  // keeps this from spamming localStorage on every cursor move.
-  useEffect(() => {
-    if (!editor) return
-    const syncTextColor = () => {
-      const color = editor.getAttributes('textStyle')?.color
-      if (color) setTextColor(color)
-    }
-    editor.on('selectionUpdate', syncTextColor)
-    editor.on('transaction', syncTextColor)
-    return () => {
-      editor.off('selectionUpdate', syncTextColor)
-      editor.off('transaction', syncTextColor)
-    }
-  }, [editor, setTextColor])
+  }, [editor, getActiveBlockId, setInTable, setCurrentBlockId])
 
   useEffect(() => {
     if (!editor) return
