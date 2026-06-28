@@ -8,7 +8,7 @@ import { detectConflict } from '../utils/draftHelpers'
 import { classifySaveResult } from '../utils/saveConflict'
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
-import { reindexSortOrder } from '../utils/sidebarReorder'
+import { reindexSortOrder, insertPageAfter } from '../utils/sidebarReorder'
 import { getSectionPages } from '../utils/sectionPages'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
@@ -628,10 +628,12 @@ export const useTrackers = (userId, activeSectionId) => {
     if (!session || !sectionId) return
     setMessage('')
     const title = 'Untitled'
+    // sort_order here is provisional — reorderSectionPages reindexes 1..n below.
+    // We still need a value to satisfy the column, so append past the current max.
     const existingOrders = trackers
       .map((item) => item.sort_order)
       .filter((value) => typeof value === 'number')
-    const nextSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
+    const provisionalSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
 
     const { data, error } = await supabase
       .from('pages')
@@ -640,7 +642,7 @@ export const useTrackers = (userId, activeSectionId) => {
         user_id: session.user.id,
         content: EMPTY_DOC,
         section_id: sectionId,
-        sort_order: nextSortOrder,
+        sort_order: provisionalSortOrder,
       })
       .select()
       .single()
@@ -650,9 +652,12 @@ export const useTrackers = (userId, activeSectionId) => {
       return
     }
 
-    const created = { ...data, sort_order: nextSortOrder }
-    setTrackers((prev) => [...prev, created])
-    upsertCachedPage(sectionId, created)
+    const created = { ...data, sort_order: provisionalSortOrder }
+    // Place the new page immediately after the currently-selected page, then
+    // persist the whole section order through the same proven reorder path
+    // (reindexes 1..n, batch-updates Supabase, refreshes trackers + page cache).
+    const desiredOrder = insertPageAfter(trackers, created, activeTrackerId)
+    await reorderSectionPages(sectionId, desiredOrder)
     // Seed the content cache so the editor can mount immediately without a round-trip.
     setPageContent(data.id, EMPTY_DOC, data.updated_at)
     setActiveTrackerId(data.id)
