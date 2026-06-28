@@ -92,6 +92,33 @@ export function H2Tool({ editor }) {
 
 // --- Highlight (with picker) ---------------------------------------------
 
+// Apply (color) or remove (color === null) the highlight on the current selection.
+// With a collapsed caret, act on the whole word under the cursor WITHOUT changing
+// the visible selection, so the cursor stays put and no blue overlay hides the color.
+function setHighlightSmart(editor, color) {
+  if (!editor) return
+  const markType = editor.schema.marks.highlight
+  const { selection } = editor.state
+
+  if (selection.empty) {
+    const range = getWordRangeAt(editor.state)
+    if (range) {
+      editor.chain().focus().command(({ tr, dispatch }) => {
+        if (dispatch) {
+          tr.removeMark(range.from, range.to, markType)
+          if (color) tr.addMark(range.from, range.to, markType.create({ color }))
+        }
+        return true
+      }).run()
+      return
+    }
+  }
+
+  // Real selection (or caret on whitespace): keep today's behavior.
+  if (!color) editor.chain().focus().unsetHighlight().run()
+  else editor.chain().focus().setHighlight({ color }).run()
+}
+
 export function HighlightTool({ editor }) {
   const highlightColor = useEditorUIStore((s) => s.highlightColor)
   const setHighlightColor = useEditorUIStore((s) => s.setHighlightColor)
@@ -102,32 +129,13 @@ export function HighlightTool({ editor }) {
   useOutsideClick({ isOpen: open, onClose: () => setOpen(false), refs })
 
   const apply = () => {
-    if (!editor) return
-    const { selection } = editor.state
-    if (selection.empty) {
-      const range = getWordRangeAt(editor.state)
-      if (range) {
-        const chain = editor.chain().focus().setTextSelection(range)
-        // Toggle: already highlighted -> remove; otherwise apply current color.
-        if (editor.isActive('highlight') || !highlightColor) chain.unsetHighlight().run()
-        else chain.setHighlight({ color: highlightColor }).run()
-        return
-      }
-    }
-    // Unchanged: explicit selection (or no word under cursor) keeps today's behavior.
-    if (!highlightColor) cmd(editor)?.unsetHighlight().run()
-    else cmd(editor)?.setHighlight({ color: highlightColor }).run()
+    const remove = editor?.isActive('highlight') || !highlightColor
+    setHighlightSmart(editor, remove ? null : highlightColor)
   }
 
   const pick = (color) => {
-    if (!editor) return
-    if (!color) {
-      setHighlightColor(null)
-      cmd(editor)?.unsetHighlight().run()
-    } else {
-      setHighlightColor(color)
-      cmd(editor)?.setHighlight({ color }).run()
-    }
+    setHighlightColor(color || null)
+    setHighlightSmart(editor, color || null)
     setOpen(false)
   }
 
