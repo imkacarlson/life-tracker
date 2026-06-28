@@ -9,6 +9,7 @@ import HighlightPicker from '../HighlightPicker'
 import { useOutsideClick } from '../useOutsideClick'
 import { cmd } from '../toolHelpers'
 import { getWordRangeAt } from '../../../../utils/wordRange'
+import { isHighlightActiveForToggle } from '../../../../utils/highlightState'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../toolConstants'
 import { Btn } from './ToolButton'
 
@@ -128,8 +129,17 @@ export function HighlightTool({ editor }) {
   const refs = useMemo(() => [wrapRef, pickerRef], [])
   useOutsideClick({ isOpen: open, onClose: () => setOpen(false), refs })
 
+  // Base the decision (and the button's active state) on whether the toggle
+  // target — the word under a collapsed caret, or the selection — already
+  // carries the highlight. isActive('highlight') reads caret-adjacency marks,
+  // which the inclusive:false mark gets wrong at word edges, so toggling off
+  // failed there.
+  const highlightActive = editor
+    ? isHighlightActiveForToggle(editor.state, editor.schema.marks.highlight)
+    : false
+
   const apply = () => {
-    const remove = editor?.isActive('highlight') || !highlightColor
+    const remove = highlightActive || !highlightColor
     setHighlightSmart(editor, remove ? null : highlightColor)
   }
 
@@ -142,7 +152,7 @@ export function HighlightTool({ editor }) {
   return (
     <div className="highlight-control" ref={wrapRef}>
       <Btn
-        active={editor?.isActive('highlight')}
+        active={highlightActive}
         onActivate={apply}
         title="Highlight"
       >
