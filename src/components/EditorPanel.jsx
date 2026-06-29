@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
 import { isTouchOnlyDevice } from '../utils/device'
+import { getChecker } from '../lib/spellChecker'
 import { buildHash } from '../utils/navigationHelpers'
 import { scrollElementIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { useContentZoom } from '../hooks/useContentZoom'
@@ -55,6 +56,7 @@ function EditorPanel({
   headerActions = null,
   showAiDaily = true,
   showAiInsert = true,
+  onAddCustomWord = null,
 }) {
   const editorPanelRef = useRef(null)
   const editorShellRef = useRef(null)
@@ -393,6 +395,10 @@ function EditorPanel({
     }
   }
 
+  // Suggestions for the word the right-click landed on, fetched on demand from
+  // the (lazily loaded) checker when the menu opens over a misspelling.
+  const [spellSuggestions, setSpellSuggestions] = useState([])
+
   const openContextMenu = useCallback((next) => {
     setContextMenu({
       open: true,
@@ -400,6 +406,7 @@ function EditorPanel({
       y: next.y,
       blockId: next.blockId ?? null,
       inTable: next.inTable ?? false,
+      misspelling: next.misspelling ?? null,
     })
     setSubmenuOpen(false)
   }, [setContextMenu, setSubmenuOpen])
@@ -459,7 +466,15 @@ function EditorPanel({
       focusFromCoords({ left: event.clientX, top: event.clientY })
       const inTable = Boolean(getCellFromEvent(event))
       const blockId = getActiveBlockId()
-      openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable })
+      // Did the click land on a flagged misspelling? (desktop-only extension —
+      // storage helper is absent on touch builds, so this is null there.)
+      let misspelling = null
+      const coords = editor.view?.posAtCoords({ left: event.clientX, top: event.clientY })
+      const getMisspellingAt = editor.storage?.spellcheck?.getMisspellingAt
+      if (coords?.pos !== undefined && typeof getMisspellingAt === 'function') {
+        misspelling = getMisspellingAt(coords.pos)
+      }
+      openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable, misspelling })
     }
 
     dom.addEventListener('contextmenu', handleContextMenu)
@@ -666,6 +681,63 @@ function EditorPanel({
     closeContextMenu()
   }
 
+  // Fetch up to 5 suggestions when the menu opens over a misspelling. The
+  // dynamic import keeps the spell-check module (and the dictionary it pulls)
+  // out of the bundle on touch-only devices, which never reach this branch.
+  useEffect(() => {
+    const misspelling = contextMenu.misspelling
+    if (!contextMenu.open || !misspelling || isTouchOnly) {
+      setSpellSuggestions([])
+      return
+    }
+    let cancelled = false
+    getChecker()
+      .then((checker) => {
+        if (cancelled) return
+        const suggestions = checker.suggest(misspelling.word) ?? []
+        setSpellSuggestions(suggestions.slice(0, 5))
+      })
+      .catch(() => {
+        if (!cancelled) setSpellSuggestions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [contextMenu.open, contextMenu.misspelling, isTouchOnly])
+
+  const handleApplySuggestion = (suggestion) => {
+    const misspelling = contextMenu.misspelling
+    if (!editor || !misspelling) return
+    editor
+      .chain()
+      .focus()
+      .insertContentAt({ from: misspelling.from, to: misspelling.to }, suggestion)
+      .run()
+    closeContextMenu()
+  }
+
+  const handleAddToDictionary = async () => {
+    const word = contextMenu.misspelling?.word
+    if (!word) return
+    // Clear the squiggle instantly (in-memory), then persist across devices.
+    editor?.storage?.spellcheck?.addCustomWord(word)
+    closeContextMenu()
+    if (onAddCustomWord) {
+      try {
+        await onAddCustomWord(word)
+      } catch (err) {
+        console.error('Failed to persist custom word:', err)
+      }
+    }
+  }
+
+  const handleIgnoreWord = () => {
+    const word = contextMenu.misspelling?.word
+    if (!word) return
+    editor?.storage?.spellcheck?.ignoreWord(word)
+    closeContextMenu()
+  }
+
   const handleSetTrackerPageFromMenu = async () => {
     if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
     await onSetTrackerPage(trackerId)
@@ -808,6 +880,31 @@ function EditorPanel({
           className="table-context-menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
+          {contextMenu.misspelling && (
+            <>
+              {spellSuggestions.length > 0 ? (
+                spellSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="table-context-item spellcheck-suggestion"
+                    onClick={() => handleApplySuggestion(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))
+              ) : (
+                <span className="table-context-item disabled">No suggestions</span>
+              )}
+              <button type="button" className="table-context-item" onClick={handleAddToDictionary}>
+                Add to dictionary
+              </button>
+              <button type="button" className="table-context-item" onClick={handleIgnoreWord}>
+                Ignore
+              </button>
+              <div className="table-context-divider" />
+            </>
+          )}
           <button
             type="button"
             className={`table-context-item ${!deepLinkHash ? 'disabled' : ''}`}

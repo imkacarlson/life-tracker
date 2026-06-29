@@ -47,6 +47,11 @@ recovery/
 .codex
 .playwright-mcp/
 
+# Spell-check dictionary — generated from the dictionary-en devDependency by
+# scripts/copy-dictionary.mjs (run via predev/prebuild/pretest:e2e). Not
+# committed: it's a ~540 KB derived data file (and a full English word list).
+public/dictionaries/
+
 # Reference implementation clones (kept locally for review, not tracked)
 docmost/
 notesnook/
