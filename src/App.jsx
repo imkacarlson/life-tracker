@@ -12,6 +12,8 @@ import { useTrackerSession } from './hooks/useTrackerSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
+import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
+import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import {
   readStoredSidebarCollapsed,
   readStoredSelection,
@@ -329,6 +331,14 @@ function App() {
   )
   const handleAppPointerUpCapture = useCallback(
     (event) => {
+      // Tapping a toolbar button must not clear the armed deep-link selection —
+      // a real mouse selection survives toolbar clicks too, so this lets you apply
+      // Bold, then Strike, then Highlight to the same landed line.
+      const eventTarget = event.target
+      if (eventTarget instanceof Element && eventTarget.closest('.toolbar')) {
+        pointerGestureRef.current = null
+        return
+      }
       const gesture = pointerGestureRef.current
       if (!gesture || gesture.pointerId !== event.pointerId) return
       pointerGestureRef.current = null
@@ -405,6 +415,17 @@ function App() {
   useEffect(() => {
     uploadImageRef.current = finalUploadImageAndInsert
   }, [finalUploadImageAndInsert])
+
+  // Drive the deep-link text selection from navigationHelpers' DOM-pure landing
+  // path. On touch we skip focus so the keyboard stays quiet; on desktop we focus
+  // so native Ctrl+C / shortcuts work immediately, like a real mouse selection.
+  useEffect(() => {
+    if (!editor) return undefined
+    registerDeepLinkSelectionApplier((blockId) => {
+      applyDeepLinkSelection(editor, blockId, { focus: !isTouchOnlyDevice() })
+    })
+    return () => registerDeepLinkSelectionApplier(null)
+  }, [editor])
 
   const primeTouchNavigationGuard = useCallback(() => {
     if (!isTouchOnlyDevice()) return
