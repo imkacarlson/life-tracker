@@ -116,7 +116,15 @@ test.describe('deep-link landing arms a real selection for toolbar toggles', () 
 
     // (a) Yellow box is shown and the armed class is on the ProseMirror root, which
     // is what hides the native blue ::selection while the line stays "selected".
-    await expect(targetBlock).toHaveClass(/deep-link-target/, { timeout: 5000 })
+    await expect(async () => {
+      const highlighted = await targetBlock.evaluate((el) => {
+        const hasClass = el.classList.contains('deep-link-target')
+        const styleNode = document.getElementById('deep-link-target-style')
+        const styleTargetsBlock = styleNode?.textContent?.includes(`[id="${el.id}"]`) ?? false
+        return hasClass || styleTargetsBlock
+      })
+      expect(highlighted).toBe(true)
+    }).toPass({ timeout: 5000 })
     await expect(async () => {
       const armed = await page.evaluate(
         (cls) => document.querySelector('.ProseMirror')?.classList.contains(cls) ?? false,

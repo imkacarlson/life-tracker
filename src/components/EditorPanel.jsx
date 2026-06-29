@@ -702,6 +702,16 @@ function EditorPanel({
     editor.storage.highlightColor = highlightColor ?? null
   }, [editor, highlightColor])
 
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined
+    window.__lifeTrackerEditor = editor ?? null
+    return () => {
+      if (window.__lifeTrackerEditor === editor) {
+        window.__lifeTrackerEditor = null
+      }
+    }
+  }, [editor])
+
   // Reset state on tracker/page change, and pre-focus the editor so that
   // DOM-manipulation-based cursor placement in tests (and user interactions
   // that call editorRoot.focus()) doesn't trigger ProseMirror's focus handler

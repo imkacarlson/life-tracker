@@ -3,6 +3,10 @@ import { TextSelection } from '@tiptap/pm/state'
 // While a deep-link landing is "armed", this class lives on the ProseMirror root
 // so CSS can hide the native blue selection (the yellow box stays as the visual).
 export const DEEP_LINK_SELECTION_ACTIVE_CLASS = 'deep-link-selection-active'
+// navigationHelpers owns the lifecycle of this class (apply on landing, clear on
+// teardown, re-apply on its 80/200/400ms retry loop). Kept as a local literal here
+// to avoid a circular import (navigationHelpers already imports from this file).
+const DEEP_LINK_TARGET_CLASS = 'deep-link-target'
 
 /**
  * Find the content text range of the block whose attrs.id === blockId.
@@ -62,5 +66,13 @@ export const applyDeepLinkSelection = (editor, blockId, { focus = false } = {}) 
   if (focus) {
     view.focus()
   }
+
+  // The selection transaction above can re-render the target node and strip the
+  // highlight class that navigationHelpers added before calling us. Re-add it
+  // immediately so the yellow box never flickers in the gap before the retry
+  // loop re-applies it.
+  const target = document.getElementById(blockId)
+  target?.classList.add(DEEP_LINK_TARGET_CLASS)
+
   return true
 }

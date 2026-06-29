@@ -54,7 +54,12 @@ const placeCaretInWord = async (page) => {
   await expect(line).toBeVisible()
   await line.evaluate((node, word) => {
     // Find the text node and a character offset inside the target word.
-    const textNode = node.firstChild
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+    let textNode = walker.nextNode()
+    while (textNode && !(textNode.textContent ?? '').includes(word)) {
+      textNode = walker.nextNode()
+    }
+    if (!textNode) throw new Error(`Could not find text node containing "${word}"`)
     const idx = (textNode.textContent ?? '').indexOf(word)
     const caretAt = idx + Math.floor(word.length / 2)
     const range = document.createRange()

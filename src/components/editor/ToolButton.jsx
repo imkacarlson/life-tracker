@@ -6,15 +6,17 @@ import { isKeyboardShown } from '../../utils/keyboardShown'
 //
 // Pieces that keep the editor selection alive when a button is tapped:
 //   1. tabIndex={-1}             keep the button out of the focus order
-//   2. mousedown preventDefault  block focus transfer to the button, ONLY
-//                                while the on-screen keyboard is up. mousedown
-//                                also fires on touch (via the touch→mouse
-//                                compatibility sequence) before the synthetic
-//                                click, so a single capture-phase mousedown
-//                                handler covers both pointer and touch. Gating
-//                                on isKeyboardShown() mirrors notesnook and
-//                                stops ambient toolbar taps (e.g. the expand
-//                                toggle) from summoning the IME on Android.
+//   2. mousedown preventDefault  block focus transfer to the button so the
+//                                editor selection survives the click. On desktop
+//                                (non-touch) this always fires, which the
+//                                selection-based toolbar features (deep-link
+//                                armed selection, highlight-on-caret) rely on.
+//                                On touch it is gated on isKeyboardShown():
+//                                mousedown also fires on touch (via the
+//                                touch→mouse compatibility sequence) before the
+//                                synthetic click, and gating mirrors notesnook so
+//                                ambient toolbar taps (e.g. the expand toggle)
+//                                don't summon the IME on Android.
 //   3. plain onClick             runs the editor command (chain().focus().toggleX().run())
 //
 // Do NOT add a touchstart preventDefault here. On Android Chrome, canceling
@@ -54,7 +56,9 @@ function ToolButton({
       title={title}
       aria-label={ariaLabel ?? title}
       data-testid={testId}
-      onMouseDown={(e) => { if (isTouchOnly && isKeyboardShown()) e.preventDefault() }}
+      onMouseDown={(e) => {
+        if (!isTouchOnly || isKeyboardShown()) e.preventDefault()
+      }}
       onClick={(e) => {
         if (disabled) return
         e.preventDefault()
