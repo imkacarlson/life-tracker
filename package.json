@@ -7,11 +7,14 @@
     "node": "22.x"
   },
   "scripts": {
+    "predev": "node scripts/copy-dictionary.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-dictionary.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test:unit": "vitest run",
+    "pretest:e2e": "node scripts/copy-dictionary.mjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "backup": "bash scripts/backup.sh",
