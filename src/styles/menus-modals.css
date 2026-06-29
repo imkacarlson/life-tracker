@@ -82,6 +82,19 @@
   background: transparent;
 }
 
+/* Spell-check section: suggestions sit at the top of the right-click menu,
+   above a divider separating them from the paragraph/table actions. */
+.table-context-item.spellcheck-suggestion {
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+
+.table-context-divider {
+  height: 1px;
+  margin: 0.35rem 0.2rem;
+  background: var(--border);
+}
+
 .table-context-parent {
   position: relative;
 }

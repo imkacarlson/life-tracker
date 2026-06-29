@@ -8,6 +8,7 @@ import { useNavigation } from './hooks/useNavigation'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
+import { useCustomDictionary } from './hooks/useCustomDictionary'
 import { useTrackerSession } from './hooks/useTrackerSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
@@ -103,6 +104,9 @@ function App() {
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
 
   const hydrateContentWithSignedUrls = useContentHydration(session)
+
+  // Custom spell-check dictionary (desktop only; no-ops on touch devices).
+  const { addWord: addCustomWord } = useCustomDictionary(userId)
 
   const {
     settingsMode,
@@ -817,6 +821,7 @@ function App() {
               onSetTrackerPage={setTrackerPage}
               trackerPageSaving={trackerPageSaving}
               userId={userId}
+              onAddCustomWord={addCustomWord}
             />
           </>
         )}
