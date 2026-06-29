@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react'
-import { TextSelection } from '@tiptap/pm/state'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
   HighlightIcon,
@@ -9,18 +8,40 @@ import { useEditorUIStore } from '../../../../stores/editorUIStore'
 import HighlightPicker from '../HighlightPicker'
 import { useOutsideClick } from '../useOutsideClick'
 import { cmd } from '../toolHelpers'
-import { getWordRangeAt } from '../../../../utils/wordRange'
-import { isHighlightActiveForToggle } from '../../../../utils/highlightState'
+import {
+  applyMarkToTarget,
+  isMarkActiveForToggle,
+  syncSelectionFromDom,
+} from '../../../../utils/smartMark'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../toolConstants'
 import { Btn } from './ToolButton'
 
 // --- Inline marks ---------------------------------------------------------
 
+// Bold/Italic/Underline mirror Highlight: a collapsed caret in a word formats the
+// WHOLE word (via applyMarkToTarget). The button's active state reads the same
+// word/selection target so toggling off works at word edges. On a whitespace
+// caret, applyMarkToTarget returns false and we fall back to the standard
+// stored-mark command ("format the next typed characters").
+function toggleInlineMark(editor, markName, fallback) {
+  const markType = editor?.schema.marks[markName]
+  if (!editor || !markType) return
+  syncSelectionFromDom(editor)
+  const remove = isMarkActiveForToggle(editor.state, markType)
+  const acted = applyMarkToTarget(editor, markType, { remove })
+  if (!acted) fallback(cmd(editor)) // whitespace caret: stored-mark fallback
+}
+
+function isInlineMarkActive(editor, markName) {
+  const markType = editor?.schema.marks[markName]
+  return editor && markType ? isMarkActiveForToggle(editor.state, markType) : false
+}
+
 export function BoldTool({ editor }) {
   return (
     <Btn
-      active={editor?.isActive('bold')}
-      onActivate={() => cmd(editor)?.toggleBold().run()}
+      active={isInlineMarkActive(editor, 'bold')}
+      onActivate={() => toggleInlineMark(editor, 'bold', (c) => c?.toggleBold().run())}
       title="Bold"
     >
       <BoldIcon />
@@ -31,8 +52,8 @@ export function BoldTool({ editor }) {
 export function ItalicTool({ editor }) {
   return (
     <Btn
-      active={editor?.isActive('italic')}
-      onActivate={() => cmd(editor)?.toggleItalic().run()}
+      active={isInlineMarkActive(editor, 'italic')}
+      onActivate={() => toggleInlineMark(editor, 'italic', (c) => c?.toggleItalic().run())}
       title="Italic"
     >
       <ItalicIcon />
@@ -43,8 +64,8 @@ export function ItalicTool({ editor }) {
 export function UnderlineTool({ editor }) {
   return (
     <Btn
-      active={editor?.isActive('underline')}
-      onActivate={() => cmd(editor)?.toggleUnderline().run()}
+      active={isInlineMarkActive(editor, 'underline')}
+      onActivate={() => toggleInlineMark(editor, 'underline', (c) => c?.toggleUnderline().run())}
       title="Underline"
     >
       <UnderlineIcon />
@@ -94,61 +115,18 @@ export function H2Tool({ editor }) {
 
 // --- Highlight (with picker) ---------------------------------------------
 
-// Apply (color) or remove (color === null) the highlight on the current selection.
-// With a collapsed caret, act on the whole word under the cursor WITHOUT changing
-// the visible selection, so the cursor stays put and no blue overlay hides the color.
-function syncSelectionFromDom(editor) {
-  const selection = window.getSelection?.()
-  const anchorNode = selection?.anchorNode
-  const focusNode = selection?.focusNode
-  if (!editor || !selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
-
-  const root = editor.view.dom
-  const anchorElement =
-    anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
-  const focusElement =
-    focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
-  if (!anchorElement || !focusElement) return
-  if (!root.contains(anchorElement) || !root.contains(focusElement)) return
-
-  try {
-    const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
-    const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
-    const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
-    if (!nextSelection.eq(editor.state.selection)) {
-      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
-    }
-  } catch {
-    // Ignore stale DOM selections; the ProseMirror state remains authoritative.
-  }
-}
-
+// Apply (color) or remove (color === null) the highlight via the shared word-level
+// core. A collapsed caret in a word marks the WHOLE word without changing the
+// visible selection, so the cursor stays put and no blue overlay hides the color.
+// A whitespace caret falls back to today's stored-mark behavior.
 function setHighlightSmart(editor, color) {
   if (!editor) return
-  syncSelectionFromDom(editor)
   const markType = editor.schema.marks.highlight
-  const { selection } = editor.state
-
-  if (selection.empty) {
-    const range = getWordRangeAt(editor.state)
-    if (range) {
-      editor.chain().focus().command(({ tr, dispatch }) => {
-        if (dispatch) {
-          tr.removeMark(range.from, range.to, markType)
-          if (color) tr.addMark(range.from, range.to, markType.create({ color }))
-        }
-        return true
-      }).run()
-      return
-    }
-  }
-
-  if (!selection.empty) {
-    const tr = editor.state.tr.removeMark(selection.from, selection.to, markType)
-    if (color) tr.addMark(selection.from, selection.to, markType.create({ color }))
-    editor.view.dispatch(tr)
-    return
-  }
+  const acted = applyMarkToTarget(editor, markType, {
+    attrs: color ? { color } : null,
+    remove: !color,
+  })
+  if (acted) return
 
   // Caret on whitespace: keep today's stored-mark behavior.
   if (!color) editor.chain().focus().unsetHighlight().run()
@@ -170,13 +148,13 @@ export function HighlightTool({ editor }) {
   // which the inclusive:false mark gets wrong at word edges, so toggling off
   // failed there.
   const highlightActive = editor
-    ? isHighlightActiveForToggle(editor.state, editor.schema.marks.highlight)
+    ? isMarkActiveForToggle(editor.state, editor.schema.marks.highlight)
     : false
 
   const apply = () => {
     syncSelectionFromDom(editor)
     const activeNow = editor
-      ? isHighlightActiveForToggle(editor.state, editor.schema.marks.highlight)
+      ? isMarkActiveForToggle(editor.state, editor.schema.marks.highlight)
       : false
     const remove = activeNow || !highlightColor
     setHighlightSmart(editor, remove ? null : highlightColor)
@@ -230,21 +208,27 @@ export function TextColorTool({ editor }) {
   const refs = useMemo(() => [wrapRef, pickerRef], [])
   useOutsideClick({ isOpen: open, onClose: () => setOpen(false), refs })
 
-  const apply = () => {
+  // Text color is the attribute-mark sibling of Highlight: the textStyle mark
+  // carries a `color` attr. Route through the shared word-level core so a caret
+  // in a word recolors the WHOLE word; a whitespace caret falls back to the
+  // standard setColor/unsetColor stored-mark behavior.
+  const setColorSmart = (color) => {
     if (!editor) return
-    if (!textColor) cmd(editor)?.unsetColor().run()
-    else cmd(editor)?.setColor(textColor).run()
+    const markType = editor.schema.marks.textStyle
+    const acted = applyMarkToTarget(editor, markType, {
+      attrs: color ? { color } : null,
+      remove: !color,
+    })
+    if (acted) return
+    if (!color) cmd(editor)?.unsetColor().run()
+    else cmd(editor)?.setColor(color).run()
   }
 
+  const apply = () => setColorSmart(textColor || null)
+
   const pick = (color) => {
-    if (!editor) return
-    if (!color) {
-      setTextColor(null)
-      cmd(editor)?.unsetColor().run()
-    } else {
-      setTextColor(color)
-      cmd(editor)?.setColor(color).run()
-    }
+    setTextColor(color || null)
+    setColorSmart(color || null)
     setOpen(false)
   }
 
