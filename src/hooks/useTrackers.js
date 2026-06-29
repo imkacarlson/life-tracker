@@ -14,7 +14,7 @@ import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
 
-export const useTrackers = (userId, activeSectionId) => {
+export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null) => {
   const [trackers, setTrackers] = useState([])
   const [loadedTrackerSectionId, setLoadedTrackerSectionId] = useState(null)
   const [activeTrackerId, setActiveTrackerId] = useState(null)
@@ -812,12 +812,19 @@ export const useTrackers = (userId, activeSectionId) => {
     }
 
     clearNavHierarchyCache()
+    const deletedIndex = trackers.findIndex((item) => item.id === tracker.id)
     const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
     setTrackers(nextTrackers)
     removeCachedPage(tracker.section_id ?? activeSectionId, tracker.id)
     delete pendingTitleByTrackerRef.current[tracker.id]
     clearPageDraft(tracker.id)
-    setActiveTrackerId((prev) => (prev === tracker.id ? nextTrackers[0]?.id ?? null : prev))
+    // When deleting the open page, land on the user's most-recent previous page
+    // (else the adjacent sibling) instead of always the first page.
+    setActiveTrackerId((prev) =>
+      prev === tracker.id
+        ? getPostDeleteTarget?.(nextTrackers, tracker.id, deletedIndex) ?? nextTrackers[0]?.id ?? null
+        : prev,
+    )
   }
 
   const resolveConflictWithServer = useCallback(() => {

@@ -8,6 +8,7 @@ import { scrollElementIntoViewWithToolbar } from '../utils/scrollIntoViewWithToo
 import { useContentZoom } from '../hooks/useContentZoom'
 import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
 import { useKeepCaretAboveKeyboard } from '../hooks/useKeepCaretAboveKeyboard'
+import { useScrollRestoration } from '../hooks/useScrollRestoration'
 import { useEditorUIStore } from '../stores/editorUIStore'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
@@ -55,6 +56,8 @@ function EditorPanel({
   headerActions = null,
   showAiDaily = true,
   showAiInsert = true,
+  deepLinkActive = false,
+  emptyState = null,
 }) {
   const editorPanelRef = useRef(null)
   const editorShellRef = useRef(null)
@@ -89,6 +92,16 @@ function EditorPanel({
     toolbarRef,
     editorPanelRef,
     padding: 20,
+  })
+  // Remember each page's scroll position and restore it when you return. Gated
+  // on content being rendered; defers to deep-link block jumps and (inside the
+  // hook) to the keyboard / pinch-zoom on mobile.
+  useScrollRestoration({
+    containerRef: editorPanelRef,
+    pageId: trackerId,
+    ready: hasTracker && !editorLocked,
+    skip: deepLinkActive,
+    zoomLevel,
   })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
@@ -720,9 +733,12 @@ function EditorPanel({
     resetOnTrackerChange()
     if (!editor || editorLocked) return
     requestAnimationFrame(() => {
-      editor.chain().focus().run()
+      // Use the touch-guarded command so navigating to a page doesn't pop the
+      // virtual keyboard on mobile (which would also fight scroll restoration).
+      // Desktop still focuses, preserving cursor-placement behavior.
+      editorCmd()?.run()
     })
-  }, [trackerId, editor, editorLocked, resetOnTrackerChange])
+  }, [trackerId, editor, editorLocked, resetOnTrackerChange, editorCmd])
 
   useEffect(() => {
     if (!editor) return
@@ -789,7 +805,12 @@ function EditorPanel({
       {editorLocked && hasTracker ? (
         <EditorSkeleton />
       ) : (
-        <EditorShell ref={editorShellRef} hasTracker={hasTracker} editor={editor} />
+        <EditorShell
+          ref={editorShellRef}
+          hasTracker={hasTracker}
+          editor={editor}
+          emptyState={emptyState}
+        />
       )}
 
       {isZoomSupported && zoomLevel !== 1.0 && (

@@ -110,7 +110,7 @@ const fixForwardBlockRefs = (content, blockIdMap) => {
   return walk(content)
 }
 
-export const useSections = (userId, activeNotebookId) => {
+export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null) => {
   const [sections, setSections] = useState([])
   const [activeSectionId, setActiveSectionId] = useState(null)
   const [sectionsLoading, setSectionsLoading] = useState(false)
@@ -250,10 +250,19 @@ export const useSections = (userId, activeNotebookId) => {
     }
 
     clearNavHierarchyCache()
+    const notebookSectionsBefore = sections.filter((s) => s.notebook_id === activeNotebookId)
+    const deletedIndex = notebookSectionsBefore.findIndex((s) => s.id === section.id)
     const nextSections = sections.filter((item) => item.id !== section.id)
     setSections(nextSections)
     const notebookSections = nextSections.filter((s) => s.notebook_id === activeNotebookId)
-    setActiveSectionId((prev) => (prev === section.id ? notebookSections[0]?.id ?? null : prev))
+    // Land on the most-recent previous section (else the adjacent sibling).
+    setActiveSectionId((prev) =>
+      prev === section.id
+        ? getPostDeleteTarget?.(notebookSections, section.id, deletedIndex) ??
+          notebookSections[0]?.id ??
+          null
+        : prev,
+    )
   }
 
   const moveSection = async (section, destNotebookId) => {

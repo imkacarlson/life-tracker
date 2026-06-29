@@ -23,6 +23,8 @@ function NavigationTree({
   loading,
   compactBadges = false,
   isRecipesNotebook = false,
+  isMobileViewport = false,
+  mobileSidebarOpen = false,
   session,
   onSelectNotebook,
   onSelectSection,
@@ -75,6 +77,61 @@ function NavigationTree({
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const treeClassName = ['nav-tree-container', className].filter(Boolean).join(' ')
+  const navScrollRef = useRef(null)
+
+  // Auto-reveal the active item: scroll the highlighted (most specific) row into
+  // view inside the tree's own scroll container when the active id changes (deep
+  // links, browser back, boot restore, post-delete). `block: 'nearest'` keeps it
+  // from scrolling the page body / shifting the editor.
+  useEffect(() => {
+    // Don't scroll mid-drag — it would fight the @dnd-kit transform.
+    if (activeItem) return undefined
+    // On mobile the sidebar is an off-canvas drawer; scrolling while it's hidden
+    // is a no-op or janky, so wait until it's open and past the slide-in.
+    if (isMobileViewport && !mobileSidebarOpen) return undefined
+    const container = navScrollRef.current
+    if (!container) return undefined
+
+    const reveal = () => {
+      const activeNodes = container.querySelectorAll('.tree-node.active')
+      const target = activeNodes[activeNodes.length - 1]
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ block: 'nearest' })
+      }
+    }
+
+    let rafId = null
+    const delay = isMobileViewport ? 320 : 0
+    const timer = setTimeout(() => {
+      rafId = requestAnimationFrame(reveal)
+    }, delay)
+    return () => {
+      clearTimeout(timer)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [activeNotebookId, activeSectionId, activeTrackerId, activeItem, isMobileViewport, mobileSidebarOpen])
+
+  // Prune persisted expansion state when notebooks/sections are deleted so stale
+  // ids don't accumulate in localStorage.
+  useEffect(() => {
+    const validIds = new Set(notebooks.map((n) => n.id))
+    setExpandedNotebooks((prev) => {
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      const next = [...prevSet].filter((id) => validIds.has(id))
+      return next.length === prevSet.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune only when notebook set changes
+  }, [notebooks])
+
+  useEffect(() => {
+    const validIds = new Set(sections.map((s) => s.id))
+    setExpandedSections((prev) => {
+      const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
+      const next = [...prevSet].filter((id) => validIds.has(id))
+      return next.length === prevSet.size ? prev : next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune only when section set changes
+  }, [sections])
 
   const toggleNotebook = (id) => {
     setExpandedNotebooks((prev) => {
@@ -258,7 +315,7 @@ function NavigationTree({
           onDragEnd={onDragEnd}
           onDragCancel={onDragCancel}
         >
-          <div className="nav-tree-scroll" role="tree" aria-label="Notebook navigation">
+          <div ref={navScrollRef} className="nav-tree-scroll" role="tree" aria-label="Notebook navigation">
             <SortableContext
               items={notebooks.map((notebook) => notebook.id)}
               strategy={verticalListSortingStrategy}
@@ -282,6 +339,7 @@ function NavigationTree({
                         type="button"
                         role="treeitem"
                         aria-expanded={notebookExpanded}
+                        aria-current={notebookActive ? 'page' : undefined}
                         className={`tree-node tree-node-notebook ${notebookActive ? 'active' : ''}`}
                         onClick={() => handleSelectNotebook(notebook.id)}
                         onContextMenu={handleOpenContextMenu('notebook', notebook)}
@@ -341,6 +399,7 @@ function NavigationTree({
                                       type="button"
                                       role="treeitem"
                                       aria-expanded={sectionExpanded}
+                                      aria-current={sectionActive ? 'page' : undefined}
                                       className={`tree-node tree-node-section ${sectionActive ? 'active' : ''}`}
                                       onClick={() => handleSelectSection(section)}
                                       onContextMenu={handleOpenContextMenu('section', section)}

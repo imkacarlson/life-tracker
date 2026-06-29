@@ -34,6 +34,7 @@ export const useNavigation = ({
   setPendingNav,
   savedSelectionRef,
   setDeepLinkFocusGuard,
+  setMessage,
 }) => {
   const navIntentRef = useRef(null)
   const ignoreHashChangeRef = useRef(null)
@@ -65,6 +66,33 @@ export const useNavigation = ({
     [clearPendingTarget, getPendingNav, setPendingNav],
   )
 
+  // When a hash/deep link resolves to a deleted/missing item, fall back to the
+  // deepest still-existing ancestor (section → notebook → last good selection)
+  // instead of stranding the user on a blank editor.
+  const pickNavFallback = useCallback(
+    (target) => {
+      if (!target) return null
+      if (target.sectionId) {
+        const sec = sections.find((s) => s.id === target.sectionId)
+        if (sec) return { notebookId: sec.notebook_id, sectionId: sec.id, pageId: null, blockId: null }
+      }
+      if (target.notebookId && notebooks.some((n) => n.id === target.notebookId)) {
+        return { notebookId: target.notebookId, sectionId: null, pageId: null, blockId: null }
+      }
+      const saved = savedSelectionRef?.current
+      if (saved?.notebookId && notebooks.some((n) => n.id === saved.notebookId)) {
+        return {
+          notebookId: saved.notebookId,
+          sectionId: saved.sectionId ?? null,
+          pageId: saved.pageId ?? null,
+          blockId: null,
+        }
+      }
+      return null
+    },
+    [notebooks, sections, savedSelectionRef],
+  )
+
   const queueResolvedTarget = useCallback(
     (target, { hashMode = null } = {}) => {
       if (!target?.notebookId) return
@@ -93,15 +121,23 @@ export const useNavigation = ({
       const resolved = await resolveNavHierarchy(parsed)
       if (navVersionRef.current !== version) return
       if (!resolved?.notebookId) {
-        console.warn('[nav] resolveNavHierarchy returned null for hash=%s — navigation dropped', hash)
+        const fallback = pickNavFallback(parsed)
         clearPendingTarget()
-        setInitialNavReady(true)
+        if (fallback) {
+          setMessage?.('That page no longer exists.')
+          // Rewrite the URL to the fallback (replace) so the address bar isn't
+          // left on a dead id and browser-back won't re-trigger it.
+          queueResolvedTarget(fallback, { hashMode: 'replace' })
+        } else {
+          console.warn('[nav] resolveNavHierarchy returned null for hash=%s — navigation dropped', hash)
+          setInitialNavReady(true)
+        }
         return
       }
 
       queueResolvedTarget(resolved)
     },
-    [clearPendingTarget, queueResolvedTarget, setDeepLinkFocusGuard],
+    [clearPendingTarget, queueResolvedTarget, setDeepLinkFocusGuard, pickNavFallback, setMessage],
   )
 
   const selectNavigationTarget = useCallback(
@@ -209,9 +245,14 @@ export const useNavigation = ({
     if (step.type === 'wait') return
 
     if (step.type === 'missing') {
+      const fallback = pickNavFallback(pendingTarget)
       // eslint-disable-next-line react-hooks/set-state-in-effect -- transition nav state when the resolved target is missing
       clearPendingTarget()
       setInitialNavReady(true)
+      if (fallback) {
+        setMessage?.('That page no longer exists.')
+        queueResolvedTarget(fallback, { hashMode: 'replace' })
+      }
       return
     }
 
@@ -260,6 +301,9 @@ export const useNavigation = ({
     setActiveTrackerId,
     flushSaveForTracker,
     clearPendingTarget,
+    pickNavFallback,
+    queueResolvedTarget,
+    setMessage,
   ])
 
   useEffect(() => {
