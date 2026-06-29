@@ -161,18 +161,21 @@ export function useScrollRestoration({ containerRef, pageId, ready, skip = false
       }
     }
 
+    const getMaxScrollableOffset = (surface) =>
+      Math.max(0, surface.getScrollHeight() - surface.getClientHeight())
+
     const tryApply = () => {
       if (cancelled) return false
       if (mobileOwnsScroll()) return false
       const surface = getEditorScrollSurface(containerRef.current)
-      if (surface.getScrollHeight() >= saved) {
+      if (getMaxScrollableOffset(surface) >= saved) {
         surface.set(saved)
         return true
       }
       return false
     }
 
-    if (initialSurface.getScrollHeight() >= saved) {
+    if (getMaxScrollableOffset(initialSurface) >= saved) {
       // Already tall enough — apply on the next frame in a single pass.
       raf = requestAnimationFrame(() => {
         tryApply()
@@ -190,7 +193,7 @@ export function useScrollRestoration({ containerRef, pageId, ready, skip = false
         // Safety net: apply our best effort (clamped) and stop waiting.
         if (!cancelled && !mobileOwnsScroll()) {
           const surface = getEditorScrollSurface(containerRef.current)
-          surface.set(Math.min(saved, Math.max(0, surface.getScrollHeight())))
+          surface.set(Math.min(saved, getMaxScrollableOffset(surface)))
         }
         finish()
       }, RESTORE_TIMEOUT_MS)

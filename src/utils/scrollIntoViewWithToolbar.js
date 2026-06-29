@@ -97,7 +97,7 @@ export function pickScrollSurface(container) {
  * the restoration hook can wait for layout to grow tall enough.
  *
  * @param {HTMLElement | null | undefined} container
- * @returns {{ get: () => number, set: (top: number) => void, getScrollHeight: () => number, target: EventTarget | null }}
+ * @returns {{ get: () => number, set: (top: number) => void, getScrollHeight: () => number, getClientHeight: () => number, target: EventTarget | null }}
  */
 export function getEditorScrollSurface(container) {
   const isScrollContainer =
@@ -113,6 +113,7 @@ export function getEditorScrollSurface(container) {
         container.scrollTop = top
       },
       getScrollHeight: () => container.scrollHeight,
+      getClientHeight: () => container.clientHeight,
       target: container,
     }
   }
@@ -124,6 +125,11 @@ export function getEditorScrollSurface(container) {
     },
     getScrollHeight: () =>
       typeof document !== 'undefined' ? document.documentElement.scrollHeight : 0,
+    getClientHeight: () => {
+      if (typeof document !== 'undefined') return document.documentElement.clientHeight
+      if (typeof window !== 'undefined') return window.innerHeight
+      return 0
+    },
     target: typeof window !== 'undefined' ? window : null,
   }
 }
