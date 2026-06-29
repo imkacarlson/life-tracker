@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { TextSelection } from '@tiptap/pm/state'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
   HighlightIcon,
@@ -96,8 +97,35 @@ export function H2Tool({ editor }) {
 // Apply (color) or remove (color === null) the highlight on the current selection.
 // With a collapsed caret, act on the whole word under the cursor WITHOUT changing
 // the visible selection, so the cursor stays put and no blue overlay hides the color.
+function syncSelectionFromDom(editor) {
+  const selection = window.getSelection?.()
+  const anchorNode = selection?.anchorNode
+  const focusNode = selection?.focusNode
+  if (!editor || !selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
+
+  const root = editor.view.dom
+  const anchorElement =
+    anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
+  const focusElement =
+    focusNode.nodeType === Node.ELEMENT_NODE ? focusNode : focusNode.parentElement
+  if (!anchorElement || !focusElement) return
+  if (!root.contains(anchorElement) || !root.contains(focusElement)) return
+
+  try {
+    const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
+    const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+    const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
+    if (!nextSelection.eq(editor.state.selection)) {
+      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+    }
+  } catch {
+    // Ignore stale DOM selections; the ProseMirror state remains authoritative.
+  }
+}
+
 function setHighlightSmart(editor, color) {
   if (!editor) return
+  syncSelectionFromDom(editor)
   const markType = editor.schema.marks.highlight
   const { selection } = editor.state
 
@@ -115,7 +143,14 @@ function setHighlightSmart(editor, color) {
     }
   }
 
-  // Real selection (or caret on whitespace): keep today's behavior.
+  if (!selection.empty) {
+    const tr = editor.state.tr.removeMark(selection.from, selection.to, markType)
+    if (color) tr.addMark(selection.from, selection.to, markType.create({ color }))
+    editor.view.dispatch(tr)
+    return
+  }
+
+  // Caret on whitespace: keep today's stored-mark behavior.
   if (!color) editor.chain().focus().unsetHighlight().run()
   else editor.chain().focus().setHighlight({ color }).run()
 }
@@ -139,7 +174,11 @@ export function HighlightTool({ editor }) {
     : false
 
   const apply = () => {
-    const remove = highlightActive || !highlightColor
+    syncSelectionFromDom(editor)
+    const activeNow = editor
+      ? isHighlightActiveForToggle(editor.state, editor.schema.marks.highlight)
+      : false
+    const remove = activeNow || !highlightColor
     setHighlightSmart(editor, remove ? null : highlightColor)
   }
 

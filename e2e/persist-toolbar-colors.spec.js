@@ -110,14 +110,19 @@ const seedLabel = `COLOR-PERSIST-${Date.now()}`
 const selectSeedLine = async (page) => {
   const line = page.locator('.ProseMirror p', { hasText: 'Persisted color test line' }).first()
   await expect(line).toBeVisible()
-  await line.evaluate((node) => {
-    const range = document.createRange()
-    range.selectNodeContents(node)
-    const selection = window.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-    node.closest('.ProseMirror')?.focus()
-  })
+  await page.evaluate((text) => {
+    const editor = window.__lifeTrackerEditor
+    if (!editor) throw new Error('Editor test hook is not available')
+    let range = null
+    editor.state.doc.descendants((node, pos) => {
+      if (range || !node.isTextblock || node.textContent !== text) return true
+      range = { from: pos + 1, to: pos + node.nodeSize - 1 }
+      return false
+    })
+    if (!range) throw new Error(`Could not find seed line "${text}"`)
+    editor.commands.setTextSelection(range)
+    editor.view.focus()
+  }, 'Persisted color test line')
 }
 
 // Read the inline color applied to the seed text, scoped to mark/span tags.
@@ -130,6 +135,22 @@ const readSeedColor = (page, tag, prop) =>
     },
     { tag, prop },
   )
+
+const clearSeedHighlight = async (page) => {
+  await page.evaluate((text) => {
+    const editor = window.__lifeTrackerEditor
+    if (!editor) throw new Error('Editor test hook is not available')
+    const markType = editor.schema.marks.highlight
+    let range = null
+    editor.state.doc.descendants((node, pos) => {
+      if (range || !node.isTextblock || node.textContent !== text) return true
+      range = { from: pos + 1, to: pos + node.nodeSize - 1 }
+      return false
+    })
+    if (!range) throw new Error(`Could not find seed line "${text}"`)
+    editor.view.dispatch(editor.state.tr.removeMark(range.from, range.to, markType))
+  }, 'Persisted color test line')
+}
 
 // Read the computed background color of the table cell (td/th) containing text.
 const readCellColor = (page, cellText) =>
@@ -232,6 +253,7 @@ test('highlight color picked via caret persists across reload and the main butto
   )
 
   // Clicking the main button applies the persisted color to the selection.
+  await clearSeedHighlight(page)
   await selectSeedLine(page)
   await page.getByRole('button', { name: 'Highlight', exact: true }).click()
 
