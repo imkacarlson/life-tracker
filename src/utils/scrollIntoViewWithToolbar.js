@@ -89,6 +89,46 @@ export function pickScrollSurface(container) {
 }
 
 /**
+ * Per-page scroll restoration needs to read and write a single scalar offset on
+ * whichever surface actually scrolls — the `.editor-panel` container on desktop,
+ * but the window on mobile (responsive.css overrides the panel to
+ * `overflow-y: visible`). This mirrors `pickScrollSurface`'s detection but
+ * exposes a simple get/set offset accessor plus the surface's scroll height so
+ * the restoration hook can wait for layout to grow tall enough.
+ *
+ * @param {HTMLElement | null | undefined} container
+ * @returns {{ get: () => number, set: (top: number) => void, getScrollHeight: () => number, target: EventTarget | null }}
+ */
+export function getEditorScrollSurface(container) {
+  const isScrollContainer =
+    container &&
+    container.scrollHeight > container.clientHeight &&
+    typeof window !== 'undefined' &&
+    getComputedStyle(container).overflowY !== 'visible'
+
+  if (isScrollContainer) {
+    return {
+      get: () => container.scrollTop,
+      set: (top) => {
+        container.scrollTop = top
+      },
+      getScrollHeight: () => container.scrollHeight,
+      target: container,
+    }
+  }
+
+  return {
+    get: () => (typeof window !== 'undefined' ? window.scrollY : 0),
+    set: (top) => {
+      if (typeof window !== 'undefined') window.scrollTo(0, top)
+    },
+    getScrollHeight: () =>
+      typeof document !== 'undefined' ? document.documentElement.scrollHeight : 0,
+    target: typeof window !== 'undefined' ? window : null,
+  }
+}
+
+/**
  * Decide how a toolbar (or any fixed/sticky chrome) shrinks the safe band of a
  * scroll surface. The toolbar can live at the *top* of the surface (desktop:
  * `position: sticky; top: 0`) or at the *bottom* (mobile: `position: fixed;

@@ -8,7 +8,7 @@ import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
 
-export const useNotebooks = (userId) => {
+export const useNotebooks = (userId, getPostDeleteTarget = null) => {
   const [notebooks, setNotebooks] = useState([])
   const [activeNotebookId, setActiveNotebookId] = useState(null)
   const [message, setMessage] = useState('')
@@ -162,10 +162,16 @@ export const useNotebooks = (userId) => {
     }
 
     clearNavHierarchyCache()
+    const deletedIndex = notebooks.findIndex((item) => item.id === notebook.id)
     const nextNotebooks = notebooks.filter((item) => item.id !== notebook.id)
     setNotebooks(nextNotebooks)
     if (notebook.id === activeNotebookId) {
-      setActiveNotebookId(nextNotebooks[0]?.id ?? null)
+      // Land on the most-recent previous notebook (else the adjacent sibling).
+      setActiveNotebookId(
+        getPostDeleteTarget?.(nextNotebooks, notebook.id, deletedIndex) ??
+          nextNotebooks[0]?.id ??
+          null,
+      )
     }
   }
 

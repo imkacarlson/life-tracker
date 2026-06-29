@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readStoredColor, saveStoredColor } from '../storage'
+import {
+  readStoredColor,
+  saveStoredColor,
+  readStoredScrollPositions,
+  saveStoredScrollPositions,
+} from '../storage'
+import { MAX_SCROLL_POSITIONS, SCROLL_POSITIONS_KEY } from '../constants'
 
 const KEY = 'life-tracker:test-color'
 
@@ -56,5 +62,60 @@ describe('readStoredColor / saveStoredColor', () => {
   it('returns the fallback when window is undefined (SSR-safe)', () => {
     delete globalThis.window
     expect(readStoredColor(KEY, '#fef08a')).toBe('#fef08a')
+  })
+})
+
+describe('readStoredScrollPositions / saveStoredScrollPositions', () => {
+  beforeEach(() => {
+    globalThis.window = { sessionStorage: createLocalStorageStub() }
+  })
+
+  afterEach(() => {
+    delete globalThis.window
+  })
+
+  it('round-trips a map of page offsets', () => {
+    saveStoredScrollPositions({ a: 120, b: 0, c: 999 })
+    expect(readStoredScrollPositions()).toEqual({ a: 120, b: 0, c: 999 })
+  })
+
+  it('returns an empty object when nothing is stored', () => {
+    expect(readStoredScrollPositions()).toEqual({})
+  })
+
+  it('guards against malformed JSON', () => {
+    globalThis.window.sessionStorage.setItem(SCROLL_POSITIONS_KEY, '{not json')
+    expect(readStoredScrollPositions()).toEqual({})
+  })
+
+  it('drops non-numeric / non-finite values on read', () => {
+    globalThis.window.sessionStorage.setItem(
+      SCROLL_POSITIONS_KEY,
+      JSON.stringify({ a: 10, b: 'nope', c: null, d: 42 }),
+    )
+    expect(readStoredScrollPositions()).toEqual({ a: 10, d: 42 })
+  })
+
+  it('drops non-numeric values on write', () => {
+    saveStoredScrollPositions({ a: 10, b: 'nope', c: 20 })
+    expect(readStoredScrollPositions()).toEqual({ a: 10, c: 20 })
+  })
+
+  it('caps storage to the most-recent MAX_SCROLL_POSITIONS entries', () => {
+    const positions = {}
+    for (let i = 0; i < MAX_SCROLL_POSITIONS + 10; i += 1) {
+      positions[`page-${i}`] = i
+    }
+    saveStoredScrollPositions(positions)
+    const read = readStoredScrollPositions()
+    expect(Object.keys(read)).toHaveLength(MAX_SCROLL_POSITIONS)
+    // The oldest (lowest-index) entries are evicted; the newest survive.
+    expect(read['page-0']).toBeUndefined()
+    expect(read[`page-${MAX_SCROLL_POSITIONS + 9}`]).toBe(MAX_SCROLL_POSITIONS + 9)
+  })
+
+  it('returns an empty object when window is undefined (SSR-safe)', () => {
+    delete globalThis.window
+    expect(readStoredScrollPositions()).toEqual({})
   })
 })

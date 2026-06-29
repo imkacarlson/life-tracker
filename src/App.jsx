@@ -5,6 +5,7 @@ import { useSections } from './hooks/useSections'
 import { useTrackers } from './hooks/useTrackers'
 import { useSettings } from './hooks/useSettings'
 import { useNavigation } from './hooks/useNavigation'
+import { useNavigationHistory } from './hooks/useNavigationHistory'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
@@ -14,6 +15,8 @@ import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
 import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
+import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
+import { SECTION_PAGE_STATUS, getSectionPageEntry } from './utils/sectionPages'
 import {
   readStoredSidebarCollapsed,
   readStoredSelection,
@@ -102,6 +105,48 @@ function App() {
     setTouchNavigationGuard(value)
   }, [])
 
+  // Visited-history → "back to previous" on delete. Each resolver returns where
+  // to land after deleting the open item: the most-recent surviving sibling,
+  // else the adjacent one, else the first remaining (else null).
+  const { recordVisit: recordNavVisit, getRecentExisting } = useNavigationHistory()
+  const getPostDeletePageTarget = useCallback(
+    (remainingItems, deletedId, deletedIndex) =>
+      pickPostDeleteTarget({
+        history: { getRecentExisting },
+        kind: 'pages',
+        remainingItems,
+        deletedId,
+        deletedIndex,
+      }),
+    [getRecentExisting],
+  )
+  const getPostDeleteSectionTarget = useCallback(
+    (remainingItems, deletedId, deletedIndex) =>
+      pickPostDeleteTarget({
+        history: { getRecentExisting },
+        kind: 'sections',
+        remainingItems,
+        deletedId,
+        deletedIndex,
+      }),
+    [getRecentExisting],
+  )
+  const getPostDeleteNotebookTarget = useCallback(
+    (remainingItems, deletedId, deletedIndex) =>
+      pickPostDeleteTarget({
+        history: { getRecentExisting },
+        kind: 'notebooks',
+        remainingItems,
+        deletedId,
+        deletedIndex,
+      }),
+    [getRecentExisting],
+  )
+  // Set when the user explicitly clicks a section, so the auto-open-first-page
+  // effect knows to act once that section's pages have loaded.
+  const autoOpenSectionRef = useRef(null)
+  const [autoOpenNonce, setAutoOpenNonce] = useState(0)
+
   const { session, loading, message: authMessage, setMessage: setAuthMessage, signIn, signOut, userId } = useAuth()
 
   const hydrateContentWithSignedUrls = useContentHydration(session)
@@ -136,7 +181,7 @@ function App() {
     renameNotebook,
     deleteNotebook,
     reorderNotebooks,
-  } = useNotebooks(userId)
+  } = useNotebooks(userId, getPostDeleteNotebookTarget)
 
   // Keep the boot splash up until BOTH auth and the initial notebooks fetch
   // resolve. Gating on auth alone tore the splash down before notebooks loaded,
@@ -156,7 +201,7 @@ function App() {
     moveSection,
     copySection,
     reorderSections,
-  } = useSections(userId, activeNotebookId)
+  } = useSections(userId, activeNotebookId, getPostDeleteSectionTarget)
 
   const {
     trackers,
@@ -187,7 +232,7 @@ function App() {
     flushAllPendingSaves,
     flushSaveForTracker,
     handleResume,
-  } = useTrackers(userId, activeSectionId)
+  } = useTrackers(userId, activeSectionId, getPostDeletePageTarget)
 
   const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
     activeTrackerId,
@@ -198,6 +243,20 @@ function App() {
     templateContentRef,
     hydrateContentWithSignedUrls,
   })
+
+  // Broadcast a single message string to every feature hook's message channel.
+  // Defined here (before useNavigation) and memoized so nav can surface notices
+  // without re-attaching its hashchange listener every render.
+  const setMessage = useCallback(
+    (msg) => {
+      setAuthMessage(msg)
+      setNotebookMessage(msg)
+      setSectionMessage(msg)
+      setTrackerMessage(msg)
+      setSettingsMessage(msg)
+    },
+    [setAuthMessage, setNotebookMessage, setSectionMessage, setTrackerMessage, setSettingsMessage],
+  )
 
   const {
     navIntentRef,
@@ -224,6 +283,7 @@ function App() {
     setPendingNav,
     savedSelectionRef,
     setDeepLinkFocusGuard: setDeepLinkFocusGuardValue,
+    setMessage,
   })
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
@@ -286,6 +346,55 @@ function App() {
       setMobileSidebarOpen(false)
     }
   }, [isMobileViewport])
+
+  // Record visits so post-delete navigation can return to where you were.
+  useEffect(() => {
+    if (activeNotebookId) recordNavVisit('notebooks', activeNotebookId)
+  }, [activeNotebookId, recordNavVisit])
+  useEffect(() => {
+    if (activeSectionId) recordNavVisit('sections', activeSectionId)
+  }, [activeSectionId, recordNavVisit])
+  useEffect(() => {
+    if (activeTrackerId) recordNavVisit('pages', activeTrackerId)
+  }, [activeTrackerId, recordNavVisit])
+
+  // Close the mobile drawer on hash/deep-link navigation (internal link taps and
+  // browser back both change the hash), mirroring the page-tap close.
+  useEffect(() => {
+    if (!isMobileViewport) return undefined
+    const handleHashChange = () => setMobileSidebarOpen(false)
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [isMobileViewport])
+
+  // Auto-open a section's first page when the user clicks the section. Waits for
+  // the section's pages to load, then navigates to the first page — unless the
+  // currently-open page is already in that section (don't yank them away) or the
+  // section is empty (fall through to the contextual empty state).
+  useEffect(() => {
+    const sectionId = autoOpenSectionRef.current
+    if (!sectionId) return
+    if (sectionId !== activeSectionId) return
+    const entry = getSectionPageEntry(sectionPageCache, sectionId)
+    if (entry.status !== SECTION_PAGE_STATUS.LOADED) return
+    autoOpenSectionRef.current = null
+    const activeInSection = entry.pages.some((page) => page.id === activeTrackerId)
+    if (activeInSection) return
+    const firstPage = entry.pages[0]
+    if (!firstPage) return
+    selectNavigationTarget({
+      notebookId: activeNotebookId,
+      sectionId,
+      pageId: firstPage.id,
+    })
+  }, [
+    autoOpenNonce,
+    activeSectionId,
+    activeTrackerId,
+    activeNotebookId,
+    sectionPageCache,
+    selectNavigationTarget,
+  ])
 
   const handleCopyMoveConfirm = async () => {
     const { action, section, destId } = copyMoveModal
@@ -384,14 +493,6 @@ function App() {
     },
     [clearBlockAnchorIfPresent],
   )
-  const setMessage = (msg) => {
-    setAuthMessage(msg)
-    setNotebookMessage(msg)
-    setSectionMessage(msg)
-    setTrackerMessage(msg)
-    setSettingsMessage(msg)
-  }
-
   const uploadImageRef = useRef(null)
 
   const { editor, suppressFocusRef } = useEditorSetup({
@@ -515,6 +616,15 @@ function App() {
     }
     primeTouchNavigationGuard()
     selectNavigationTarget(target)
+    // Arm auto-open of this section's first page (resolved once its pages load).
+    if (target?.sectionId) {
+      autoOpenSectionRef.current = target.sectionId
+      setAutoOpenNonce((n) => n + 1)
+    }
+    // Close the drawer on mobile so tapping a section lands on the opened page.
+    if (isMobileViewport) {
+      setMobileSidebarOpen(false)
+    }
   }
 
   const handlePageSelect = (target) => {
@@ -654,6 +764,27 @@ function App() {
     Boolean(activeTrackerId) ||
     navigationRequiresEditorTransition ||
     dataLoading
+  // A deep-link block jump owns scroll; scroll restoration must defer to it.
+  const deepLinkActive = Boolean(pendingTarget?.blockId)
+  // Contextual empty state: match the message to where the user actually is.
+  const editorEmptyState = (() => {
+    if (activeSectionId) {
+      const entry = getSectionPageEntry(sectionPageCache, activeSectionId)
+      if (entry.status === SECTION_PAGE_STATUS.LOADED && entry.pages.length === 0) {
+        return { kind: 'section', onCreatePage: handleCreatePage }
+      }
+    }
+    if (
+      activeNotebookId &&
+      sections.filter((s) => s.notebook_id === activeNotebookId).length === 0
+    ) {
+      return {
+        kind: 'notebook',
+        onCreateSection: () => createSection(session, activeNotebookId),
+      }
+    }
+    return { kind: 'none' }
+  })()
   const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
   const isSidebarOpen = isMobileViewport ? mobileSidebarOpen : !sidebarCollapsed
   const workspaceClassName = [
@@ -753,6 +884,8 @@ function App() {
           loading={dataLoading}
           compactBadges={compactBadges}
           isRecipesNotebook={isRecipesNotebook}
+          isMobileViewport={isMobileViewport}
+          mobileSidebarOpen={mobileSidebarOpen}
           session={session}
           onSelectNotebook={handleNotebookSelect}
           onSelectSection={handleSectionSelect}
@@ -838,6 +971,8 @@ function App() {
               onSetTrackerPage={setTrackerPage}
               trackerPageSaving={trackerPageSaving}
               userId={userId}
+              deepLinkActive={deepLinkActive}
+              emptyState={editorEmptyState}
             />
           </>
         )}
