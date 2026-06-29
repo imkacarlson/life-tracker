@@ -1,4 +1,13 @@
 import { scrollElementIntoViewWithToolbar } from './scrollIntoViewWithToolbar'
+import { DEEP_LINK_SELECTION_ACTIVE_CLASS } from './deepLinkSelection'
+
+// App.jsx registers a function that gives the editor a real text selection on the
+// landed block. navigationHelpers stays DOM-pure; the applier owns the editor.
+let deepLinkSelectionApplier = null
+
+export const registerDeepLinkSelectionApplier = (fn) => {
+  deepLinkSelectionApplier = typeof fn === 'function' ? fn : null
+}
 
 export const buildHash = ({ notebookId, sectionId, pageId, blockId }) => {
   const params = new URLSearchParams()
@@ -96,16 +105,27 @@ const scrollDeepLinkTargetIntoView = (target) => {
   })
 }
 
+const clearDeepLinkSelectionActiveClass = () => {
+  document.querySelectorAll(`.${DEEP_LINK_SELECTION_ACTIVE_CLASS}`).forEach((node) => {
+    node.classList.remove(DEEP_LINK_SELECTION_ACTIVE_CLASS)
+  })
+}
+
 export const clearDeepLinkHighlight = () => {
   activeDeepLinkBlockId = null
   clearDeepLinkHighlightInDocument()
   clearDeepLinkHighlightStyle()
+  clearDeepLinkSelectionActiveClass()
 }
 
 export const scrollToBlock = (blockId, attempts = 0) => {
   const target = applyDeepLinkHighlight(blockId)
   if (target) {
     activeDeepLinkBlockId = blockId
+    // Arm the block as a real text selection so toolbar toggles, copy/paste, and
+    // shortcuts act on it. Runs once per landing (the retry refreshes below call
+    // applyDeepLinkHighlight directly, not scrollToBlock).
+    deepLinkSelectionApplier?.(blockId)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         scrollDeepLinkTargetIntoView(target)

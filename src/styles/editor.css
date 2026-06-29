@@ -174,6 +174,18 @@
   border-radius: 8px;
 }
 
+/* While a deep link is armed, the block carries a real text selection so toolbar
+   toggles work — but we hide the native blue so only the yellow box shows. */
+.editor-shell .ProseMirror.deep-link-selection-active ::selection {
+  background: transparent;
+  color: inherit;
+}
+
+.editor-shell .ProseMirror.deep-link-selection-active ::-moz-selection {
+  background: transparent;
+  color: inherit;
+}
+
 /* AI find matches reuse the deep-link palette as whole-block highlights. The
    current match is slightly stronger so the cycled-to block stands out. */
 .editor-shell .ProseMirror .ai-find-match {
