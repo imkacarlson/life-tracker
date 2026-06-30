@@ -254,6 +254,57 @@ export const createSection = async (client, userId, notebookId, title, sortOrder
   return data
 }
 
+/**
+ * Tall single-table page content — mirrors the user's real monthly tracker:
+ * one wide table (with stored colwidths) packed with text rows, tall enough to
+ * scroll. Used to prove scroll restoration is general across page types, not
+ * just long bullet/text pages.
+ *
+ * @param {number} [rows] number of body rows (default 40 → comfortably scrollable)
+ * @returns {object} Tiptap doc JSON
+ */
+export const tallTableContent = (rows = 40) => {
+  const headers = ['Item', 'Status', 'Notes']
+  const colwidth = [220]
+  const cellAttrs = { colspan: 1, rowspan: 1, colwidth }
+
+  const headerRow = {
+    type: 'tableRow',
+    content: headers.map((text) => ({
+      type: 'tableHeader',
+      attrs: cellAttrs,
+      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    })),
+  }
+
+  const bodyRows = Array.from({ length: rows }, (_, rowIndex) => ({
+    type: 'tableRow',
+    content: headers.map((_, colIndex) => ({
+      type: 'tableCell',
+      attrs: cellAttrs,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: `Row ${rowIndex + 1} cell ${colIndex + 1} — tracker line with enough text to give the row real height.`,
+            },
+          ],
+        },
+      ],
+    })),
+  }))
+
+  return {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Monthly tracker table' }] },
+      { type: 'table', content: [headerRow, ...bodyRows] },
+    ],
+  }
+}
+
 /** Create a page and return the inserted row. */
 export const createPage = async (client, userId, sectionId, title, content, sortOrder = 0) => {
   const { data, error } = await client
