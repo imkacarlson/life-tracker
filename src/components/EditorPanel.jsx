@@ -98,6 +98,7 @@ function EditorPanel({
   // hook) to the keyboard / pinch-zoom on mobile.
   useScrollRestoration({
     containerRef: editorPanelRef,
+    editor,
     pageId: trackerId,
     ready: hasTracker && !editorLocked,
     skip: deepLinkActive,
@@ -733,12 +734,13 @@ function EditorPanel({
     resetOnTrackerChange()
     if (!editor || editorLocked) return
     requestAnimationFrame(() => {
-      // Use the touch-guarded command so navigating to a page doesn't pop the
-      // virtual keyboard on mobile (which would also fight scroll restoration).
-      // Desktop still focuses, preserving cursor-placement behavior.
-      editorCmd()?.run()
+      // Focus the editor shell without running Tiptap's focus command. The
+      // command may restore/scroll to its default selection during page switches,
+      // which fights per-page scroll and cursor restoration.
+      if (isTouchOnly && !editor.view.hasFocus()) return
+      editor.view.dom.focus({ preventScroll: true })
     })
-  }, [trackerId, editor, editorLocked, resetOnTrackerChange, editorCmd])
+  }, [trackerId, editor, editorLocked, resetOnTrackerChange, isTouchOnly])
 
   useEffect(() => {
     if (!editor) return

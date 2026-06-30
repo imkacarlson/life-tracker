@@ -71,9 +71,10 @@ export const saveStoredSidebarCollapsed = (collapsed) => {
   }
 }
 
-// Per-page scroll positions live in sessionStorage as a plain
-// `{ [pageId]: scrollTop }` map. Session scope means they survive a reload but
-// not a new tab/session, matching how scroll restoration is expected to behave.
+// Per-page editor view state lives in sessionStorage as
+// `{ [pageId]: { scrollTop, selection? } }`. Session scope means it survives a
+// reload but not a new tab/session, matching how scroll restoration is expected
+// to behave.
 export const readStoredScrollPositions = () => {
   if (typeof window === 'undefined') return {}
   try {
@@ -84,7 +85,25 @@ export const readStoredScrollPositions = () => {
     // Keep only finite numeric offsets; drop anything malformed.
     const clean = {}
     for (const [pageId, value] of Object.entries(parsed)) {
-      if (typeof value === 'number' && Number.isFinite(value)) clean[pageId] = value
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        clean[pageId] = { scrollTop: value }
+        continue
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const scrollTop = value.scrollTop
+      if (typeof scrollTop !== 'number' || !Number.isFinite(scrollTop)) continue
+      const next = { scrollTop }
+      const from = value.selection?.from
+      const to = value.selection?.to
+      if (
+        typeof from === 'number' &&
+        Number.isFinite(from) &&
+        typeof to === 'number' &&
+        Number.isFinite(to)
+      ) {
+        next.selection = { from, to }
+      }
+      clean[pageId] = next
     }
     return clean
   } catch {
@@ -95,9 +114,26 @@ export const readStoredScrollPositions = () => {
 export const saveStoredScrollPositions = (positions) => {
   if (typeof window === 'undefined') return
   try {
-    const entries = Object.entries(positions || {}).filter(
-      ([, value]) => typeof value === 'number' && Number.isFinite(value),
-    )
+    const entries = Object.entries(positions || {}).flatMap(([pageId, value]) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return [[pageId, { scrollTop: value }]]
+      }
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+      const scrollTop = value.scrollTop
+      if (typeof scrollTop !== 'number' || !Number.isFinite(scrollTop)) return []
+      const next = { scrollTop }
+      const from = value.selection?.from
+      const to = value.selection?.to
+      if (
+        typeof from === 'number' &&
+        Number.isFinite(from) &&
+        typeof to === 'number' &&
+        Number.isFinite(to)
+      ) {
+        next.selection = { from, to }
+      }
+      return [[pageId, next]]
+    })
     // Object insertion order is preserved, so slicing the tail keeps the
     // most-recently-written (most-recent) page offsets and evicts the oldest.
     const capped = entries.slice(-MAX_SCROLL_POSITIONS)

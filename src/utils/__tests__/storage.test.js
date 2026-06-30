@@ -74,9 +74,29 @@ describe('readStoredScrollPositions / saveStoredScrollPositions', () => {
     delete globalThis.window
   })
 
-  it('round-trips a map of page offsets', () => {
-    saveStoredScrollPositions({ a: 120, b: 0, c: 999 })
-    expect(readStoredScrollPositions()).toEqual({ a: 120, b: 0, c: 999 })
+  it('round-trips a map of page view states', () => {
+    saveStoredScrollPositions({
+      a: { scrollTop: 120, selection: { from: 4, to: 4 } },
+      b: { scrollTop: 0 },
+      c: { scrollTop: 999, selection: { from: 10, to: 20 } },
+    })
+    expect(readStoredScrollPositions()).toEqual({
+      a: { scrollTop: 120, selection: { from: 4, to: 4 } },
+      b: { scrollTop: 0 },
+      c: { scrollTop: 999, selection: { from: 10, to: 20 } },
+    })
+  })
+
+  it('reads legacy numeric page offsets as page view states', () => {
+    globalThis.window.sessionStorage.setItem(
+      SCROLL_POSITIONS_KEY,
+      JSON.stringify({ a: 120, b: 0, c: 999 }),
+    )
+    expect(readStoredScrollPositions()).toEqual({
+      a: { scrollTop: 120 },
+      b: { scrollTop: 0 },
+      c: { scrollTop: 999 },
+    })
   })
 
   it('returns an empty object when nothing is stored', () => {
@@ -88,30 +108,48 @@ describe('readStoredScrollPositions / saveStoredScrollPositions', () => {
     expect(readStoredScrollPositions()).toEqual({})
   })
 
-  it('drops non-numeric / non-finite values on read', () => {
+  it('drops malformed values on read', () => {
     globalThis.window.sessionStorage.setItem(
       SCROLL_POSITIONS_KEY,
-      JSON.stringify({ a: 10, b: 'nope', c: null, d: 42 }),
+      JSON.stringify({
+        a: { scrollTop: 10, selection: { from: 1, to: 1 } },
+        b: 'nope',
+        c: null,
+        d: { scrollTop: 42, selection: { from: 'bad', to: 2 } },
+        e: { scrollTop: Infinity },
+      }),
     )
-    expect(readStoredScrollPositions()).toEqual({ a: 10, d: 42 })
+    expect(readStoredScrollPositions()).toEqual({
+      a: { scrollTop: 10, selection: { from: 1, to: 1 } },
+      d: { scrollTop: 42 },
+    })
   })
 
-  it('drops non-numeric values on write', () => {
-    saveStoredScrollPositions({ a: 10, b: 'nope', c: 20 })
-    expect(readStoredScrollPositions()).toEqual({ a: 10, c: 20 })
+  it('drops malformed values on write', () => {
+    saveStoredScrollPositions({
+      a: { scrollTop: 10, selection: { from: 1, to: 1 } },
+      b: 'nope',
+      c: { scrollTop: 20, selection: { from: 'bad', to: 2 } },
+    })
+    expect(readStoredScrollPositions()).toEqual({
+      a: { scrollTop: 10, selection: { from: 1, to: 1 } },
+      c: { scrollTop: 20 },
+    })
   })
 
   it('caps storage to the most-recent MAX_SCROLL_POSITIONS entries', () => {
     const positions = {}
     for (let i = 0; i < MAX_SCROLL_POSITIONS + 10; i += 1) {
-      positions[`page-${i}`] = i
+      positions[`page-${i}`] = { scrollTop: i }
     }
     saveStoredScrollPositions(positions)
     const read = readStoredScrollPositions()
     expect(Object.keys(read)).toHaveLength(MAX_SCROLL_POSITIONS)
     // The oldest (lowest-index) entries are evicted; the newest survive.
     expect(read['page-0']).toBeUndefined()
-    expect(read[`page-${MAX_SCROLL_POSITIONS + 9}`]).toBe(MAX_SCROLL_POSITIONS + 9)
+    expect(read[`page-${MAX_SCROLL_POSITIONS + 9}`]).toEqual({
+      scrollTop: MAX_SCROLL_POSITIONS + 9,
+    })
   })
 
   it('returns an empty object when window is undefined (SSR-safe)', () => {
