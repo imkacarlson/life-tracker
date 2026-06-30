@@ -78,6 +78,18 @@ function Toolbar({
     closeFind()
   }, [cancelAiSearch, closeFind])
 
+  useEffect(() => {
+    if (!hasTracker || controlsDisabled) return undefined
+    const handleKeyDown = (event) => {
+      if (event.key?.toLowerCase() !== 'f') return
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      openFind()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [controlsDisabled, hasTracker, openFind])
+
   // Mobile cursor visibility when the toolbar lifts.
   useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef, editorPanelRef })
 

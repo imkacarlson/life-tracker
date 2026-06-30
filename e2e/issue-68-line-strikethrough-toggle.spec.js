@@ -70,6 +70,27 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
 
   const getStrikeButton = (page) => page.getByTestId('toolbar-strikethrough')
 
+  // Place a COLLAPSED caret inside a text block via a real DOM selection — the
+  // same path a user's tap/click produces. This deliberately does NOT call
+  // editor.commands.setTextSelection / editor.view.focus(), so it exercises the
+  // real click → DOM selection → syncSelectionFromDom → toggleLineStrike flow
+  // (mirrors highlight-toggle-cursor.spec.js / underline-toggle-cursor.spec.js).
+  const placeCaretInBlock = async (block, offset = 1) => {
+    await block.evaluate((node, targetOffset) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+      const textNode = walker.nextNode()
+      if (!textNode) throw new Error('Could not find text node in block')
+      const safeOffset = Math.min(targetOffset, (textNode.textContent ?? '').length)
+      const range = document.createRange()
+      range.setStart(textNode, safeOffset)
+      range.collapse(true)
+      const selection = window.getSelection()
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+      node.closest('.ProseMirror')?.focus()
+    }, offset)
+  }
+
   const selectTextRangeInParagraph = async (page, paragraphSelector, startOffset, endOffset) => {
     await page.evaluate(
       ({ selector, start, end }) => {
@@ -147,7 +168,8 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraph)
     const block = page.locator('.ProseMirror td p').filter({ hasText: 'Next Steps' }).first()
 
-    await block.click({ position: { x: 8, y: 8 } })
+    await expect(block).toBeVisible({ timeout: 5000 })
+    await placeCaretInBlock(block)
 
     await ensureToolbarExpanded(page)
     const strikeBtn = getStrikeButton(page)

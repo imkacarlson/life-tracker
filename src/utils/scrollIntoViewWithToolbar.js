@@ -102,7 +102,6 @@ export function pickScrollSurface(container) {
 export function getEditorScrollSurface(container) {
   const isScrollContainer =
     container &&
-    container.scrollHeight > container.clientHeight &&
     typeof window !== 'undefined' &&
     getComputedStyle(container).overflowY !== 'visible'
 

@@ -8,6 +8,7 @@
 
 import { TextSelection } from '@tiptap/pm/state'
 import { getWordRangeAt } from './wordRange'
+import { getMountedEditorView } from './editorView'
 
 /**
  * Sync the DOM selection into ProseMirror. On touch/mobile the editor selection
@@ -23,7 +24,9 @@ export function syncSelectionFromDom(editor) {
   const focusNode = selection?.focusNode
   if (!editor || !selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
 
-  const root = editor.view.dom
+  const view = getMountedEditorView(editor)
+  if (!view) return
+  const root = view.dom
   const anchorElement =
     anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
   const focusElement =
@@ -32,11 +35,11 @@ export function syncSelectionFromDom(editor) {
   if (!root.contains(anchorElement) || !root.contains(focusElement)) return
 
   try {
-    const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
-    const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+    const anchorPos = view.posAtDOM(anchorNode, selection.anchorOffset)
+    const headPos = view.posAtDOM(focusNode, selection.focusOffset)
     const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
     if (!nextSelection.eq(editor.state.selection)) {
-      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+      view.dispatch(editor.state.tr.setSelection(nextSelection))
     }
   } catch {
     // Ignore stale DOM selections; the ProseMirror state remains authoritative.

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { isTouchOnlyDevice } from '../utils/device'
+import { getMountedEditorView } from '../utils/editorView'
 
 /**
  * Manages three focus-recovery behaviours for the Tiptap editor:
@@ -44,16 +45,17 @@ export function useEditorFocusRecovery({
     if (suppressProgrammaticFocus) {
       pendingDesktopDeepLinkRecoveryRef.current = false
       editor.setEditable(false)
-      editor.view.dom.blur()
+      getMountedEditorView(editor)?.dom.blur()
       requestAnimationFrame(() => {
-        if (!editor.isDestroyed) editor.view.dom.blur()
+        getMountedEditorView(editor)?.dom.blur()
       })
       return
     }
     const tapIntent = pendingEditTapRef?.current
     let handledInEditorTap = false
     if (wasGuarded && tapIntent?.inEditor) {
-      const pos = editor.view.posAtCoords({ left: tapIntent.left, top: tapIntent.top })
+      const view = getMountedEditorView(editor)
+      const pos = view?.posAtCoords({ left: tapIntent.left, top: tapIntent.top })
       if (pos?.pos != null) editor.commands.setTextSelection(pos.pos)
       handledInEditorTap = true
     }
@@ -64,7 +66,7 @@ export function useEditorFocusRecovery({
     if (handledInEditorTap) {
       editor.setEditable(true)
       requestAnimationFrame(() => {
-        if (!editor.isDestroyed) editor.view.focus()
+        getMountedEditorView(editor)?.focus()
       })
       return
     }
@@ -75,7 +77,7 @@ export function useEditorFocusRecovery({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (isTouchOnlyDevice()) return
-    const root = editor.view?.dom
+    const root = getMountedEditorView(editor)?.dom
     if (!root) return
 
     const handlePointerDown = (event) => {
@@ -83,7 +85,9 @@ export function useEditorFocusRecovery({
       if (!pendingDesktopDeepLinkRecoveryRef.current) return
       if (isLoading || trackerSessionMode === 'settings') return
       if (deepLinkFocusGuard || deepLinkFocusGuardRef.current) return
-      if (editor.view.hasFocus()) {
+      const view = getMountedEditorView(editor)
+      if (!view) return
+      if (view.hasFocus()) {
         pendingDesktopDeepLinkRecoveryRef.current = false
         return
       }
@@ -92,11 +96,11 @@ export function useEditorFocusRecovery({
         pendingDesktopDeepLinkRecoveryRef.current = false
         return
       }
-      const pos = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
+      const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })
       if (pos?.pos != null) editor.commands.setTextSelection(pos.pos)
       pendingDesktopDeepLinkRecoveryRef.current = false
       requestAnimationFrame(() => {
-        if (!editor.isDestroyed) editor.view.focus()
+        getMountedEditorView(editor)?.focus()
       })
     }
 
@@ -132,15 +136,16 @@ export function useEditorFocusRecovery({
         const focusEl = focusNode
           ? focusNode.nodeType === 1 ? focusNode : focusNode.parentElement
           : null
-        const root = editor.view?.dom
-        if (!root) return
+        const view = getMountedEditorView(editor)
+        if (!view) return
+        const root = view.dom
         const selectionInEditor =
           (anchorEl && root.contains(anchorEl)) || (focusEl && root.contains(focusEl))
         if (!selectionInEditor) return
-        if (editor.view.hasFocus()) return
+        if (view.hasFocus()) return
         const scrollX = window.scrollX
         const scrollY = window.scrollY
-        editor.view.focus()
+        view.focus()
         requestAnimationFrame(() => window.scrollTo(scrollX, scrollY))
       })
     }

@@ -379,24 +379,34 @@ test.describe('Find literal scroll-to-match on navigation', () => {
     await expect(page.locator('.find-count')).toHaveText('1 of 2')
 
     // Push the active scroll surface to the very bottom so both matches are
-    // off-screen above the fold. Mobile uses the page scroll because the editor
-    // panel flows with the document there; desktop uses the editor panel.
-    const scrollContainer = page.locator('.editor-panel')
+    // off-screen above the fold. Desktop normally uses the editor panel, but
+    // some viewport/layout states leave the page itself as the scroll surface.
     const scrollToBottom = async () => {
-      if (isMobile) {
-        await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }))
-        return page.evaluate(() => window.scrollY)
-      }
-      await scrollContainer.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }))
-      return scrollContainer.evaluate((el) => el.scrollTop)
-    }
-    const getScrollTop = async () => {
-      if (isMobile) return page.evaluate(() => window.scrollY)
-      return scrollContainer.evaluate((el) => el.scrollTop)
-    }
+      return page.evaluate(({ mobile }) => {
+        const scrollWindow = () => {
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' })
+          return { kind: 'window', top: window.scrollY }
+        }
 
-    const beforeTop = await scrollToBottom()
-    expect(beforeTop).toBeGreaterThan(200)
+        if (mobile) return scrollWindow()
+
+        const panel = document.querySelector('.editor-panel')
+        if (panel) {
+          panel.scrollTo({ top: panel.scrollHeight, behavior: 'instant' })
+          if (panel.scrollTop > 0) return { kind: 'panel', top: panel.scrollTop }
+        }
+
+        return scrollWindow()
+      }, { mobile: isMobile })
+    }
+    const getScrollTop = async (surface) =>
+      page.evaluate((kind) => {
+        if (kind === 'panel') return document.querySelector('.editor-panel')?.scrollTop ?? 0
+        return window.scrollY
+      }, surface.kind)
+
+    const before = await scrollToBottom()
+    expect(before.top).toBeGreaterThan(200)
 
     await page.getByRole('button', { name: 'Next' }).click()
     await expect(page.locator('.find-count')).toHaveText('2 of 2')
@@ -404,8 +414,8 @@ test.describe('Find literal scroll-to-match on navigation', () => {
     // The viewport must have moved up substantially toward the (top) match, and
     // the current match must end up inside the viewport.
     await expect(async () => {
-      const afterTop = await getScrollTop()
-      expect(beforeTop - afterTop).toBeGreaterThan(200)
+      const afterTop = await getScrollTop(before)
+      expect(before.top - afterTop).toBeGreaterThan(200)
 
       const current = page.locator('.ProseMirror .find-match.current')
       await expect(current).toHaveCount(1)

@@ -5,6 +5,7 @@ import { serializeDocToText } from '../lib/serializeDoc'
 import { isTouchOnlyDevice } from '../utils/device'
 import { buildHash } from '../utils/navigationHelpers'
 import { scrollElementIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
+import { getMountedEditorView } from '../utils/editorView'
 import { useContentZoom } from '../hooks/useContentZoom'
 import { useMobileToolbarTransform } from '../hooks/useMobileToolbarTransform'
 import { useKeepCaretAboveKeyboard } from '../hooks/useKeepCaretAboveKeyboard'
@@ -103,13 +104,15 @@ function EditorPanel({
     ready: hasTracker && !editorLocked,
     skip: deepLinkActive,
     zoomLevel,
+    isTouchOnly,
   })
 
   // On touch devices, avoid calling .focus() when the editor isn't already
   // focused — that would open the virtual keyboard.
   const editorCmd = useCallback(() => {
     if (!editor) return null
-    return (isTouchOnly && !editor.view.hasFocus())
+    const view = getMountedEditorView(editor)
+    return (isTouchOnly && !view?.hasFocus())
       ? editor.chain()
       : editor.chain().focus()
   }, [editor, isTouchOnly])
@@ -430,8 +433,9 @@ function EditorPanel({
   }, [])
 
   const focusFromCoords = useCallback((coords) => {
-    if (!editor) return
-    const pos = editor.view?.posAtCoords(coords)
+    const view = getMountedEditorView(editor)
+    if (!view) return
+    const pos = view.posAtCoords(coords)
     if (pos?.pos !== undefined) {
       editor.chain().focus().setTextSelection(pos.pos).run()
     }
@@ -455,8 +459,9 @@ function EditorPanel({
   }, [editor])
 
   useEffect(() => {
-    if (!editor || editor.isDestroyed || !editor.view?.dom) return
-    const dom = editor.view.dom
+    const view = getMountedEditorView(editor)
+    if (!view?.dom) return
+    const dom = view.dom
 
     const isTouchContextMenuEvent = (event) => {
       if (isTouchOnlyDevice()) return true
@@ -567,8 +572,9 @@ function EditorPanel({
 
   const applyColorToRow = useCallback(
     (tablePos, rowIndex, color) => {
-      if (!editor) return
-      const { state, view } = editor
+      const view = getMountedEditorView(editor)
+      if (!view) return
+      const { state } = editor
       const tableNode = state.doc.nodeAt(tablePos)
       if (!tableNode) return
       const map = TableMap.get(tableNode)
@@ -591,8 +597,9 @@ function EditorPanel({
 
   const applyColorToColumn = useCallback(
     (tablePos, colIndex, color) => {
-      if (!editor) return
-      const { state, view } = editor
+      const view = getMountedEditorView(editor)
+      if (!view) return
+      const { state } = editor
       const tableNode = state.doc.nodeAt(tablePos)
       if (!tableNode) return
       const map = TableMap.get(tableNode)
@@ -737,8 +744,11 @@ function EditorPanel({
       // Focus the editor shell without running Tiptap's focus command. The
       // command may restore/scroll to its default selection during page switches,
       // which fights per-page scroll and cursor restoration.
-      if (isTouchOnly && !editor.view.hasFocus()) return
-      editor.view.dom.focus({ preventScroll: true })
+      if (!isTouchOnly) return
+      const view = getMountedEditorView(editor)
+      if (!view) return
+      if (isTouchOnly && !view.hasFocus()) return
+      view.dom.focus({ preventScroll: true })
     })
   }, [trackerId, editor, editorLocked, resetOnTrackerChange, isTouchOnly])
 

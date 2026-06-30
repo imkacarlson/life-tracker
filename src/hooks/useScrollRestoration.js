@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { TextSelection } from '@tiptap/pm/state'
 import { getEditorScrollSurface } from '../utils/scrollIntoViewWithToolbar'
+import { getMountedEditorView } from '../utils/editorView'
 import { isKeyboardShown } from '../utils/keyboardShown'
 import { readStoredScrollPositions, saveStoredScrollPositions } from '../utils/storage'
 
@@ -10,6 +11,7 @@ const PERSIST_DEBOUNCE_MS = 350
 // If layout never grows tall enough for the saved offset, apply our best effort
 // after this long and stop waiting.
 const RESTORE_TIMEOUT_MS = 1500
+const TOUCH_RESTORE_TIMEOUT_MS = 3000
 
 /**
  * Per-page scroll restoration for the editor surface.
@@ -36,6 +38,7 @@ const RESTORE_TIMEOUT_MS = 1500
  * @param {boolean} params.ready - content rendered (not locked/transitioning)
  * @param {boolean} [params.skip] - defer entirely (e.g. a deep-link block jump owns scroll)
  * @param {number} [params.zoomLevel] - current pinch-zoom level; restore is skipped while !== 1
+ * @param {boolean} [params.isTouchOnly] - true on the mobile/touch-only layout
  */
 export function useScrollRestoration({
   containerRef,
@@ -44,6 +47,7 @@ export function useScrollRestoration({
   ready,
   skip = false,
   zoomLevel = 1,
+  isTouchOnly = false,
 }) {
   // Hydrate the in-memory map from sessionStorage exactly once.
   const positionsRef = useRef(null)
@@ -169,6 +173,11 @@ export function useScrollRestoration({
     const container = containerRef.current
 
     const recordOffset = () => {
+      const surface = getEditorScrollSurface(container)
+      if (isTouchOnly && surface.target === window) {
+        const hashPageId = new URLSearchParams(window.location.hash.slice(1)).get('pg')
+        if (hashPageId !== pageId) return
+      }
       captureCurrentState()
     }
 
@@ -188,7 +197,7 @@ export function useScrollRestoration({
       window.removeEventListener('pagehide', flush)
       flushPersist()
     }
-  }, [containerRef, pageId, ready, skip, captureCurrentState, flushPersist])
+  }, [containerRef, pageId, ready, skip, isTouchOnly, captureCurrentState, flushPersist])
 
   // Save cursor/selection changes even when the user has not scrolled.
   useEffect(() => {
@@ -214,6 +223,8 @@ export function useScrollRestoration({
     const savedScrollTop =
       typeof saved === 'number' ? saved : typeof saved?.scrollTop === 'number' ? saved.scrollTop : null
     const initialSurface = getEditorScrollSurface(containerRef.current)
+    const getMaxScrollableOffset = (surface) =>
+      Math.max(0, surface.getScrollHeight() - surface.getClientHeight())
 
     if (savedScrollTop == null) {
       // No memory for this page → start at the top. The scroll container is
@@ -234,7 +245,7 @@ export function useScrollRestoration({
     let observer = null
     let timer = null
     let raf = null
-    let retryTimer = null
+    const restoreTimeoutMs = isTouchOnly ? TOUCH_RESTORE_TIMEOUT_MS : RESTORE_TIMEOUT_MS
 
     const finish = () => {
       restoringRef.current = false
@@ -250,14 +261,7 @@ export function useScrollRestoration({
         cancelAnimationFrame(raf)
         raf = null
       }
-      if (retryTimer) {
-        clearTimeout(retryTimer)
-        retryTimer = null
-      }
     }
-
-    const getMaxScrollableOffset = (surface) =>
-      Math.max(0, surface.getScrollHeight() - surface.getClientHeight())
 
     const tryApply = ({ settle = false } = {}) => {
       if (cancelled) return false
@@ -266,61 +270,45 @@ export function useScrollRestoration({
       const max = getMaxScrollableOffset(surface)
       if (max <= 0) return false
       const applied = Math.min(savedScrollTop, max)
-      restoreEditorSelection(saved.selection)
+      // Contract: a saved offset of 0 carries no scroll information, so we restore
+      // the caret/selection instead. When the offset is non-zero, scroll position
+      // wins and we deliberately do NOT also restore the caret. Known gap: a page
+      // with both a deep scroll and a deep selection won't restore the caret —
+      // acceptable, since the visible scroll position is what the user expects back.
+      if (applied === 0) restoreEditorSelection(saved.selection)
       surface.set(applied)
       return max >= savedScrollTop || settle
     }
 
-    const retryUntilReady = (startedAt = Date.now()) => {
-      if (cancelled) return
-      raf = requestAnimationFrame(() => {
-        if (tryApply()) {
-          finish()
-          return
-        }
-        if (Date.now() - startedAt >= RESTORE_TIMEOUT_MS) {
-          tryApply({ settle: true })
-          finish()
-          return
-        }
-        retryTimer = setTimeout(() => retryUntilReady(startedAt), 80)
-      })
-    }
-
-    if (getMaxScrollableOffset(initialSurface) >= savedScrollTop) {
-      // Already tall enough. Apply on the next frame, then once more on the
-      // following frame so page-change focus/selection work cannot immediately
-      // yank the surface back before the restore has settled.
-      raf = requestAnimationFrame(() => {
-        const applied = tryApply()
-        if (!applied) {
-          finish()
-          return
-        }
-        raf = requestAnimationFrame(() => {
-          tryApply()
-          finish()
-        })
-      })
-    } else if (typeof ResizeObserver !== 'undefined') {
-      // Wait for content to grow tall enough, then apply once and disconnect.
+    if (typeof ResizeObserver !== 'undefined') {
+      // Late-loading content (images/tables) can grow the surface tall enough for
+      // the saved offset only after the first paint. A ResizeObserver reacts to
+      // that growth directly — the principled waiter — and also fires once on
+      // observe, so an already-tall page applies immediately. No polling loop is
+      // needed; a single timeout is the only safety net. (The earlier 80ms
+      // retry-poll was symptom-chasing for the now-fixed remount crash + surface
+      // bugs and has been removed.)
       observer = new ResizeObserver(() => {
         if (tryApply()) finish()
       })
       const observeTarget = containerRef.current?.firstElementChild ?? containerRef.current
       if (observeTarget) observer.observe(observeTarget)
+      // Touch-only: also observe the editor DOM so late image layout on the mobile
+      // window surface re-triggers apply (gates the image-page E2E case). Read via
+      // the shared guard because editor.view throws during the remount window.
+      const editorDom = getMountedEditorView(editorRef.current)?.dom ?? null
+      if (isTouchOnly && editorDom) observer.observe(editorDom)
       if (typeof document !== 'undefined' && document.body) observer.observe(document.body)
-      retryUntilReady()
       timer = setTimeout(() => {
         // Safety net: apply our best effort (clamped) and stop waiting.
         if (!cancelled && !mobileOwnsScroll()) {
           tryApply({ settle: true })
         }
         finish()
-      }, RESTORE_TIMEOUT_MS)
+      }, restoreTimeoutMs)
     } else {
       raf = requestAnimationFrame(() => {
-        tryApply()
+        tryApply({ settle: true })
         finish()
       })
     }
@@ -329,5 +317,5 @@ export function useScrollRestoration({
       cancelled = true
       finish()
     }
-  }, [pageId, ready, skip, containerRef, mobileOwnsScroll, restoreEditorSelection])
+  }, [pageId, ready, skip, containerRef, isTouchOnly, mobileOwnsScroll, restoreEditorSelection])
 }
