@@ -2,11 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 import {
-  buildCandidatesForModel,
-  buildCidBucketMap,
-  filterCandidatesForDaily,
+  buildTrackerContext,
+  mapTasksByBucket,
   parseTaskBuckets,
-  routeTasksToBuckets,
 } from './dailyHelpers.ts'
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
@@ -116,10 +114,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: `No API key configured for ${provider}` }, 500)
     }
 
-    const { candidates, cidToBlockId, cidToText } = buildCandidatesForModel(trackerPages, today)
-    const modelCandidates = filterCandidatesForDaily(candidates)
+    const { markdown, cidToBlockId, cidToText, dateHints } = buildTrackerContext(trackerPages, today)
 
-    if (!modelCandidates.length) {
+    // Only bail out when there is genuinely nothing to reason about. Everything
+    // else — including "nothing is due" — is the model's call now.
+    if (!markdown.trim()) {
       return jsonResponse({
         asap: [],
         fyi: [],
@@ -130,33 +129,54 @@ Deno.serve(async (req) => {
 
     const systemPrompt = `You are a daily planner assistant. Today is ${today} (${dayOfWeek}).
 
-The user provides compact candidate tasks in JSON. Use only those candidates.
-Each candidate has metadata fields:
-- due_bucket: overdue | today | soon | later | none
-- is_overdue: boolean
-- has_explicit_date: boolean
+You are given the user's ENTIRE tracker as lightweight markdown. Every line that can be
+linked has a stable anchor like ⟦c12⟧ at the end. Highlighted text is written as [like this];
+the user highlights due dates in the tracker. You also get DATE_HINTS: a deterministic first
+pass over highlighted dates ("cid | raw date | parsed ISO date | bucket"). The hints are
+ADVISORY ONLY — you make the final decision about what belongs on today's list.
 
-Rules:
-- Metadata fields are deterministic server metadata. They are NOT literal due dates.
-- has_explicit_date=true means the source item contains a user-highlighted due date.
-- If has_explicit_date=false, treat date-like text as context/status notes, not due dates.
-- Use only candidate text + metadata to prioritize and bucket tasks.
-- ASAP is only due_bucket=overdue or due_bucket=today.
-- FYI is due_bucket=soon. For FYI items, always include the due date inline when the candidate text contains one (preserve the original format, e.g., "3/15"). Do not fabricate dates that aren't in the source text.
-- Do not include backlog, someday, or undated tasks.
-- If a candidate has parent_context, it is a sub-item nested under that parent. Use the parent context to make the task description self-contained (e.g., parent "Wedding planning" + task "Book photographer" → "Wedding: Book photographer").
+Decide which items belong on today's daily list:
+- ASAP: due today or overdue.
+- FYI: due within about the next 2 days, or a genuine heads-up worth surfacing today.
+
+Judgment principles (follow these carefully):
+- Only include items with a real, explicit due date. Leave undated items off entirely — do
+  NOT add tasks just to fill the list.
+- An EMPTY daily is a valid, good outcome. If nothing is genuinely due, return empty arrays.
+  Never pad the list; a tracker full of undated content must not spill in.
+- Distinguish a DUE date from a date used as CONTEXT. Journal/log-style dates (e.g. a date
+  tagged at the front of an update noting WHEN it was written) are NOT due dates. Judge how
+  the date is framed in the sentence.
+- Respect the intended year. Skip items clearly meant for a future year even if a bare date
+  matches today (e.g. "(of 2028)"). Trust DATE_HINTS' parsed ISO date and bucket for this.
+- Handle plain-language or slightly typo'd dates ("June 2nd", "Jun 2") using judgment, even if
+  they are not highlighted and not in DATE_HINTS.
+- Ignore background, recurring, notes, and status lines.
+- Make each task self-contained using its section/parent context (e.g. "Wedding: Book
+  photographer"). For FYI items, include the due date inline when the source has one, in its
+  original format.
 - Keep task text concise and actionable.
-- Use cids (not block IDs) in output.
+- Reference lines ONLY by the ⟦cid⟧ anchors that actually appear in the tracker. Never invent
+  anchors. Put the cids (without the ⟦⟧ brackets) in the "cids" array.
 
 Respond with ONLY a JSON object, no other text. Use this exact shape:
 {"asap":[{"task":"short task description","cids":["c1","c2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}]}
 
 If a bucket is empty, return an empty array.`
 
+    const hintLines = dateHints.map(
+      (hint) => `${hint.cid} | "${hint.dateText}" | parsed ${hint.parsedIso} | ${hint.bucket}`,
+    )
+
     const userMessage = [
       `TODAY: ${today}`,
       `DAY_OF_WEEK: ${dayOfWeek}`,
-      `CANDIDATES_JSON: ${JSON.stringify(modelCandidates)}`,
+      '',
+      'TRACKER_MARKDOWN:',
+      markdown,
+      '',
+      'DATE_HINTS:',
+      hintLines.length ? hintLines.join('\n') : '(none)',
     ].join('\n')
 
     let fetchUrl = providerConfig.url
@@ -177,17 +197,10 @@ If a bucket is empty, return an empty array.`
     const rawText = providerConfig.extractResponse(data)
     const parsed = parseTaskBuckets(rawText)
 
-    // The server, not the model, decides which bucket each task belongs in.
-    // Tasks the model mis-bucketed are re-routed to the correct bucket; cids the
-    // model invented or that were never sent (e.g. far-future items) are dropped
-    // silently because nothing real is lost.
-    const cidToBucket = buildCidBucketMap(modelCandidates)
-    const aiTasks = [
-      ...(Array.isArray(parsed.asap) ? parsed.asap : []),
-      ...(Array.isArray(parsed.fyi) ? parsed.fyi : []),
-    ]
-
-    const routed = routeTasksToBuckets(aiTasks, cidToBucket, cidToBlockId, cidToText)
+    // The model is the final judge of placement now. We honor its ASAP/FYI
+    // buckets, resolve cids to block ids for cross-off linking, and silently
+    // drop any cids it invented or that don't exist in the tracker.
+    const routed = mapTasksByBucket(parsed, cidToBlockId, cidToText)
     const asap = routed.asap
     const fyi = routed.fyi
 

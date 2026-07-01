@@ -1,30 +1,20 @@
 export type DueBucket = 'overdue' | 'today' | 'soon' | 'later' | 'none'
 
-export type NextStepItem = {
+export type InlineSegment = {
   text: string
-  blockId: string
-  dueBucket: DueBucket
-  isOverdue: boolean
-  hasExplicitDate: boolean
-  parentContext?: string
+  highlighted: boolean
 }
 
-export type CandidateForModel = {
+// One advisory hint per line that contains a highlighted (due-style) date. The
+// server no longer decides placement from these — the AI does — so a hint is
+// purely informational: "this line has a date; here's how the deterministic
+// pass reads it".
+export type DateHint = {
   cid: string
-  text: string
-  due_bucket: DueBucket
-  is_overdue: boolean
-  has_explicit_date: boolean
-  parent_context?: string
+  dateText: string
+  parsedIso: string
+  bucket: DueBucket
 }
-
-export const filterCandidatesForDaily = (candidates: CandidateForModel[]) =>
-  (candidates || []).filter(
-    (candidate) =>
-      candidate.due_bucket === 'overdue' ||
-      candidate.due_bucket === 'today' ||
-      candidate.due_bucket === 'soon',
-  )
 
 export type ParsedTaskBuckets = {
   asap: any[]
@@ -32,42 +22,41 @@ export type ParsedTaskBuckets = {
   format: 'empty' | 'asap_fyi'
 }
 
-type InlineSegment = {
-  text: string
-  highlighted: boolean
+export type MappedTask = {
+  task: string
+  block_ids: string[]
+  priority: string
 }
 
-type DueMetadata = {
-  dueBucket: DueBucket
-  isOverdue: boolean
-  hasExplicitDate: boolean
-  hasAnyDateText: boolean
-}
-
-type FlattenedBlock = {
-  kind: 'text' | 'list' | 'divider'
-  nodeType?: string
-  text?: string
-  inlineContent?: any[]
-  paragraphAttrs?: Record<string, any>
-  itemAttrs?: Record<string, any>
-  parentText?: string
+export type TrackerContext = {
+  markdown: string
+  cidToBlockId: Map<string, string>
+  cidToText: Map<string, string>
+  dateHints: DateHint[]
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DATE_TOKEN_REGEX = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g
+const WRITTEN_YEAR_REGEX = /\b(20\d\d)\b/
 
 const toUtcDate = (value: string) => {
   const parsed = new Date(`${value}T00:00:00Z`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+const toIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+
 const normalizeText = (value: string) =>
   String(value || '')
     .replace(/\s+/g, ' ')
     .trim()
 
-const parseDateToken = (monthValue: string, dayValue: string, yearValue: string | undefined, defaultYear: number) => {
+const parseDateToken = (
+  monthValue: string,
+  dayValue: string,
+  yearValue: string | undefined,
+  defaultYear: number,
+) => {
   const month = Number(monthValue)
   const day = Number(dayValue)
 
@@ -92,69 +81,29 @@ const parseDateToken = (monthValue: string, dayValue: string, yearValue: string 
   return date
 }
 
-const parseDatesFromText = (text: string, defaultYear: number) => {
-  const results: Date[] = []
+type DateToken = { date: Date; raw: string }
+
+const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
+  const results: DateToken[] = []
   const normalized = String(text || '')
 
   DATE_TOKEN_REGEX.lastIndex = 0
   let match: RegExpExecArray | null = DATE_TOKEN_REGEX.exec(normalized)
   while (match) {
     const date = parseDateToken(match[1], match[2], match[3], defaultYear)
-    if (date) results.push(date)
+    if (date) results.push({ date, raw: match[0] })
     match = DATE_TOKEN_REGEX.exec(normalized)
   }
 
   return results
 }
 
-const buildDueMetadata = (highlightedDates: Date[], hasAnyDateText: boolean, todayDate: Date): DueMetadata => {
-  if (!highlightedDates.length) {
-    return {
-      dueBucket: 'none',
-      isOverdue: false,
-      hasExplicitDate: false,
-      hasAnyDateText,
-    }
-  }
-
-  const earliestDueDate = highlightedDates
-    .slice()
-    .sort((a, b) => a.getTime() - b.getTime())[0]
-
-  const diffDays = Math.floor((earliestDueDate.getTime() - todayDate.getTime()) / DAY_MS)
-  if (diffDays < 0) {
-    return {
-      dueBucket: 'overdue',
-      isOverdue: true,
-      hasExplicitDate: true,
-      hasAnyDateText,
-    }
-  }
-
-  if (diffDays === 0) {
-    return {
-      dueBucket: 'today',
-      isOverdue: false,
-      hasExplicitDate: true,
-      hasAnyDateText,
-    }
-  }
-
-  if (diffDays <= 2) {
-    return {
-      dueBucket: 'soon',
-      isOverdue: false,
-      hasExplicitDate: true,
-      hasAnyDateText,
-    }
-  }
-
-  return {
-    dueBucket: 'later',
-    isOverdue: false,
-    hasExplicitDate: true,
-    hasAnyDateText,
-  }
+const bucketForDate = (dueDate: Date, todayDate: Date): DueBucket => {
+  const diffDays = Math.floor((dueDate.getTime() - todayDate.getTime()) / DAY_MS)
+  if (diffDays < 0) return 'overdue'
+  if (diffDays === 0) return 'today'
+  if (diffDays <= 2) return 'soon'
+  return 'later'
 }
 
 const appendSegment = (segments: InlineSegment[], segment: InlineSegment) => {
@@ -167,6 +116,8 @@ const appendSegment = (segments: InlineSegment[], segment: InlineSegment) => {
   segments.push({ ...segment })
 }
 
+// Collect visible inline text as highlighted/plain runs. Struck-through
+// (completed) text is dropped so finished items don't resurface as due dates.
 const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
   const segments: InlineSegment[] = []
 
@@ -175,11 +126,11 @@ const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
 
     if (node.type === 'text') {
       const marks = Array.isArray(node.marks) ? node.marks : []
-      if (marks.some((mark) => mark?.type === 'strike')) return
+      if (marks.some((mark: any) => mark?.type === 'strike')) return
 
       appendSegment(segments, {
         text: String(node.text || ''),
-        highlighted: marks.some((mark) => mark?.type === 'highlight'),
+        highlighted: marks.some((mark: any) => mark?.type === 'highlight'),
       })
       return
     }
@@ -198,185 +149,313 @@ const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
   return segments
 }
 
-const flattenBlocks = (node: any, into: FlattenedBlock[], parentText?: string) => {
-  if (!node || typeof node !== 'object') return
+// ---------------------------------------------------------------------------
+// Markdown serializer with per-line cid anchors
+//
+// Ported from src/lib/serializeDocForExport.js (pure/DOM-free) and extended so
+// every block that carries an id gets a stable `⟦c12⟧` anchor appended to its
+// line. The anchor's cid maps to that block's id (the deep-link target) and to
+// its plain text, and the block's inline runs are captured for the date pass.
+// ---------------------------------------------------------------------------
 
-  if (node.type === 'horizontalRule') {
-    into.push({ kind: 'divider' })
-    return
-  }
-
-  if (node.type === 'paragraph' || node.type === 'heading') {
-    const segments = collectInlineSegments(node.content || [])
-    into.push({
-      kind: 'text',
-      nodeType: node.type,
-      text: normalizeText(segments.map((segment) => segment.text).join('')),
-      inlineContent: node.content || [],
-      paragraphAttrs: node.attrs || {},
-      parentText,
-    })
-    return
-  }
-
-  if (node.type === 'listItem' || node.type === 'taskItem') {
-    const firstParagraph = (node.content || []).find((child: any) => child?.type === 'paragraph')
-    const inlineContent = firstParagraph?.content || []
-    const segments = collectInlineSegments(inlineContent)
-    const itemText = normalizeText(segments.map((segment) => segment.text).join(''))
-
-    into.push({
-      kind: 'list',
-      nodeType: node.type,
-      text: itemText,
-      inlineContent,
-      paragraphAttrs: firstParagraph?.attrs || {},
-      itemAttrs: node.attrs || {},
-      parentText,
-    })
-
-    // Chain parent context for nested children (e.g., "Wedding > Venue")
-    const childParent = parentText && itemText
-      ? `${parentText} > ${itemText}`
-      : itemText || parentText
-    ;(node.content || []).forEach((child: any) => {
-      if (child === firstParagraph) return
-      flattenBlocks(child, into, childParent)
-    })
-    return
-  }
-
-  if (Array.isArray(node.content)) {
-    node.content.forEach((child: any) => flattenBlocks(child, into, parentText))
-  }
+type SerializeCtx = {
+  counter: { value: number }
+  cidToBlockId: Map<string, string>
+  cidToText: Map<string, string>
+  cidSegments: Map<string, InlineSegment[]>
+  suppressAnchors: boolean
 }
 
-const isNextStepsHeader = (text: string) =>
-  /^next steps\b(?:\s*(?:[:\-].*|\(.*\)))?$/i.test(normalizeText(text))
-
-const isSectionBoundary = (block: FlattenedBlock) => {
-  if (block.kind !== 'text') return false
-
-  const text = normalizeText(block.text || '')
-  if (!text) return false
-
-  if (block.nodeType === 'heading') {
-    return !isNextStepsHeader(text)
-  }
-
-  const isGenericSectionLabel = /^[A-Za-z0-9][A-Za-z0-9\s/&'()\-]{0,80}:\s*$/.test(text)
-  if (isGenericSectionLabel && !isNextStepsHeader(text)) {
-    return true
-  }
-
-  return /^(background|recurring(?:\s+things?)?|notes?)\s*:?\s*$/i.test(text)
+function serializeInline(content: any[] | undefined): string {
+  if (!content) return ''
+  return content
+    .map((node) => {
+      if (node.type === 'text') {
+        let text = node.text || ''
+        const marks = node.marks || []
+        const hasBold = marks.some((m: any) => m.type === 'bold')
+        const hasItalic = marks.some((m: any) => m.type === 'italic')
+        const hasStrike = marks.some((m: any) => m.type === 'strike')
+        const hasHighlight = marks.some((m: any) => m.type === 'highlight')
+        if (hasBold) text = `**${text}**`
+        if (hasItalic) text = `_${text}_`
+        if (hasStrike) text = `~~${text}~~`
+        if (hasHighlight) text = `[${text}]`
+        return text
+      }
+      if (node.type === 'hardBreak') return '\n'
+      if (node.type === 'image') return '[image]'
+      return ''
+    })
+    .join('')
 }
 
-const getDueMetadataFromInline = (inlineContent: any[], todayDate: Date): DueMetadata => {
+// Register a cid for an id-bearing block and return the anchor suffix to append.
+function registerAnchor(
+  ctx: SerializeCtx,
+  id: string | undefined | null,
+  inlineContent: any[] | undefined,
+): string {
+  if (!id || ctx.suppressAnchors) return ''
+  const cid = `c${ctx.counter.value}`
+  ctx.counter.value += 1
+  ctx.cidToBlockId.set(cid, id)
   const segments = collectInlineSegments(inlineContent || [])
-  const text = segments.map((segment) => segment.text).join('')
-
-  const allDates = parseDatesFromText(text, todayDate.getUTCFullYear())
-  const highlightedDates = segments
-    .filter((segment) => segment.highlighted)
-    .flatMap((segment) => parseDatesFromText(segment.text, todayDate.getUTCFullYear()))
-
-  return buildDueMetadata(highlightedDates, allDates.length > 0, todayDate)
+  ctx.cidSegments.set(cid, segments)
+  ctx.cidToText.set(cid, normalizeText(segments.map((s) => s.text).join('')))
+  return ` ⟦${cid}⟧`
 }
 
-const extractNextStepsFromContent = (content: any, today: string): NextStepItem[] => {
+function serializeNode(
+  node: any,
+  lines: string[],
+  ctx: SerializeCtx,
+  indent = 0,
+  listIndex: any = null,
+) {
+  const prefix = '  '.repeat(indent)
+
+  switch (node.type) {
+    case 'doc':
+      node.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent))
+      break
+
+    case 'paragraph': {
+      const text = serializeInline(node.content)
+      const anchor = registerAnchor(ctx, node.attrs?.id, node.content)
+      lines.push(prefix + text + anchor)
+      break
+    }
+
+    case 'heading': {
+      const text = serializeInline(node.content)
+      const anchor = registerAnchor(ctx, node.attrs?.id, node.content)
+      if (lines.length > 0) lines.push('')
+      lines.push(prefix + text.toUpperCase() + anchor)
+      lines.push('')
+      break
+    }
+
+    case 'bulletList':
+      node.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent, 'bullet'))
+      break
+
+    case 'orderedList': {
+      let counter = 1
+      node.content?.forEach((child: any) => {
+        serializeNode(child, lines, ctx, indent, counter)
+        counter += 1
+      })
+      break
+    }
+
+    case 'taskList':
+      node.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent, 'task'))
+      break
+
+    case 'listItem':
+    case 'taskItem': {
+      const marker =
+        listIndex === 'bullet'
+          ? '- '
+          : listIndex === 'task'
+            ? node.attrs?.checked
+              ? '[x] '
+              : '[ ] '
+            : `${listIndex}. `
+      const children = node.content || []
+      children.forEach((child: any, i: number) => {
+        if (i === 0 && child.type === 'paragraph') {
+          // The item's first paragraph holds the deep-link id, so anchor here.
+          const anchor = registerAnchor(ctx, child.attrs?.id, child.content)
+          lines.push(prefix + marker + serializeInline(child.content) + anchor)
+        } else {
+          serializeNode(child, lines, ctx, indent + 1)
+        }
+      })
+      break
+    }
+
+    case 'table': {
+      const rows = node.content || []
+      if (rows.length === 0) break
+
+      const columnCount = rows[0]?.content?.length || 0
+
+      if (columnCount === 1) {
+        // Single-column table: preserve inner structure (and its anchors).
+        rows.forEach((row: any, rowIdx: number) => {
+          const cell = row.content?.[0]
+          if (cell) {
+            cell.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent))
+          }
+          if (rowIdx < rows.length - 1) {
+            lines.push('')
+            lines.push(prefix + '---')
+            lines.push('')
+          }
+        })
+      } else {
+        // Multi-column table: flatten to pipe rows. Anchoring individual cells
+        // inside a joined row would be noise, so suppress anchors here.
+        const previousSuppress = ctx.suppressAnchors
+        ctx.suppressAnchors = true
+        rows.forEach((row: any, rowIdx: number) => {
+          const cells = (row.content || []).map((cell: any) => {
+            const cellLines: string[] = []
+            cell.content?.forEach((child: any) => serializeNode(child, cellLines, ctx, 0))
+            return cellLines.join(' ').trim()
+          })
+          lines.push(prefix + '| ' + cells.join(' | ') + ' |')
+          if (rowIdx === 0) {
+            const separator = cells.map((c: string) => '-'.repeat(Math.max(c.length, 3))).join(' | ')
+            lines.push(prefix + '| ' + separator + ' |')
+          }
+        })
+        ctx.suppressAnchors = previousSuppress
+      }
+      break
+    }
+
+    case 'tableRow':
+    case 'tableCell':
+    case 'tableHeader':
+      node.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent))
+      break
+
+    case 'blockquote':
+      node.content?.forEach((child: any) => serializeNode(child, lines, ctx, indent + 1))
+      break
+
+    case 'codeBlock': {
+      lines.push(prefix + '```')
+      const text = node.content?.map((n: any) => n.text || '').join('') || ''
+      text.split('\n').forEach((line: string) => lines.push(prefix + line))
+      lines.push(prefix + '```')
+      break
+    }
+
+    case 'horizontalRule':
+      lines.push(prefix + '---')
+      break
+
+    default:
+      if (node.content) {
+        node.content.forEach((child: any) => serializeNode(child, lines, ctx, indent))
+      }
+      break
+  }
+}
+
+const createCtx = (counter: { value: number }): SerializeCtx => ({
+  counter,
+  cidToBlockId: new Map<string, string>(),
+  cidToText: new Map<string, string>(),
+  cidSegments: new Map<string, InlineSegment[]>(),
+  suppressAnchors: false,
+})
+
+type SerializeResult = {
+  markdown: string
+  cidToBlockId: Map<string, string>
+  cidToText: Map<string, string>
+  cidSegments: Map<string, InlineSegment[]>
+}
+
+const serializeContentWithCtx = (content: any, ctx: SerializeCtx, title?: string): string => {
+  const lines: string[] = []
+  if (title) {
+    lines.push(normalizeText(title).toUpperCase())
+    lines.push('')
+  }
+  if (content && typeof content === 'object') {
+    serializeNode(content, lines, ctx)
+  }
+  return lines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}
+
+// Serialize a single tracker doc to markdown, assigning a cid anchor to every
+// id-bearing block.
+export const serializeTrackerToMarkdown = (content: any, title?: string): SerializeResult => {
+  const ctx = createCtx({ value: 1 })
+  const markdown = serializeContentWithCtx(content, ctx, title)
+  return {
+    markdown,
+    cidToBlockId: ctx.cidToBlockId,
+    cidToText: ctx.cidToText,
+    cidSegments: ctx.cidSegments,
+  }
+}
+
+// Build one advisory hint per line that contains a highlighted date. Year
+// inference: when a highlighted date has no slash-year, a written year on the
+// same line (e.g. "(of 2027)") is used as the default; an explicit slash-year
+// always wins.
+export const buildDateHints = (
+  cidSegments: Map<string, InlineSegment[]>,
+  today: string,
+): DateHint[] => {
   const todayDate = toUtcDate(today)
-  if (!todayDate || !content || typeof content !== 'object') return []
+  if (!todayDate) return []
 
-  const blocks: FlattenedBlock[] = []
-  flattenBlocks(content, blocks)
+  const hints: DateHint[] = []
 
-  const nextSteps: NextStepItem[] = []
-  let inNextSteps = false
+  for (const [cid, segments] of cidSegments) {
+    const fullText = segments.map((s) => s.text).join('')
+    const writtenYearMatch = fullText.match(WRITTEN_YEAR_REGEX)
+    const defaultYear = writtenYearMatch
+      ? Number(writtenYearMatch[1])
+      : todayDate.getUTCFullYear()
 
-  for (const block of blocks) {
-    if (block.kind === 'divider') {
-      inNextSteps = false
-      continue
-    }
+    const highlightedTokens = segments
+      .filter((segment) => segment.highlighted)
+      .flatMap((segment) => extractDateTokens(segment.text, defaultYear))
 
-    if (block.kind === 'text') {
-      const text = normalizeText(block.text || '')
-      if (isNextStepsHeader(text)) {
-        inNextSteps = true
-        continue
-      }
+    if (!highlightedTokens.length) continue
 
-      if (inNextSteps && isSectionBoundary(block)) {
-        inNextSteps = false
-      }
-      continue
-    }
+    const earliest = highlightedTokens
+      .slice()
+      .sort((a, b) => a.date.getTime() - b.date.getTime())[0]
 
-    if (!inNextSteps) {
-      continue
-    }
-
-    if (block.itemAttrs?.checked) {
-      continue
-    }
-
-    const text = normalizeText(block.text || '')
-    if (!text) continue
-
-    const dueMeta = getDueMetadataFromInline(block.inlineContent || [], todayDate)
-
-    // Workflow rule: unhighlighted dates represent context/status notes, not due tasks.
-    if (dueMeta.hasAnyDateText && !dueMeta.hasExplicitDate) {
-      continue
-    }
-
-    const blockId = block.paragraphAttrs?.id || block.itemAttrs?.id
-    if (!blockId) continue
-
-    nextSteps.push({
-      text,
-      blockId,
-      dueBucket: dueMeta.dueBucket,
-      isOverdue: dueMeta.isOverdue,
-      hasExplicitDate: dueMeta.hasExplicitDate,
-      parentContext: block.parentText || undefined,
+    hints.push({
+      cid,
+      dateText: earliest.raw,
+      parsedIso: toIsoDate(earliest.date),
+      bucket: bucketForDate(earliest.date, todayDate),
     })
   }
 
-  return nextSteps
+  return hints
 }
 
-export const buildCandidatesForModel = (trackerPages: any[], today: string) => {
-  const nextSteps = (trackerPages || []).flatMap((page: any) =>
-    extractNextStepsFromContent(page?.content, today),
-  )
-
+// Build the full context sent to the model: whole-tracker markdown, the cid ->
+// block/text maps for mapping the response back, and the advisory date hints.
+export const buildTrackerContext = (trackerPages: any[], today: string): TrackerContext => {
+  const counter = { value: 1 }
   const cidToBlockId = new Map<string, string>()
   const cidToText = new Map<string, string>()
+  const cidSegments = new Map<string, InlineSegment[]>()
+  const sections: string[] = []
 
-  const candidates: CandidateForModel[] = nextSteps.map((item, idx) => {
-    const cid = `c${idx + 1}`
-    cidToBlockId.set(cid, item.blockId)
-    cidToText.set(cid, item.text)
-
-    const candidate: CandidateForModel = {
-      cid,
-      text: item.text,
-      due_bucket: item.dueBucket,
-      is_overdue: item.isOverdue,
-      has_explicit_date: item.hasExplicitDate,
-    }
-    if (item.parentContext) {
-      candidate.parent_context = item.parentContext
-    }
-    return candidate
-  })
+  for (const page of trackerPages || []) {
+    const ctx = createCtx(counter)
+    // Share the accumulating maps so cids stay globally unique across pages.
+    ctx.cidToBlockId = cidToBlockId
+    ctx.cidToText = cidToText
+    ctx.cidSegments = cidSegments
+    const markdown = serializeContentWithCtx(page?.content, ctx, page?.title)
+    if (markdown) sections.push(markdown)
+  }
 
   return {
-    candidates,
+    markdown: sections.join('\n\n'),
     cidToBlockId,
     cidToText,
+    dateHints: buildDateHints(cidSegments, today),
   }
 }
 
@@ -420,88 +499,63 @@ export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
   return { asap, fyi, format }
 }
 
-export type BucketName = 'asap' | 'fyi'
-
-export type MappedTask = {
-  task: string
-  block_ids: string[]
-  priority: string
-}
-
-// Each candidate has exactly one correct destination bucket, decided by the
-// server-computed due_bucket — overdue/today belong in ASAP, soon in FYI.
-// later/none candidates are never sent to the model, so they have no bucket.
-export const buildCidBucketMap = (candidates: CandidateForModel[]): Map<string, BucketName> => {
-  const cidToBucket = new Map<string, BucketName>()
-  for (const candidate of candidates || []) {
-    if (candidate.due_bucket === 'overdue' || candidate.due_bucket === 'today') {
-      cidToBucket.set(candidate.cid, 'asap')
-    } else if (candidate.due_bucket === 'soon') {
-      cidToBucket.set(candidate.cid, 'fyi')
-    }
-  }
-  return cidToBucket
-}
-
-// Routes the model's tasks into ASAP/FYI by each cid's *canonical* bucket rather
-// than the bucket the model chose. This recovers mis-bucketed real tasks (e.g. a
-// "today" item the model put in FYI) instead of dropping them, and silently
-// ignores cids the model invented or that were never sent (e.g. far-future
-// "later" items), which are safe to discard.
-export const routeTasksToBuckets = (
-  aiTasks: any[],
-  cidToBucket: Map<string, BucketName>,
+const mapBucket = (
+  tasks: any[],
   cidToBlockId: Map<string, string>,
   cidToText: Map<string, string>,
-) => {
-  const asap: MappedTask[] = []
-  const fyi: MappedTask[] = []
-  let droppedUnknownCids = 0
+): { tasks: MappedTask[]; dropped: number } => {
+  const mapped: MappedTask[] = []
+  let dropped = 0
 
-  for (const task of aiTasks || []) {
+  for (const task of tasks || []) {
     if (!Array.isArray(task?.cids)) continue
 
-    // Group this task's cids by where they actually belong. A single task can
-    // (rarely) reference cids spanning both buckets; each group becomes its own
-    // entry in the correct bucket.
-    const cidsByBucket = new Map<BucketName, string[]>()
+    const cids: string[] = []
     for (const cid of task.cids) {
-      const bucket = cidToBucket.get(cid)
-      if (!bucket) {
-        droppedUnknownCids += 1
-        continue
+      if (cidToBlockId.has(cid)) {
+        if (!cids.includes(cid)) cids.push(cid)
+      } else {
+        dropped += 1
       }
-      const group = cidsByBucket.get(bucket) || []
-      if (!group.includes(cid)) group.push(cid)
-      cidsByBucket.set(bucket, group)
     }
 
-    for (const [bucket, cids] of cidsByBucket) {
-      const blockIds = cids
-        .map((cid) => cidToBlockId.get(cid))
-        .filter((id): id is string => Boolean(id))
-      if (!blockIds.length) continue
+    const blockIds = cids
+      .map((cid) => cidToBlockId.get(cid))
+      .filter((id): id is string => Boolean(id))
+    if (!blockIds.length) continue
 
-      const fallbackTaskText = cids
-        .map((cid) => cidToText.get(cid))
-        .filter((value): value is string => Boolean(value))
-        .join(' + ')
+    const fallbackTaskText = cids
+      .map((cid) => cidToText.get(cid))
+      .filter((value): value is string => Boolean(value))
+      .join(' + ')
 
-      const nextTaskText = String(task?.task || '').trim() || fallbackTaskText
-      if (!nextTaskText) continue
+    const taskText = String(task?.task || '').trim() || fallbackTaskText
+    if (!taskText) continue
 
-      const nextPriority = ['high', 'medium', 'low'].includes(task?.priority)
-        ? task.priority
-        : 'medium'
+    const priority = ['high', 'medium', 'low'].includes(task?.priority)
+      ? task.priority
+      : 'medium'
 
-      const mappedTask: MappedTask = {
-        task: nextTaskText,
-        block_ids: blockIds,
-        priority: nextPriority,
-      }
-      ;(bucket === 'asap' ? asap : fyi).push(mappedTask)
-    }
+    mapped.push({ task: taskText, block_ids: blockIds, priority })
   }
 
-  return { asap, fyi, droppedUnknownCids }
+  return { tasks: mapped, dropped }
+}
+
+// Honor the AI's ASAP/FYI placement. The AI is the final judge now, so we keep
+// whichever bucket it chose, resolve cids to block ids for cross-off linking,
+// and silently drop cids the AI invented or that don't exist.
+export const mapTasksByBucket = (
+  parsed: ParsedTaskBuckets,
+  cidToBlockId: Map<string, string>,
+  cidToText: Map<string, string>,
+): { asap: MappedTask[]; fyi: MappedTask[]; droppedUnknownCids: number } => {
+  const asapResult = mapBucket(parsed.asap, cidToBlockId, cidToText)
+  const fyiResult = mapBucket(parsed.fyi, cidToBlockId, cidToText)
+
+  return {
+    asap: asapResult.tasks,
+    fyi: fyiResult.tasks,
+    droppedUnknownCids: asapResult.dropped + fyiResult.dropped,
+  }
 }
