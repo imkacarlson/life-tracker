@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { TableMap } from '@tiptap/pm/tables'
 import { supabase } from '../lib/supabase'
 import { serializeDocToText } from '../lib/serializeDoc'
@@ -737,19 +737,17 @@ function EditorPanel({
   // DOM-manipulation-based cursor placement in tests (and user interactions
   // that call editorRoot.focus()) doesn't trigger ProseMirror's focus handler
   // to restore its saved selection before the placement takes effect.
-  useEffect(() => {
+  useLayoutEffect(() => {
     resetOnTrackerChange()
     if (!editor || editorLocked) return
-    requestAnimationFrame(() => {
-      // Focus the editor shell without running Tiptap's focus command. The
-      // command may restore/scroll to its default selection during page switches,
-      // which fights per-page scroll and cursor restoration.
-      if (!isTouchOnly) return
-      const view = getMountedEditorView(editor)
-      if (!view) return
-      if (isTouchOnly && !view.hasFocus()) return
-      view.dom.focus({ preventScroll: true })
-    })
+    // Focus the editor shell without running Tiptap's focus command. The command
+    // may restore/scroll to its default selection during page switches, which
+    // fights per-page scroll and cursor restoration. Run before scroll restore
+    // effects so focusing cannot undo a restored offset afterward.
+    const view = getMountedEditorView(editor)
+    if (!view) return
+    if (isTouchOnly && !view.hasFocus()) return
+    view.dom.focus({ preventScroll: true })
   }, [trackerId, editor, editorLocked, resetOnTrackerChange, isTouchOnly])
 
   useEffect(() => {
