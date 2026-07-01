@@ -1,10 +1,16 @@
 import { TextSelection } from '@tiptap/pm/state'
 import { getBlockTextRange } from './blockSelectionHelper'
+import { syncSelectionFromDom } from '../../utils/smartMark'
+import { getMountedEditorView } from '../../utils/editorView'
 
 // Toggles strikethrough on the entire current line/block when the cursor has no
 // selection, or on just the selected text when a range is already selected.
 export const toggleLineStrike = (editor) => {
-  const { state, view } = editor
+  syncSelectionFromDom(editor)
+
+  const view = getMountedEditorView(editor)
+  if (!view) return
+  const { state } = editor
   const { from, to, empty } = state.selection
 
   if (!empty) {

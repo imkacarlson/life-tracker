@@ -13,6 +13,7 @@ import { useTrackerSession } from './hooks/useTrackerSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
+import { getMountedEditorView } from './utils/editorView'
 import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
@@ -532,13 +533,15 @@ function App() {
     if (!isTouchOnlyDevice()) return
     setTouchNavigationGuardValue(true)
     suppressFocusRef.current = true
-    if (!editor || editor.isDestroyed) return
+    const view = getMountedEditorView(editor)
+    if (!view) return
     window.getSelection()?.removeAllRanges()
-    editor.view.dom.blur()
+    view.dom.blur()
     requestAnimationFrame(() => {
-      if (!editor.isDestroyed) {
+      const nextView = getMountedEditorView(editor)
+      if (nextView) {
         window.getSelection()?.removeAllRanges()
-        editor.view.dom.blur()
+        nextView.dom.blur()
       }
     })
   }, [editor, suppressFocusRef, setTouchNavigationGuardValue])

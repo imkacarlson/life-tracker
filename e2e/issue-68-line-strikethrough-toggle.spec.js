@@ -70,6 +70,21 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
 
   const getStrikeButton = (page) => page.getByTestId('toolbar-strikethrough')
 
+  // Place a collapsed caret with the browser's own click/tap path. On touch
+  // emulation, focus the editor shell first so the tap places a caret instead
+  // of only restoring ProseMirror's previous selection; this does not set editor
+  // state directly, so Strike still exercises DOM selection sync.
+  const placeCaretInBlock = async (page, block) => {
+    const isTouchOnly = await page.evaluate(() => matchMedia('(pointer: coarse)').matches)
+    if (isTouchOnly) {
+      await page.locator('.ProseMirror').evaluate((node) => node.focus({ preventScroll: true }))
+      await block.tap()
+      return
+    }
+
+    await block.click()
+  }
+
   const selectTextRangeInParagraph = async (page, paragraphSelector, startOffset, endOffset) => {
     await page.evaluate(
       ({ selector, start, end }) => {
@@ -147,9 +162,9 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     // Use a paragraph inside a table cell (seed data has "Next Steps:" paragraph)
     const block = page.locator('.ProseMirror td p').filter({ hasText: 'Next Steps' }).first()
 
-    await block.click({ position: { x: 8, y: 8 } })
-
+    await expect(block).toBeVisible({ timeout: 5000 })
     await ensureToolbarExpanded(page)
+    await placeCaretInBlock(page, block)
     const strikeBtn = getStrikeButton(page)
 
     // Toggle on

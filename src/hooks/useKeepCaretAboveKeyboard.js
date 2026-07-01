@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { isKeyboardShown } from '../utils/keyboardShown'
 import { scrollSelectionIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { createSettleLoop } from '../utils/settleLoop'
+import { getMountedEditorView } from '../utils/editorView'
 
 // How long to keep re-asserting the caret correction after a qualifying
 // keyboard-open resize. Covers the observed ~206 ms native "scroll caret into
@@ -69,13 +70,14 @@ export function useKeepCaretAboveKeyboard({
     // only if the caret is hidden. Idempotent, so re-running it across the
     // settle window is safe (no-op once the caret is in-band).
     const tick = () => {
-      const editorFocused = Boolean(editor.view?.hasFocus?.())
+      const view = getMountedEditorView(editor)
+      const editorFocused = Boolean(view?.hasFocus())
       if (!shouldKeepCaretAboveKeyboard({ keyboardShown: isKeyboardShown(), editorFocused })) {
         return
       }
       try {
         scrollSelectionIntoViewWithToolbar({
-          view: editor.view,
+          view,
           container: editorPanelRef?.current ?? null,
           toolbarEl: toolbarRef?.current ?? null,
           padding,

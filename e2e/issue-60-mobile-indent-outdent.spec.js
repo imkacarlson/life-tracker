@@ -95,19 +95,15 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
           throw new Error('Could not resolve paragraph text node for cursor placement')
         }
 
-        const safeOffset = Math.min(targetOffset, textNode.textContent?.length ?? 0)
-        const range = document.createRange()
-        range.setStart(textNode, safeOffset)
-        range.collapse(true)
-
-        const selection = window.getSelection()
-        selection?.removeAllRanges()
-        selection?.addRange(range)
-
-        const editorRoot = paragraph.closest('.ProseMirror')
-        if (editorRoot instanceof HTMLElement) {
-          editorRoot.focus()
+        const editor = window.__lifeTrackerEditor
+        if (!editor || editor.isDestroyed) {
+          throw new Error('Editor test hook is not available')
         }
+
+        const safeOffset = Math.min(targetOffset, textNode.textContent?.length ?? 0)
+        const pos = editor.view.posAtDOM(textNode, safeOffset)
+        editor.commands.setTextSelection(pos)
+        editor.view.focus()
       },
       { selector: paragraphSelector, targetOffset: offset },
     )
@@ -115,24 +111,27 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
 
   const readListDepthFromSelection = async (page) =>
     page.evaluate(() => {
-      const sel = window.getSelection()
-      if (!sel?.anchorNode) return 0
-      let node = sel.anchorNode
+      const editor = window.__lifeTrackerEditor
+      const $from = editor?.state?.selection?.$from
+      if (!$from) return 0
       let listDepth = 0
-      while (node && node !== document.body) {
-        if (node.nodeName === 'UL' || node.nodeName === 'OL') listDepth++
-        node = node.parentNode
+      for (let depth = 0; depth <= $from.depth; depth += 1) {
+        const name = $from.node(depth).type?.name
+        if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') listDepth += 1
       }
       return listDepth
     })
 
   const readSelectedParagraphText = async (page) =>
     page.evaluate(() => {
-      const selection = window.getSelection()
-      const anchorNode = selection?.anchorNode
-      if (!anchorNode) return null
-      const anchorElement = anchorNode.nodeType === Node.TEXT_NODE ? anchorNode.parentElement : anchorNode
-      return anchorElement?.closest('p')?.textContent?.trim() ?? null
+      const editor = window.__lifeTrackerEditor
+      const $from = editor?.state?.selection?.$from
+      if (!$from) return null
+      for (let depth = $from.depth; depth >= 0; depth -= 1) {
+        const node = $from.node(depth)
+        if (node.isTextblock) return node.textContent.trim()
+      }
+      return null
     })
 
   test.beforeAll(async () => {

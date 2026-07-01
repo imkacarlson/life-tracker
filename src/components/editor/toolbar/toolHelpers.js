@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { TextSelection } from '@tiptap/pm/state'
 import { mixColors } from '../../../utils/colorUtils'
 import { getListItemInfo } from '../../../utils/listHelpers'
+import { getMountedEditorView } from '../../../utils/editorView'
 import { THEME_BASE_COLORS } from './toolConstants'
 
 // Shared, non-component helpers for the toolbar tools. Keeping these out of the
@@ -22,12 +23,13 @@ export function isInAnyList(editor) {
 // the DOM only (no focus); we sync it into ProseMirror before dispatching.
 export function useIndentOutdent(editor) {
   const syncSelectionFromDom = useCallback(() => {
-    if (!editor || editor.isDestroyed || editor.view.hasFocus()) return
+    const view = getMountedEditorView(editor)
+    if (!view || view.hasFocus()) return
     const selection = window.getSelection?.()
     const anchorNode = selection?.anchorNode
     const focusNode = selection?.focusNode
     if (!selection || selection.rangeCount === 0 || !anchorNode || !focusNode) return
-    const root = editor.view.dom
+    const root = view.dom
     const anchorElement =
       anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode.parentElement
     const focusElement =
@@ -37,11 +39,11 @@ export function useIndentOutdent(editor) {
       (focusElement && root.contains(focusElement))
     if (!selectionInEditor) return
     try {
-      const anchorPos = editor.view.posAtDOM(anchorNode, selection.anchorOffset)
-      const headPos = editor.view.posAtDOM(focusNode, selection.focusOffset)
+      const anchorPos = view.posAtDOM(anchorNode, selection.anchorOffset)
+      const headPos = view.posAtDOM(focusNode, selection.focusOffset)
       const nextSelection = TextSelection.create(editor.state.doc, anchorPos, headPos)
       if (nextSelection.eq(editor.state.selection)) return
-      editor.view.dispatch(editor.state.tr.setSelection(nextSelection))
+      view.dispatch(editor.state.tr.setSelection(nextSelection))
     } catch {
       // Ignore DOM-to-state selection sync failures
     }

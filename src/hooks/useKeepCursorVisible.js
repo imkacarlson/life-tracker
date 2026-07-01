@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   computeScrollAdjustment,
   getToolbarSafeBounds,
   pickScrollSurface,
 } from '../utils/scrollIntoViewWithToolbar'
+import { getMountedEditorView } from '../utils/editorView'
 
 /**
  * Keep the cursor / current selection visible whenever the mobile toolbar
@@ -29,10 +30,15 @@ export function useKeepCursorVisible({
   editorPanelRef,
   padding = 16,
 }) {
+  const prevExpandedRef = useRef(toolbarExpanded)
+
   useEffect(() => {
+    const changed = prevExpandedRef.current !== toolbarExpanded
+    prevExpandedRef.current = toolbarExpanded
     if (!enabled) return
     if (!editor) return
     if (!toolbarRef?.current) return
+    if (!changed) return
 
     let rafId = null
 
@@ -47,7 +53,10 @@ export function useKeepCursorVisible({
       let cursorTop = null
       let cursorBottom = null
 
-      if (editor.view?.hasFocus?.()) {
+      const view = getMountedEditorView(editor)
+      if (!view) return
+
+      if (view.hasFocus()) {
         const sel = window.getSelection()
         if (sel && sel.rangeCount > 0) {
           const rect = sel.getRangeAt(0).getBoundingClientRect()
@@ -61,7 +70,7 @@ export function useKeepCursorVisible({
       if (cursorBottom === null) {
         try {
           const { head } = editor.state.selection
-          const coords = editor.view.coordsAtPos(head)
+          const coords = view.coordsAtPos(head)
           cursorTop = coords.top
           cursorBottom = coords.bottom
         } catch {
