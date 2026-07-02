@@ -45,6 +45,7 @@ function EditorPanel({
   notebookId,
   sectionId,
   trackerId,
+  restorePageId = null,
   onNavigateHash,
   allTrackers,
   trackerSourcePage = null,
@@ -100,7 +101,12 @@ function EditorPanel({
   useScrollRestoration({
     containerRef: editorPanelRef,
     editor,
-    pageId: trackerId,
+    // Key restoration off the COMMITTED session's page id, not the live
+    // trackerId (= activeTrackerId, which flips the instant you click a new
+    // page — ~1s before the content actually swaps). Using the live id made the
+    // outgoing page's still-mounted panel restore the INCOMING page's saved
+    // offset, yanking it to the top. restorePageId lags until the content swaps.
+    pageId: restorePageId ?? trackerId,
     ready: hasTracker && !editorLocked,
     skip: deepLinkActive,
     zoomLevel,

@@ -967,6 +967,7 @@ function App() {
               notebookId={activeNotebookId}
               sectionId={activeSectionId}
               trackerId={activeTrackerId}
+              restorePageId={trackerSession.trackerId}
               onNavigateHash={handleInternalHashNavigate}
               allTrackers={trackers}
               trackerSourcePage={sectionTrackerPage}
