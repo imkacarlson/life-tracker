@@ -136,10 +136,15 @@ pass over highlighted dates ("cid | raw date | parsed ISO date | bucket"). The h
 ADVISORY ONLY — you make the final decision about what belongs on today's list.
 
 Decide which items belong on today's daily list:
-- ASAP: due today or overdue.
+- ASAP: due today, or overdue — a real deadline whose date is already past and isn't done
+  yet. Overdue items are the highest priority; always surface them.
 - FYI: due within about the next 2 days, or a genuine heads-up worth surfacing today.
 
 Judgment principles (follow these carefully):
+- Catch overdue deadlines. If a DATE_HINT bucket is "overdue" (or a clear deadline's date is
+  before today) and the item isn't crossed off or checked, it is late — put it in ASAP. A
+  past date being old does NOT by itself make it context; only treat a past date as context
+  when the sentence frames it as a log/journal note rather than a deadline.
 - Only include items with a real, explicit due date. Leave undated items off entirely — do
   NOT add tasks just to fill the list.
 - An EMPTY daily is a valid, good outcome. If nothing is genuinely due, return empty arrays.
@@ -148,7 +153,8 @@ Judgment principles (follow these carefully):
   tagged at the front of an update noting WHEN it was written) are NOT due dates. Judge how
   the date is framed in the sentence.
 - Respect the intended year. Skip items clearly meant for a future year even if a bare date
-  matches today (e.g. "(of 2028)"). Trust DATE_HINTS' parsed ISO date and bucket for this.
+  matches today (e.g. "(of 2028)"). Trust DATE_HINTS' parsed ISO date and bucket: use it
+  both to skip future-year items and to catch overdue ones.
 - Handle plain-language or slightly typo'd dates ("June 2nd", "Jun 2") using judgment, even if
   they are not highlighted and not in DATE_HINTS.
 - Ignore background, recurring, notes, and status lines.
