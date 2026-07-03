@@ -12,6 +12,14 @@ const PERSIST_DEBOUNCE_MS = 350
 // after this long and stop waiting.
 const RESTORE_TIMEOUT_MS = 1500
 const TOUCH_RESTORE_TIMEOUT_MS = 3000
+// The restored offset must hold (surface height stable, offset within ~2px) for
+// this long before we declare success. This is what lets us survive the
+// remount reflow: the post-restore clamp shrinks the surface — itself a resize
+// the observer sees — which clears the pending settle so we re-apply and wait
+// again, instead of finishing on the first (transient) success.
+const RESTORE_SETTLE_MS = 250
+// How close the surface offset must be to the saved offset to count as reached.
+const RESTORE_REACHED_TOLERANCE_PX = 2
 
 /**
  * Per-page scroll restoration for the editor surface.
@@ -244,6 +252,7 @@ export function useScrollRestoration({
     let cancelled = false
     let observer = null
     let timer = null
+    let settleTimer = null
     let raf = null
     const restoreTimeoutMs = isTouchOnly ? TOUCH_RESTORE_TIMEOUT_MS : RESTORE_TIMEOUT_MS
 
@@ -256,6 +265,10 @@ export function useScrollRestoration({
       if (timer) {
         clearTimeout(timer)
         timer = null
+      }
+      if (settleTimer) {
+        clearTimeout(settleTimer)
+        settleTimer = null
       }
       if (raf) {
         cancelAnimationFrame(raf)
@@ -280,16 +293,45 @@ export function useScrollRestoration({
       return max >= savedScrollTop || settle
     }
 
+    // "Reached" means the surface is tall enough for the saved offset AND the
+    // offset is actually sitting where we want it (within tolerance). A browser
+    // clamp after a remount reflow fails the height check, so it reads as
+    // not-reached and keeps the settle loop waiting.
+    const isReached = () => {
+      if (mobileOwnsScroll()) return false
+      const surface = getEditorScrollSurface(containerRef.current)
+      const max = getMaxScrollableOffset(surface)
+      if (max < savedScrollTop) return false
+      return Math.abs(surface.get() - savedScrollTop) <= RESTORE_REACHED_TOLERANCE_PX
+    }
+
     if (typeof ResizeObserver !== 'undefined') {
       // Late-loading content (images/tables) can grow the surface tall enough for
       // the saved offset only after the first paint. A ResizeObserver reacts to
       // that growth directly — the principled waiter — and also fires once on
       // observe, so an already-tall page applies immediately. No polling loop is
-      // needed; a single timeout is the only safety net. (The earlier 80ms
+      // needed; a single timeout is the only outer safety net. (The earlier 80ms
       // retry-poll was symptom-chasing for the now-fixed remount crash + surface
       // bugs and has been removed.)
+      //
+      // Rather than finish on the first successful apply, we re-apply and then
+      // require the offset to HOLD for RESTORE_SETTLE_MS. The post-restore
+      // clamp (from the key={sessionKey} editor remount laying out shorter) is a
+      // resize the observer sees: it re-applies the now-clamped value, isReached
+      // fails, we clear the pending settle timer, and we keep waiting until the
+      // surface re-grows and the offset holds. This is the second half of the
+      // fix — restoringRef stays true across the whole window, so the save path
+      // (captureCurrentState) can't persist the transient clamp over the real
+      // offset.
       observer = new ResizeObserver(() => {
-        if (tryApply()) finish()
+        if (cancelled) return
+        tryApply()
+        if (isReached()) {
+          if (!settleTimer) settleTimer = setTimeout(finish, RESTORE_SETTLE_MS)
+        } else if (settleTimer) {
+          clearTimeout(settleTimer)
+          settleTimer = null
+        }
       })
       const observeTarget = containerRef.current?.firstElementChild ?? containerRef.current
       if (observeTarget) observer.observe(observeTarget)
@@ -300,7 +342,7 @@ export function useScrollRestoration({
       if (isTouchOnly && editorDom) observer.observe(editorDom)
       if (typeof document !== 'undefined' && document.body) observer.observe(document.body)
       timer = setTimeout(() => {
-        // Safety net: apply our best effort (clamped) and stop waiting.
+        // Outer safety net: apply our best effort (clamped) and stop waiting.
         if (!cancelled && !mobileOwnsScroll()) {
           tryApply({ settle: true })
         }
