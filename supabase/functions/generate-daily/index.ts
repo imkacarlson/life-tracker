@@ -2,9 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 import {
+  buildDaily,
   buildTrackerContext,
-  mapTasksByBucket,
-  parseTaskBuckets,
+  parseDateResolutions,
 } from './dailyHelpers.ts'
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
@@ -114,7 +114,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: `No API key configured for ${provider}` }, 500)
     }
 
-    const { markdown, cidToBlockId, cidToText, dateHints } = buildTrackerContext(trackerPages, today)
+    const { markdown, cidToBlockId, cidToText, candidates, highlightedCids } =
+      buildTrackerContext(trackerPages, today)
 
     // Only bail out when there is genuinely nothing to reason about. Everything
     // else — including "nothing is due" — is the model's call now.
@@ -127,51 +128,41 @@ Deno.serve(async (req) => {
       })
     }
 
-    const systemPrompt = `You are a daily planner assistant. Today is ${today} (${dayOfWeek}).
+    const systemPrompt = `You are a structured-data extractor for a daily planner. Today is ${today} (${dayOfWeek}).
 
-You are given the user's ENTIRE tracker as lightweight markdown. Every line that can be
-linked has a stable anchor like ⟦c12⟧ at the end. Highlighted text is written as [like this];
-the user highlights due dates in the tracker. You also get DATE_HINTS: a deterministic first
-pass over highlighted dates ("cid | raw date | parsed ISO date | bucket"). The hints are
-ADVISORY ONLY — you make the final decision about what belongs on today's list.
+A deterministic parser already decides WHICH items make today's list, from highlighted MM/DD
+dates in the tracker. You do NOT decide what belongs on the list. You have exactly three narrow
+jobs, all strictly additive: (1) resolve a due date's YEAR when it is stated in plain language,
+(2) phrase each candidate as a clean one-liner from its section/parent context, and (3) flag a
+highlighted line that clearly encodes a due date the parser MISSED (e.g. a typo).
 
-Decide which items belong on today's daily list:
-- ASAP: due today, or overdue — a real deadline whose date is already past and isn't done
-  yet. Overdue items are the highest priority; always surface them.
-- FYI: due within about the next 2 days, or a genuine heads-up worth surfacing today.
+You are given the user's ENTIRE tracker as lightweight markdown. Every linkable line ends with a
+stable anchor like ⟦c12⟧. Highlighted text is written as [like this]. You also get CANDIDATES:
+the lines the parser already matched ("cid | raw MM/DD | line text").
 
-Judgment principles (follow these carefully):
-- Catch overdue deadlines. If a DATE_HINT bucket is "overdue" (or a clear deadline's date is
-  before today) and the item isn't crossed off or checked, it is late — put it in ASAP. A
-  past date being old does NOT by itself make it context; only treat a past date as context
-  when the sentence frames it as a log/journal note rather than a deadline.
-- Only include items with a real, explicit due date. Leave undated items off entirely — do
-  NOT add tasks just to fill the list.
-- An EMPTY daily is a valid, good outcome. If nothing is genuinely due, return empty arrays.
-  Never pad the list; a tracker full of undated content must not spill in.
-- Distinguish a DUE date from a date used as CONTEXT. Journal/log-style dates (e.g. a date
-  tagged at the front of an update noting WHEN it was written) are NOT due dates. Judge how
-  the date is framed in the sentence.
-- Respect the intended year. Skip items clearly meant for a future year even if a bare date
-  matches today (e.g. "(of 2028)"). Trust DATE_HINTS' parsed ISO date and bucket: use it
-  both to skip future-year items and to catch overdue ones.
-- Handle plain-language or slightly typo'd dates ("June 2nd", "Jun 2") using judgment, even if
-  they are not highlighted and not in DATE_HINTS.
-- Ignore background, recurring, notes, and status lines.
-- Make each task self-contained using its section/parent context (e.g. "Wedding: Book
-  photographer"). For FYI items, include the due date inline when the source has one, in its
-  original format.
-- Keep task text concise and actionable.
-- Reference lines ONLY by the ⟦cid⟧ anchors that actually appear in the tracker. Never invent
-  anchors. Put the cids (without the ⟦⟧ brackets) in the "cids" array.
+Output ONLY this JSON object, no other text:
+{"resolutions":[{"cid":"c1","iso_date":"2027-04-15"|null,"task":"short one-liner"}],"flagged":[{"cid":"c9","iso_date":"2026-03-15","task":"short one-liner"}]}
 
-Respond with ONLY a JSON object, no other text. Use this exact shape:
-{"asap":[{"task":"short task description","cids":["c1","c2"],"priority":"high"|"medium"|"low"}],"fyi":[{"task":"short task description","cids":["c1"],"priority":"high"|"medium"|"low"}]}
+resolutions — one entry per CANDIDATE cid:
+- "iso_date": set a full ISO date ONLY when the line states the year in some form (slash digits,
+  written digits, or plain language like "two years out" / "next spring"). Otherwise use null.
+  Only the YEAR you provide is used; the parser keeps the month/day. Do not guess a year that
+  isn't stated — use null.
+- "task": phrase it like an entry on a daily agenda — brief and glanceable, with the section
+  carried in so it stands on its own (e.g. "Wedding: Book photographer"). Use the section
+  heading and parent/sibling bullets for that context. Keep it actionable, not a full sentence.
 
-If a bucket is empty, return an empty array.`
+flagged — ONLY highlighted lines that clearly encode a due date the parser missed (e.g. a
+mistyped date like 4//15, 4/l5, 41/5) and are NOT already in CANDIDATES:
+- Reference the line by its ⟦cid⟧ anchor (cid without brackets).
+- Give your best-guess "iso_date" (full ISO date) and a "task" one-liner.
+- NEVER flag a non-highlighted line. NEVER duplicate a candidate. If nothing qualifies, return [].
 
-    const hintLines = dateHints.map(
-      (hint) => `${hint.cid} | "${hint.dateText}" | parsed ${hint.parsedIso} | ${hint.bucket}`,
+Respond with ONLY the JSON object.`
+
+    const candidateLines = candidates.map(
+      (candidate) =>
+        `${candidate.cid} | "${candidate.dateText}" | ${cidToText.get(candidate.cid) ?? ''}`,
     )
 
     const userMessage = [
@@ -181,8 +172,8 @@ If a bucket is empty, return an empty array.`
       'TRACKER_MARKDOWN:',
       markdown,
       '',
-      'DATE_HINTS:',
-      hintLines.length ? hintLines.join('\n') : '(none)',
+      'CANDIDATES:',
+      candidateLines.length ? candidateLines.join('\n') : '(none)',
     ].join('\n')
 
     let fetchUrl = providerConfig.url
@@ -201,22 +192,31 @@ If a bucket is empty, return an empty array.`
     }
 
     const rawText = providerConfig.extractResponse(data)
-    const parsed = parseTaskBuckets(rawText)
+    const parsed = parseDateResolutions(rawText)
 
-    // The model is the final judge of placement now. We honor its ASAP/FYI
-    // buckets, resolve cids to block ids for cross-off linking, and silently
-    // drop any cids it invented or that don't exist in the tracker.
-    const routed = mapTasksByBucket(parsed, cidToBlockId, cidToText)
-    const asap = routed.asap
-    const fyi = routed.fyi
+    // The deterministic candidates decide the list; the AI only resolves a
+    // plain-language year, phrases each task, and can additively flag a
+    // highlighted date the parser couldn't read. The list stands even if the AI
+    // call or parse fails.
+    const { asap, fyi, feedback } = buildDaily(
+      candidates,
+      parsed,
+      cidToBlockId,
+      cidToText,
+      highlightedCids,
+      today,
+    )
 
-    // Only warn when the model failed to produce the expected ASAP/FYI shape at
-    // all — that genuinely means results may be incomplete. Dropped/re-routed
-    // cids are handled deterministically and need no user-facing warning.
-    const warning =
-      parsed.format === 'asap_fyi'
-        ? null
-        : 'FYI: AI response did not follow the ASAP/FYI format. Results may be incomplete.'
+    // Surface any additively-flagged items (informational), plus a note when the
+    // AI response wasn't the expected JSON object (so phrasing/year-resolution
+    // may be missing, though the deterministic list is intact).
+    const warningParts: string[] = [...feedback]
+    if (parsed.format !== 'resolved') {
+      warningParts.push(
+        'FYI: AI response did not follow the expected format. Task phrasing may be incomplete.',
+      )
+    }
+    const warning = warningParts.length ? warningParts.join('\n') : null
 
     return jsonResponse({
       asap,

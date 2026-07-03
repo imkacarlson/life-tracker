@@ -5,21 +5,26 @@ export type InlineSegment = {
   highlighted: boolean
 }
 
-// One advisory hint per line that contains a highlighted (due-style) date. The
-// server no longer decides placement from these — the AI does — so a hint is
-// purely informational: "this line has a date; here's how the deterministic
-// pass reads it".
-export type DateHint = {
+// One deterministic candidate per line that carries a highlighted MM/DD token.
+// The deterministic pass is the judge of what makes the list; a candidate holds
+// everything that decision needs. `needsAiYear` is true only when the year came
+// from the current-year default (no slash-year, no written 20xx on the line),
+// so the AI is asked to resolve a plain-language year for just those lines.
+export type DateCandidate = {
   cid: string
   dateText: string
-  parsedIso: string
-  bucket: DueBucket
+  month: number
+  day: number
+  deterministicIso: string
+  needsAiYear: boolean
 }
 
-export type ParsedTaskBuckets = {
-  asap: any[]
-  fyi: any[]
-  format: 'empty' | 'asap_fyi'
+// The AI's strictly-additive enrichment output: per-candidate year resolution +
+// phrasing, and flags for highlighted lines whose date the regex couldn't read.
+export type DateResolutions = {
+  resolutions: Map<string, { iso_date: string | null; task: string }>
+  flagged: Array<{ cid: string; iso_date: string; task: string }>
+  format: 'resolved' | 'empty'
 }
 
 export type MappedTask = {
@@ -32,7 +37,8 @@ export type TrackerContext = {
   markdown: string
   cidToBlockId: Map<string, string>
   cidToText: Map<string, string>
-  dateHints: DateHint[]
+  candidates: DateCandidate[]
+  highlightedCids: Set<string>
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -81,7 +87,13 @@ const parseDateToken = (
   return date
 }
 
-type DateToken = { date: Date; raw: string }
+type DateToken = {
+  date: Date
+  raw: string
+  month: number
+  day: number
+  hasSlashYear: boolean
+}
 
 const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
   const results: DateToken[] = []
@@ -91,11 +103,33 @@ const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
   let match: RegExpExecArray | null = DATE_TOKEN_REGEX.exec(normalized)
   while (match) {
     const date = parseDateToken(match[1], match[2], match[3], defaultYear)
-    if (date) results.push({ date, raw: match[0] })
+    if (date) {
+      results.push({
+        date,
+        raw: match[0],
+        month: Number(match[1]),
+        day: Number(match[2]),
+        hasSlashYear: Boolean(match[3]),
+      })
+    }
     match = DATE_TOKEN_REGEX.exec(normalized)
   }
 
   return results
+}
+
+// Validate that a value is a real MM/DD calendar date in a 20xx year written as
+// an ISO string. Returns the parsed UTC date and its year, or null. Guards
+// against JS date rollover (e.g. "2027-02-30") by round-tripping the ISO string.
+const VALID_ISO_REGEX = /^(20\d\d)-\d\d-\d\d$/
+
+const parseValidIso = (value: unknown): { date: Date; year: number } | null => {
+  if (typeof value !== 'string') return null
+  const match = value.match(VALID_ISO_REGEX)
+  if (!match) return null
+  const date = toUtcDate(value)
+  if (!date || toIsoDate(date) !== value) return null
+  return { date, year: Number(match[1]) }
 }
 
 const bucketForDate = (dueDate: Date, todayDate: Date): DueBucket => {
@@ -391,18 +425,20 @@ export const serializeTrackerToMarkdown = (content: any, title?: string): Serial
   }
 }
 
-// Build one advisory hint per line that contains a highlighted date. Year
-// inference: when a highlighted date has no slash-year, a written year on the
-// same line (e.g. "(of 2027)") is used as the default; an explicit slash-year
-// always wins.
-export const buildDateHints = (
+// Build one deterministic candidate per line that carries a highlighted MM/DD
+// token. Year ladder: an explicit slash-year wins; else a written 20xx year on
+// the same line (e.g. "(of 2027)") is used; else the current year is the
+// default. `needsAiYear` is set only in that last case — the one time a
+// plain-language year could change the result — so the AI never touches
+// month/day, only the year for those lines.
+export const buildCandidates = (
   cidSegments: Map<string, InlineSegment[]>,
   today: string,
-): DateHint[] => {
+): DateCandidate[] => {
   const todayDate = toUtcDate(today)
   if (!todayDate) return []
 
-  const hints: DateHint[] = []
+  const candidates: DateCandidate[] = []
 
   for (const [cid, segments] of cidSegments) {
     const fullText = segments.map((s) => s.text).join('')
@@ -421,19 +457,75 @@ export const buildDateHints = (
       .slice()
       .sort((a, b) => a.date.getTime() - b.date.getTime())[0]
 
-    hints.push({
+    candidates.push({
       cid,
       dateText: earliest.raw,
-      parsedIso: toIsoDate(earliest.date),
-      bucket: bucketForDate(earliest.date, todayDate),
+      month: earliest.month,
+      day: earliest.day,
+      deterministicIso: toIsoDate(earliest.date),
+      needsAiYear: !earliest.hasSlashYear && !writtenYearMatch,
     })
   }
 
-  return hints
+  return candidates
+}
+
+// The user's convention: a highlight marks a due date. This is the server-side
+// gate for the AI's additive flagging — a flagged line is only accepted if its
+// cid carries a highlight here.
+export const buildHighlightedCids = (
+  cidSegments: Map<string, InlineSegment[]>,
+): Set<string> => {
+  const highlighted = new Set<string>()
+  for (const [cid, segments] of cidSegments) {
+    if (segments.some((segment) => segment.highlighted && segment.text.trim())) {
+      highlighted.add(cid)
+    }
+  }
+  return highlighted
+}
+
+// Step 4 precedence for a candidate's final date:
+//   1. explicit/digit year (needsAiYear false)  → deterministic date wins.
+//   2. plain-language year the AI resolved       → recombine its YEAR ONLY with
+//      the deterministic month/day (re-validated), else fall back.
+//   3. no valid AI year                          → current-year default stands.
+export const resolveFinalDate = (
+  candidate: DateCandidate,
+  aiIso: unknown,
+  today: string,
+): Date => {
+  const deterministic = toUtcDate(candidate.deterministicIso) as Date
+
+  if (!candidate.needsAiYear) return deterministic
+
+  const parsed = parseValidIso(aiIso)
+  if (parsed) {
+    const todayDate = toUtcDate(today)
+    const currentYear = todayDate ? todayDate.getUTCFullYear() : parsed.year
+    const recombined = parseDateToken(
+      String(candidate.month),
+      String(candidate.day),
+      String(parsed.year),
+      currentYear,
+    )
+    if (recombined) return recombined
+  }
+
+  return deterministic
+}
+
+// A flagged line has no deterministic month/day (the regex missed it), so the
+// AI's full ISO date is used — but only if it parses as a real 20xx date.
+export const resolveFlaggedDate = (aiIso: unknown, _today: string): Date | null => {
+  const parsed = parseValidIso(aiIso)
+  return parsed ? parsed.date : null
 }
 
 // Build the full context sent to the model: whole-tracker markdown, the cid ->
-// block/text maps for mapping the response back, and the advisory date hints.
+// block/text maps for mapping the response back, the deterministic date
+// candidates (which decide the list), and the set of highlighted cids (the
+// server-side gate for the AI's additive flagging).
 export const buildTrackerContext = (trackerPages: any[], today: string): TrackerContext => {
   const counter = { value: 1 }
   const cidToBlockId = new Map<string, string>()
@@ -455,107 +547,136 @@ export const buildTrackerContext = (trackerPages: any[], today: string): Tracker
     markdown: sections.join('\n\n'),
     cidToBlockId,
     cidToText,
-    dateHints: buildDateHints(cidSegments, today),
+    candidates: buildCandidates(cidSegments, today),
+    highlightedCids: buildHighlightedCids(cidSegments),
   }
 }
 
-export const parseTaskBuckets = (text: string): ParsedTaskBuckets => {
-  let asap: any[] = []
-  let fyi: any[] = []
-  let format: ParsedTaskBuckets['format'] = 'empty'
+// Tolerantly parse the AI's structured-extraction JSON. The model is asked to
+// return ONLY `{ resolutions: [...], flagged: [...] }`, but may fence or pad it,
+// so we slice to the first top-level `{...}` object. Entries missing a string
+// `cid` are ignored; flagged entries require a string `iso_date`. `format` is
+// 'resolved' whenever the object parsed (even if empty), so the deterministic
+// list stands without a spurious warning.
+export const parseDateResolutions = (text: string): DateResolutions => {
+  const resolutions = new Map<string, { iso_date: string | null; task: string }>()
+  const flagged: Array<{ cid: string; iso_date: string; task: string }> = []
+  let format: DateResolutions['format'] = 'empty'
 
   try {
     const trimmed = String(text || '').trim()
     let parsed: any = null
 
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    if (trimmed.startsWith('{')) {
       parsed = JSON.parse(trimmed)
     } else {
       const objStart = trimmed.indexOf('{')
       const objEnd = trimmed.lastIndexOf('}')
-      const arrStart = trimmed.indexOf('[')
-      const arrEnd = trimmed.lastIndexOf(']')
       if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
         parsed = JSON.parse(trimmed.slice(objStart, objEnd + 1))
-      } else if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
-        parsed = JSON.parse(trimmed.slice(arrStart, arrEnd + 1))
       }
     }
 
-    if (parsed && typeof parsed === 'object') {
-      if (Array.isArray(parsed.asap)) asap = parsed.asap
-      if (Array.isArray(parsed.fyi)) fyi = parsed.fyi
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      format = 'resolved'
 
-      if (Array.isArray(parsed.asap) || Array.isArray(parsed.fyi)) {
-        format = 'asap_fyi'
+      if (Array.isArray(parsed.resolutions)) {
+        for (const entry of parsed.resolutions) {
+          if (!entry || typeof entry.cid !== 'string') continue
+          const iso = typeof entry.iso_date === 'string' ? entry.iso_date : null
+          const task = typeof entry.task === 'string' ? entry.task : ''
+          resolutions.set(entry.cid, { iso_date: iso, task })
+        }
+      }
+
+      if (Array.isArray(parsed.flagged)) {
+        for (const entry of parsed.flagged) {
+          if (!entry || typeof entry.cid !== 'string') continue
+          if (typeof entry.iso_date !== 'string') continue
+          const task = typeof entry.task === 'string' ? entry.task : ''
+          flagged.push({ cid: entry.cid, iso_date: entry.iso_date, task })
+        }
       }
     }
   } catch {
-    asap = []
-    fyi = []
+    resolutions.clear()
+    flagged.length = 0
     format = 'empty'
   }
 
-  return { asap, fyi, format }
+  return { resolutions, flagged, format }
 }
 
-const mapBucket = (
-  tasks: any[],
+// Build today's list. The deterministic candidates decide inclusion (the AI can
+// never remove, move, or re-bucket one); the AI only supplies a resolved year
+// and phrasing. Flagged extras are merged strictly additively, each gated by
+// (a) highlighted, (b) not already a candidate, (c) a valid, parseable date.
+// bucketForDate still decides inclusion for flagged items too.
+export const buildDaily = (
+  candidates: DateCandidate[],
+  parsed: DateResolutions,
   cidToBlockId: Map<string, string>,
   cidToText: Map<string, string>,
-): { tasks: MappedTask[]; dropped: number } => {
-  const mapped: MappedTask[] = []
-  let dropped = 0
+  highlightedCids: Set<string>,
+  today: string,
+): { asap: MappedTask[]; fyi: MappedTask[]; feedback: string[] } => {
+  const asap: MappedTask[] = []
+  const fyi: MappedTask[] = []
+  const feedback: string[] = []
 
-  for (const task of tasks || []) {
-    if (!Array.isArray(task?.cids)) continue
+  const todayDate = toUtcDate(today)
+  if (!todayDate) return { asap, fyi, feedback }
 
-    const cids: string[] = []
-    for (const cid of task.cids) {
-      if (cidToBlockId.has(cid)) {
-        if (!cids.includes(cid)) cids.push(cid)
-      } else {
-        dropped += 1
-      }
+  const candidateCids = new Set(candidates.map((candidate) => candidate.cid))
+
+  const place = (bucket: DueBucket, task: string, blockId: string) => {
+    const isAsap = bucket === 'overdue' || bucket === 'today'
+    const entry: MappedTask = {
+      task,
+      block_ids: [blockId],
+      priority: isAsap ? 'high' : 'medium',
     }
-
-    const blockIds = cids
-      .map((cid) => cidToBlockId.get(cid))
-      .filter((id): id is string => Boolean(id))
-    if (!blockIds.length) continue
-
-    const fallbackTaskText = cids
-      .map((cid) => cidToText.get(cid))
-      .filter((value): value is string => Boolean(value))
-      .join(' + ')
-
-    const taskText = String(task?.task || '').trim() || fallbackTaskText
-    if (!taskText) continue
-
-    const priority = ['high', 'medium', 'low'].includes(task?.priority)
-      ? task.priority
-      : 'medium'
-
-    mapped.push({ task: taskText, block_ids: blockIds, priority })
+    if (isAsap) asap.push(entry)
+    else fyi.push(entry)
   }
 
-  return { tasks: mapped, dropped }
-}
+  // Candidates first — authoritative. Order follows tracker order.
+  for (const candidate of candidates) {
+    const blockId = cidToBlockId.get(candidate.cid)
+    if (!blockId) continue
 
-// Honor the AI's ASAP/FYI placement. The AI is the final judge now, so we keep
-// whichever bucket it chose, resolve cids to block ids for cross-off linking,
-// and silently drop cids the AI invented or that don't exist.
-export const mapTasksByBucket = (
-  parsed: ParsedTaskBuckets,
-  cidToBlockId: Map<string, string>,
-  cidToText: Map<string, string>,
-): { asap: MappedTask[]; fyi: MappedTask[]; droppedUnknownCids: number } => {
-  const asapResult = mapBucket(parsed.asap, cidToBlockId, cidToText)
-  const fyiResult = mapBucket(parsed.fyi, cidToBlockId, cidToText)
+    const resolution = parsed.resolutions.get(candidate.cid)
+    const finalDate = resolveFinalDate(candidate, resolution?.iso_date ?? null, today)
+    const bucket = bucketForDate(finalDate, todayDate)
+    if (bucket !== 'overdue' && bucket !== 'today' && bucket !== 'soon') continue
 
-  return {
-    asap: asapResult.tasks,
-    fyi: fyiResult.tasks,
-    droppedUnknownCids: asapResult.dropped + fyiResult.dropped,
+    const task = (resolution?.task?.trim() || cidToText.get(candidate.cid) || '').trim()
+    if (!task) continue
+
+    place(bucket, task, blockId)
   }
+
+  // Flagged extras — additive only. Never override a candidate cid.
+  for (const entry of parsed.flagged) {
+    const { cid } = entry
+    if (!highlightedCids.has(cid)) continue
+    if (candidateCids.has(cid)) continue
+
+    const blockId = cidToBlockId.get(cid)
+    if (!blockId) continue
+
+    const flaggedDate = resolveFlaggedDate(entry.iso_date, today)
+    if (!flaggedDate) continue
+
+    const bucket = bucketForDate(flaggedDate, todayDate)
+    if (bucket !== 'overdue' && bucket !== 'today' && bucket !== 'soon') continue
+
+    const task = (entry.task?.trim() || cidToText.get(cid) || '').trim()
+    if (!task) continue
+
+    place(bucket, task, blockId)
+    feedback.push(`Added from a highlighted date the parser couldn't read: "${task}"`)
+  }
+
+  return { asap, fyi, feedback }
 }
