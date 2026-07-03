@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { TextSelection } from '@tiptap/pm/state'
 import { getEditorScrollSurface } from '../utils/scrollIntoViewWithToolbar'
-import { getMountedEditorView } from '../utils/editorView'
 import { isKeyboardShown } from '../utils/keyboardShown'
 import { readStoredScrollPositions, saveStoredScrollPositions } from '../utils/storage'
 
@@ -12,11 +11,11 @@ const PERSIST_DEBOUNCE_MS = 350
 // after this long and stop waiting.
 const RESTORE_TIMEOUT_MS = 1500
 const TOUCH_RESTORE_TIMEOUT_MS = 3000
-// The restored offset must hold (surface height stable, offset within ~2px) for
+// The restored offset must hold (surface tall enough, offset within ~2px) for
 // this long before we declare success. This is what lets us survive the
-// remount reflow: the post-restore clamp shrinks the surface — itself a resize
-// the observer sees — which clears the pending settle so we re-apply and wait
-// again, instead of finishing on the first (transient) success.
+// remount reflow: the post-restore clamp shrinks the surface, so a later tick
+// reads not-reached, resets the hold timer, and we re-assert and wait again
+// instead of finishing on the first (transient) success.
 const RESTORE_SETTLE_MS = 250
 // How close the surface offset must be to the saved offset to count as reached.
 const RESTORE_REACHED_TOLERANCE_PX = 2
@@ -27,9 +26,11 @@ const RESTORE_REACHED_TOLERANCE_PX = 2
  * - Save: an in-memory `Map<pageId, scrollTop>` records the active page's offset
  *   on every scroll (cheap); the sessionStorage mirror is debounced.
  * - Restore: on a page change (once content is `ready`) the saved offset is
- *   re-applied, waiting via ResizeObserver for the content to grow tall enough
- *   (images/tables load late) before scrolling — Notesnook's restoreScrollPosition
- *   mechanism. Fresh pages (no memory) reset to the top.
+ *   re-applied via a bounded requestAnimationFrame settle loop that polls the
+ *   live scroll surface each frame, waiting for the content to grow tall enough
+ *   (images/tables load late, and the sessionKey editor remount lays out short
+ *   at first) and re-asserting the offset until it holds. Fresh pages (no
+ *   memory) reset to the top.
  * - Selection: the current ProseMirror selection is saved alongside the scroll
  *   offset and restored without calling scrollIntoView, so returning to a page
  *   puts the cursor/selection back where it was without fighting scroll restore.
@@ -250,25 +251,18 @@ export function useScrollRestoration({
 
     restoringRef.current = true
     let cancelled = false
-    let observer = null
     let timer = null
-    let settleTimer = null
     let raf = null
+    // Timestamp (ms) since which the offset has held "reached" continuously.
+    // Reset to null on any not-reached tick so a late clamp restarts the hold.
+    let reachedSince = null
     const restoreTimeoutMs = isTouchOnly ? TOUCH_RESTORE_TIMEOUT_MS : RESTORE_TIMEOUT_MS
 
     const finish = () => {
       restoringRef.current = false
-      if (observer) {
-        observer.disconnect()
-        observer = null
-      }
       if (timer) {
         clearTimeout(timer)
         timer = null
-      }
-      if (settleTimer) {
-        clearTimeout(settleTimer)
-        settleTimer = null
       }
       if (raf) {
         cancelAnimationFrame(raf)
@@ -276,84 +270,69 @@ export function useScrollRestoration({
       }
     }
 
-    const tryApply = ({ settle = false } = {}) => {
-      if (cancelled) return false
-      if (mobileOwnsScroll()) return false
-      const surface = getEditorScrollSurface(containerRef.current)
-      const max = getMaxScrollableOffset(surface)
-      if (max <= 0) return false
-      const applied = Math.min(savedScrollTop, max)
-      // Contract: a saved offset of 0 carries no scroll information, so we restore
-      // the caret/selection instead. When the offset is non-zero, scroll position
-      // wins and we deliberately do NOT also restore the caret. Known gap: a page
-      // with both a deep scroll and a deep selection won't restore the caret —
-      // acceptable, since the visible scroll position is what the user expects back.
-      if (applied === 0) restoreEditorSelection(saved.selection)
-      surface.set(applied)
-      return max >= savedScrollTop || settle
+    // Offset 0 always fits, so there is nothing to wait on: apply it, restore the
+    // caret (contract: a saved offset of 0 carries no scroll info, so the caret
+    // wins), and finish immediately.
+    if (savedScrollTop <= 0) {
+      initialSurface.set(0)
+      restoreEditorSelection(saved.selection)
+      finish()
+      return () => {
+        cancelled = true
+        finish()
+      }
     }
 
-    // "Reached" means the surface is tall enough for the saved offset AND the
-    // offset is actually sitting where we want it (within tolerance). A browser
-    // clamp after a remount reflow fails the height check, so it reads as
-    // not-reached and keeps the settle loop waiting.
-    const isReached = () => {
-      if (mobileOwnsScroll()) return false
+    // Bounded rAF settle loop: poll the *live* scroll surface every frame rather
+    // than a proxy DOM node. This reads the current scrollHeight/clientHeight/
+    // scrollTop directly, so it doesn't matter which child grows or whether the
+    // recreated editor DOM has mounted yet — we observe reality. We re-assert
+    // set() every tick (idempotent) so a late clamp from the sessionKey remount
+    // reflow is immediately corrected, and require the offset to HOLD for
+    // RESTORE_SETTLE_MS before declaring success. restoringRef stays true across
+    // the whole window so captureCurrentState can't persist a transient clamp.
+    const tick = () => {
+      if (cancelled) return
+      // Keyboard/pinch-zoom own scroll on mobile — hand off, don't fight them.
+      if (mobileOwnsScroll()) {
+        finish()
+        return
+      }
       const surface = getEditorScrollSurface(containerRef.current)
       const max = getMaxScrollableOffset(surface)
-      if (max < savedScrollTop) return false
-      return Math.abs(surface.get() - savedScrollTop) <= RESTORE_REACHED_TOLERANCE_PX
+      if (max >= savedScrollTop) {
+        // Tall enough: re-assert the saved offset (beats any late clamp).
+        surface.set(savedScrollTop)
+        const reached = Math.abs(surface.get() - savedScrollTop) <= RESTORE_REACHED_TOLERANCE_PX
+        if (reached) {
+          if (reachedSince == null) reachedSince = performance.now()
+          if (performance.now() - reachedSince >= RESTORE_SETTLE_MS) {
+            finish()
+            return
+          }
+        } else {
+          reachedSince = null
+        }
+      } else {
+        // Surface still too short (or a clamp shrank it): don't apply a low value
+        // and don't count as reached — just keep polling until it grows.
+        reachedSince = null
+      }
+      raf = requestAnimationFrame(tick)
     }
 
-    if (typeof ResizeObserver !== 'undefined') {
-      // Late-loading content (images/tables) can grow the surface tall enough for
-      // the saved offset only after the first paint. A ResizeObserver reacts to
-      // that growth directly — the principled waiter — and also fires once on
-      // observe, so an already-tall page applies immediately. No polling loop is
-      // needed; a single timeout is the only outer safety net. (The earlier 80ms
-      // retry-poll was symptom-chasing for the now-fixed remount crash + surface
-      // bugs and has been removed.)
-      //
-      // Rather than finish on the first successful apply, we re-apply and then
-      // require the offset to HOLD for RESTORE_SETTLE_MS. The post-restore
-      // clamp (from the key={sessionKey} editor remount laying out shorter) is a
-      // resize the observer sees: it re-applies the now-clamped value, isReached
-      // fails, we clear the pending settle timer, and we keep waiting until the
-      // surface re-grows and the offset holds. This is the second half of the
-      // fix — restoringRef stays true across the whole window, so the save path
-      // (captureCurrentState) can't persist the transient clamp over the real
-      // offset.
-      observer = new ResizeObserver(() => {
-        if (cancelled) return
-        tryApply()
-        if (isReached()) {
-          if (!settleTimer) settleTimer = setTimeout(finish, RESTORE_SETTLE_MS)
-        } else if (settleTimer) {
-          clearTimeout(settleTimer)
-          settleTimer = null
-        }
-      })
-      const observeTarget = containerRef.current?.firstElementChild ?? containerRef.current
-      if (observeTarget) observer.observe(observeTarget)
-      // Touch-only: also observe the editor DOM so late image layout on the mobile
-      // window surface re-triggers apply (gates the image-page E2E case). Read via
-      // the shared guard because editor.view throws during the remount window.
-      const editorDom = getMountedEditorView(editorRef.current)?.dom ?? null
-      if (isTouchOnly && editorDom) observer.observe(editorDom)
-      if (typeof document !== 'undefined' && document.body) observer.observe(document.body)
-      timer = setTimeout(() => {
-        // Outer safety net: apply our best effort (clamped) and stop waiting.
-        if (!cancelled && !mobileOwnsScroll()) {
-          tryApply({ settle: true })
-        }
-        finish()
-      }, restoreTimeoutMs)
-    } else {
-      raf = requestAnimationFrame(() => {
-        tryApply({ settle: true })
-        finish()
-      })
-    }
+    raf = requestAnimationFrame(tick)
+
+    timer = setTimeout(() => {
+      // Outer safety net for a page genuinely shorter than the saved offset:
+      // apply our best effort (clamped) and stop waiting.
+      if (!cancelled && !mobileOwnsScroll()) {
+        const surface = getEditorScrollSurface(containerRef.current)
+        const max = getMaxScrollableOffset(surface)
+        surface.set(Math.min(savedScrollTop, max))
+      }
+      finish()
+    }, restoreTimeoutMs)
 
     return () => {
       cancelled = true
