@@ -148,8 +148,9 @@ resolutions — one entry per CANDIDATE cid:
   written digits, or plain language like "two years out" / "next spring"). Otherwise use null.
   Only the YEAR you provide is used; the parser keeps the month/day. Do not guess a year that
   isn't stated — use null.
-- "task": a self-contained one-liner using the section heading and parent/sibling bullets
-  (e.g. "Wedding: Book photographer"). Keep it concise and actionable.
+- "task": phrase it like an entry on a daily agenda — brief and glanceable, with the section
+  carried in so it stands on its own (e.g. "Wedding: Book photographer"). Use the section
+  heading and parent/sibling bullets for that context. Keep it actionable, not a full sentence.
 
 flagged — ONLY highlighted lines that clearly encode a due date the parser missed (e.g. a
 mistyped date like 4//15, 4/l5, 41/5) and are NOT already in CANDIDATES:
