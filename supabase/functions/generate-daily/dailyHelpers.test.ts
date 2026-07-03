@@ -1,15 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  buildDateHints,
+  buildCandidates,
+  buildDaily,
   buildTrackerContext,
-  mapTasksByBucket,
+  parseDateResolutions,
+  resolveFinalDate,
   serializeTrackerToMarkdown,
+  type DateCandidate,
+  type DateResolutions,
   type InlineSegment,
 } from './dailyHelpers.ts'
 
 const hl = (text: string): InlineSegment => ({ text, highlighted: true })
 const plain = (text: string): InlineSegment => ({ text, highlighted: false })
+
+// A DateResolutions with no AI enrichment — the deterministic list alone.
+const emptyResolutions = (): DateResolutions => ({
+  resolutions: new Map(),
+  flagged: [],
+  format: 'empty',
+})
 
 describe('serializeTrackerToMarkdown', () => {
   it('emits a stable cid anchor per block that has an id and resolves it to the block id', () => {
@@ -97,154 +108,110 @@ describe('serializeTrackerToMarkdown', () => {
   })
 })
 
-describe('buildDateHints — year inference', () => {
+describe('buildCandidates', () => {
   const today = '2026-07-01'
 
-  it('uses a written year in the line for a bare highlighted date (4/15 of 2027 → later)', () => {
+  it('only yields a candidate for a highlighted MM/DD token', () => {
+    const cidSegments = new Map<string, InlineSegment[]>([
+      ['c1', [plain('Bachelor party '), hl('7/1')]],
+      ['c2', [plain('Background: written on 4/15 as a log note')]],
+      ['c3', [plain('No dates at all here')]],
+    ])
+    const candidates = buildCandidates(cidSegments, today)
+    expect(candidates.map((c) => c.cid)).toEqual(['c1'])
+  })
+
+  it('drops struck / completed lines before they become candidates (via segment filter)', () => {
+    // collectInlineSegments removes struck text, so a struck date never reaches
+    // buildCandidates as a highlighted segment. Simulate the post-filter input.
+    const cidSegments = new Map<string, InlineSegment[]>([
+      ['c1', [plain('Done thing ')]], // date was struck out and dropped
+    ])
+    expect(buildCandidates(cidSegments, today)).toEqual([])
+  })
+
+  it('sets deterministicIso from an explicit slash-year and marks needsAiYear false', () => {
+    const cidSegments = new Map<string, InlineSegment[]>([
+      ['c1', [plain('Due '), hl('4/15/2030'), plain(' (of 2027)')]],
+    ])
+    const [candidate] = buildCandidates(cidSegments, today)
+    expect(candidate.deterministicIso).toBe('2030-04-15')
+    expect(candidate.month).toBe(4)
+    expect(candidate.day).toBe(15)
+    expect(candidate.needsAiYear).toBe(false)
+  })
+
+  it('uses a written digit year on the line and marks needsAiYear false (4/15 of 2027)', () => {
     const cidSegments = new Map<string, InlineSegment[]>([
       ['c1', [plain('They are due by '), hl('4/15'), plain(' (of 2027)')]],
     ])
-    const hints = buildDateHints(cidSegments, today)
-    expect(hints).toHaveLength(1)
-    expect(hints[0].cid).toBe('c1')
-    expect(hints[0].parsedIso).toBe('2027-04-15')
-    expect(hints[0].bucket).toBe('later')
+    const [candidate] = buildCandidates(cidSegments, today)
+    expect(candidate.deterministicIso).toBe('2027-04-15')
+    expect(candidate.needsAiYear).toBe(false)
   })
 
-  it('handles a far-future written year (7/1 of 2028 → later)', () => {
+  it('defaults a bare highlighted date to the current year and marks needsAiYear true', () => {
     const cidSegments = new Map<string, InlineSegment[]>([
-      ['c2', [plain('might come up around '), hl('7/1'), plain(' (of 2028)')]],
+      ['c1', [plain('Bachelor party '), hl('7/1')]],
     ])
-    const hints = buildDateHints(cidSegments, today)
-    expect(hints).toHaveLength(1)
-    expect(hints[0].parsedIso).toBe('2028-07-01')
-    expect(hints[0].bucket).toBe('later')
-  })
-
-  it('defaults a bare highlighted date to the current year (7/1 → today)', () => {
-    const cidSegments = new Map<string, InlineSegment[]>([
-      ['c3', [plain('Bachelor party '), hl('7/1')]],
-    ])
-    const hints = buildDateHints(cidSegments, today)
-    expect(hints).toHaveLength(1)
-    expect(hints[0].parsedIso).toBe('2026-07-01')
-    expect(hints[0].bucket).toBe('today')
-  })
-
-  it('lets an explicit slash-year win over the written year', () => {
-    const cidSegments = new Map<string, InlineSegment[]>([
-      ['c4', [plain('Due '), hl('4/15/2030'), plain(' (of 2027)')]],
-    ])
-    const hints = buildDateHints(cidSegments, today)
-    expect(hints[0].parsedIso).toBe('2030-04-15')
-  })
-
-  it('emits no hint for lines without a highlighted date', () => {
-    const cidSegments = new Map<string, InlineSegment[]>([
-      ['c5', [plain('Background: written on 4/15 as a log note')]],
-      ['c6', [plain('No dates at all here')]],
-    ])
-    expect(buildDateHints(cidSegments, today)).toEqual([])
+    const [candidate] = buildCandidates(cidSegments, today)
+    expect(candidate.deterministicIso).toBe('2026-07-01')
+    expect(candidate.needsAiYear).toBe(true)
   })
 })
 
-describe('mapTasksByBucket', () => {
-  const cidToBlockId = new Map<string, string>([
-    ['c1', 'block-1'],
-    ['c2', 'block-2'],
-    ['c3', 'block-3'],
-  ])
-  const cidToText = new Map<string, string>([
-    ['c1', 'First task'],
-    ['c2', 'Second task'],
-    ['c3', 'Third task'],
-  ])
-
-  it('honors the AI asap/fyi placement without re-routing', () => {
-    const parsed = {
-      asap: [{ task: 'Do first', cids: ['c1'], priority: 'high' }],
-      fyi: [{ task: 'Heads up on second', cids: ['c2'], priority: 'low' }],
-      format: 'asap_fyi' as const,
-    }
-    const { asap, fyi } = mapTasksByBucket(parsed, cidToBlockId, cidToText)
-    expect(asap).toEqual([{ task: 'Do first', block_ids: ['block-1'], priority: 'high' }])
-    expect(fyi).toEqual([{ task: 'Heads up on second', block_ids: ['block-2'], priority: 'low' }])
-  })
-
-  it('drops invented / unknown cids and skips tasks left with no real block', () => {
-    const parsed = {
-      asap: [{ task: 'Hallucinated', cids: ['cX', 'cY'], priority: 'high' }],
-      fyi: [],
-      format: 'asap_fyi' as const,
-    }
-    const { asap, fyi, droppedUnknownCids } = mapTasksByBucket(parsed, cidToBlockId, cidToText)
-    expect(asap).toEqual([])
-    expect(fyi).toEqual([])
-    expect(droppedUnknownCids).toBe(2)
-  })
-
-  it('falls back to candidate text and defaults priority when the AI omits them', () => {
-    const parsed = {
-      asap: [{ task: '   ', cids: ['c3'], priority: 'nonsense' }],
-      fyi: [],
-      format: 'asap_fyi' as const,
-    }
-    const { asap } = mapTasksByBucket(parsed, cidToBlockId, cidToText)
-    expect(asap).toEqual([{ task: 'Third task', block_ids: ['block-3'], priority: 'medium' }])
-  })
-
-  it('returns empty arrays when the AI returns nothing due', () => {
-    const parsed = { asap: [], fyi: [], format: 'empty' as const }
-    const { asap, fyi } = mapTasksByBucket(parsed, cidToBlockId, cidToText)
-    expect(asap).toEqual([])
-    expect(fyi).toEqual([])
-  })
-})
-
-describe('buildTrackerContext', () => {
+describe('buildTrackerContext — highlightedCids', () => {
   const today = '2026-07-01'
 
-  it('serializes every page and only emits hints for highlighted dates', () => {
+  it('includes highlighted lines (incl. a highlighted typo) and excludes plain lines', () => {
     const trackerPages = [
       {
         title: 'July 2026 Tracker',
-        pageId: 'page-1',
         content: {
           type: 'doc',
           content: [
             {
               type: 'paragraph',
-              attrs: { id: 'p-future' },
+              attrs: { id: 'p-cand' },
               content: [
                 { type: 'text', text: 'File form ' },
                 { type: 'text', text: '4/15', marks: [{ type: 'highlight' }] },
-                { type: 'text', text: ' (of 2027)' },
               ],
             },
             {
               type: 'paragraph',
-              attrs: { id: 'p-note' },
-              content: [{ type: 'text', text: 'Background: nothing due here' }],
+              attrs: { id: 'p-typo' },
+              content: [
+                { type: 'text', text: 'Renew pass ' },
+                { type: 'text', text: '4/l5', marks: [{ type: 'highlight' }] },
+              ],
+            },
+            {
+              type: 'paragraph',
+              attrs: { id: 'p-plain' },
+              content: [{ type: 'text', text: 'Background note' }],
             },
           ],
         },
       },
     ]
 
-    const { markdown, cidToBlockId, dateHints } = buildTrackerContext(trackerPages, today)
-    expect(markdown).toContain('JULY 2026 TRACKER')
-    expect(cidToBlockId.size).toBe(2)
-    // Only the highlighted-date line yields a hint, and year inference pushes it out.
-    expect(dateHints).toHaveLength(1)
-    expect(dateHints[0].bucket).toBe('later')
-    expect(cidToBlockId.get(dateHints[0].cid)).toBe('p-future')
+    const { candidates, highlightedCids, cidToBlockId } = buildTrackerContext(trackerPages, today)
+
+    const candBlockIds = candidates.map((c) => cidToBlockId.get(c.cid))
+    // Only the well-formed MM/DD line is a candidate; the typo is not.
+    expect(candBlockIds).toEqual(['p-cand'])
+
+    const highlightedBlockIds = [...highlightedCids].map((cid) => cidToBlockId.get(cid)).sort()
+    expect(highlightedBlockIds).toEqual(['p-cand', 'p-typo'])
+    // The plain line is never highlighted.
+    expect(highlightedBlockIds).not.toContain('p-plain')
   })
 
-  it('yields empty hints for an all-undated tracker', () => {
+  it('yields no candidates and no highlighted cids for an all-undated tracker', () => {
     const trackerPages = [
       {
         title: 'Empty',
-        pageId: 'page-1',
         content: {
           type: 'doc',
           content: [
@@ -257,7 +224,211 @@ describe('buildTrackerContext', () => {
         },
       },
     ]
-    const { dateHints } = buildTrackerContext(trackerPages, today)
-    expect(dateHints).toEqual([])
+    const { candidates, highlightedCids } = buildTrackerContext(trackerPages, today)
+    expect(candidates).toEqual([])
+    expect(highlightedCids.size).toBe(0)
+  })
+})
+
+describe('resolveFinalDate', () => {
+  const today = '2026-07-01'
+
+  const bareCandidate: DateCandidate = {
+    cid: 'c1',
+    dateText: '4/15',
+    month: 4,
+    day: 15,
+    deterministicIso: '2026-04-15',
+    needsAiYear: true,
+  }
+
+  it('recombines the AI-resolved year with the deterministic month/day', () => {
+    const date = resolveFinalDate(bareCandidate, '2028-01-01', today)
+    // Only the year (2028) is taken; month/day stay 4/15.
+    expect(date.toISOString().slice(0, 10)).toBe('2028-04-15')
+  })
+
+  it('ignores the AI year when the year is already explicit (needsAiYear false)', () => {
+    const explicit: DateCandidate = { ...bareCandidate, deterministicIso: '2027-04-15', needsAiYear: false }
+    const date = resolveFinalDate(explicit, '2099-01-01', today)
+    expect(date.toISOString().slice(0, 10)).toBe('2027-04-15')
+  })
+
+  it('falls back to the deterministic date when the AI iso_date is invalid', () => {
+    const date = resolveFinalDate(bareCandidate, 'not-a-date', today)
+    expect(date.toISOString().slice(0, 10)).toBe('2026-04-15')
+  })
+
+  it('keeps the current-year default when the AI returns null', () => {
+    const date = resolveFinalDate(bareCandidate, null, today)
+    expect(date.toISOString().slice(0, 10)).toBe('2026-04-15')
+  })
+})
+
+describe('parseDateResolutions', () => {
+  it('parses a fenced JSON object with resolutions and flagged', () => {
+    const raw = [
+      'Here you go:',
+      '```json',
+      '{"resolutions":[{"cid":"c1","iso_date":null,"task":"File form"}],',
+      '"flagged":[{"cid":"c9","iso_date":"2026-03-15","task":"Renew pass"}]}',
+      '```',
+    ].join('\n')
+    const parsed = parseDateResolutions(raw)
+    expect(parsed.format).toBe('resolved')
+    expect(parsed.resolutions.get('c1')).toEqual({ iso_date: null, task: 'File form' })
+    expect(parsed.flagged).toEqual([{ cid: 'c9', iso_date: '2026-03-15', task: 'Renew pass' }])
+  })
+
+  it('ignores entries missing a cid and flagged entries missing an iso_date', () => {
+    const raw = JSON.stringify({
+      resolutions: [{ iso_date: '2027-01-01', task: 'no cid' }, { cid: 'c2', task: 'ok' }],
+      flagged: [{ cid: 'c3', task: 'no date' }],
+    })
+    const parsed = parseDateResolutions(raw)
+    expect(parsed.resolutions.has('c2')).toBe(true)
+    expect(parsed.resolutions.size).toBe(1)
+    expect(parsed.flagged).toEqual([])
+  })
+
+  it('returns empty format on unparseable text', () => {
+    const parsed = parseDateResolutions('total nonsense, no json')
+    expect(parsed.format).toBe('empty')
+    expect(parsed.resolutions.size).toBe(0)
+    expect(parsed.flagged).toEqual([])
+  })
+})
+
+describe('buildDaily — candidates decide the list', () => {
+  const today = '2026-07-01'
+  const cidToBlockId = new Map<string, string>([
+    ['c1', 'block-1'],
+    ['c2', 'block-2'],
+    ['c3', 'block-3'],
+  ])
+  const cidToText = new Map<string, string>([
+    ['c1', 'Pay taxes'],
+    ['c2', 'Book venue'],
+    ['c3', 'Distant thing'],
+  ])
+  const highlightedCids = new Set(['c1', 'c2', 'c3'])
+
+  const candidate = (cid: string, iso: string, needsAiYear = false): DateCandidate => ({
+    cid,
+    dateText: iso.slice(5).replace('-', '/'),
+    month: Number(iso.slice(5, 7)),
+    day: Number(iso.slice(8, 10)),
+    deterministicIso: iso,
+    needsAiYear,
+  })
+
+  it('guarantees an overdue highlighted date lands in ASAP', () => {
+    const candidates = [candidate('c1', '2026-03-15')] // months before today
+    const { asap, fyi } = buildDaily(candidates, emptyResolutions(), cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([{ task: 'Pay taxes', block_ids: ['block-1'], priority: 'high' }])
+    expect(fyi).toEqual([])
+  })
+
+  it('routes a soon (<=2d) date to FYI with medium priority', () => {
+    const candidates = [candidate('c2', '2026-07-02')]
+    const { asap, fyi } = buildDaily(candidates, emptyResolutions(), cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([{ task: 'Book venue', block_ids: ['block-2'], priority: 'medium' }])
+  })
+
+  it('drops a far-future (later) candidate', () => {
+    const candidates = [candidate('c3', '2026-12-31')]
+    const { asap, fyi } = buildDaily(candidates, emptyResolutions(), cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([])
+  })
+
+  it('prefers the AI-phrased task but falls back to cidToText', () => {
+    const candidates = [candidate('c1', '2026-07-01')]
+    const parsed: DateResolutions = {
+      resolutions: new Map([['c1', { iso_date: null, task: 'Finance: File taxes' }]]),
+      flagged: [],
+      format: 'resolved',
+    }
+    const { asap } = buildDaily(candidates, parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap[0].task).toBe('Finance: File taxes')
+
+    const { asap: fallback } = buildDaily(candidates, emptyResolutions(), cidToBlockId, cidToText, highlightedCids, today)
+    expect(fallback[0].task).toBe('Pay taxes')
+  })
+
+  it('applies an AI-resolved year to a needsAiYear candidate before bucketing', () => {
+    // Bare 4/15 defaults to 2026 (overdue), but the AI resolves 2028 → later → dropped.
+    const candidates = [candidate('c1', '2026-04-15', true)]
+    const parsed: DateResolutions = {
+      resolutions: new Map([['c1', { iso_date: '2028-04-15', task: 'Pay taxes' }]]),
+      flagged: [],
+      format: 'resolved',
+    }
+    const { asap, fyi } = buildDaily(candidates, parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([])
+  })
+})
+
+describe('buildDaily — flagged extras (additive only)', () => {
+  const today = '2026-07-01'
+  const cidToBlockId = new Map<string, string>([
+    ['c1', 'block-1'],
+    ['c9', 'block-9'],
+  ])
+  const cidToText = new Map<string, string>([
+    ['c1', 'Pay taxes'],
+    ['c9', 'Renew pass'],
+  ])
+  const highlightedCids = new Set(['c1', 'c9'])
+
+  const flaggedParsed = (flagged: DateResolutions['flagged']): DateResolutions => ({
+    resolutions: new Map(),
+    flagged,
+    format: 'resolved',
+  })
+
+  it('adds a highlighted non-candidate overdue flag and reports feedback', () => {
+    const parsed = flaggedParsed([{ cid: 'c9', iso_date: '2026-03-15', task: 'Renew pass' }])
+    const { asap, feedback } = buildDaily([], parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([{ task: 'Renew pass', block_ids: ['block-9'], priority: 'high' }])
+    expect(feedback).toHaveLength(1)
+    expect(feedback[0]).toContain('Renew pass')
+  })
+
+  it('rejects a flagged cid that is not highlighted', () => {
+    const notHighlighted = new Set(['c1']) // c9 absent
+    const parsed = flaggedParsed([{ cid: 'c9', iso_date: '2026-03-15', task: 'Renew pass' }])
+    const { asap, fyi, feedback } = buildDaily([], parsed, cidToBlockId, cidToText, notHighlighted, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([])
+    expect(feedback).toEqual([])
+  })
+
+  it('never lets a flagged entry override a candidate on the same cid', () => {
+    const candidates: DateCandidate[] = [
+      { cid: 'c1', dateText: '3/15', month: 3, day: 15, deterministicIso: '2026-03-15', needsAiYear: false },
+    ]
+    // Flag tries to move c1 to a far-future date; it must be ignored.
+    const parsed = flaggedParsed([{ cid: 'c1', iso_date: '2030-03-15', task: 'Hijacked' }])
+    const { asap, feedback } = buildDaily(candidates, parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([{ task: 'Pay taxes', block_ids: ['block-1'], priority: 'high' }])
+    expect(feedback).toEqual([])
+  })
+
+  it('drops a flagged far-future date via bucketForDate', () => {
+    const parsed = flaggedParsed([{ cid: 'c9', iso_date: '2030-01-01', task: 'Renew pass' }])
+    const { asap, fyi, feedback } = buildDaily([], parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([])
+    expect(feedback).toEqual([])
+  })
+
+  it('rejects a flagged entry with an invalid iso_date', () => {
+    const parsed = flaggedParsed([{ cid: 'c9', iso_date: '2026-13-40', task: 'Renew pass' }])
+    const { asap, fyi } = buildDaily([], parsed, cidToBlockId, cidToText, highlightedCids, today)
+    expect(asap).toEqual([])
+    expect(fyi).toEqual([])
   })
 })
