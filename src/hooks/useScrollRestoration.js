@@ -69,6 +69,7 @@ export function useScrollRestoration({
   const pageIdRef = useRef(pageId)
   const editorRef = useRef(editor)
   const zoomRef = useRef(zoomLevel)
+  const previousSkipRef = useRef(skip)
 
   // Mirror the latest props into refs so the long-lived scroll listener and the
   // restore guards read current values without re-subscribing every change.
@@ -136,7 +137,15 @@ export function useScrollRestoration({
         next.scrollTop = surface.get()
       }
       const selection = readEditorSelection()
-      if (selection) next.selection = selection
+      const isDefaultStartSelection = selection?.from === 1 && selection?.to === 1
+      const previousSelection = previous.selection
+      const hasMeaningfulPreviousSelection =
+        typeof previousSelection?.from === 'number' &&
+        typeof previousSelection?.to === 'number' &&
+        (previousSelection.from !== 1 || previousSelection.to !== 1)
+      if (selection && (!isDefaultStartSelection || !hasMeaningfulPreviousSelection)) {
+        next.selection = selection
+      }
       positionsRef.current.delete(id)
       positionsRef.current.set(id, next)
 
@@ -211,7 +220,9 @@ export function useScrollRestoration({
   // Save cursor/selection changes even when the user has not scrolled.
   useEffect(() => {
     if (!editor || !ready || !pageId || skip) return undefined
-    const recordSelection = () => captureCurrentState({ includeScroll: false })
+    const recordSelection = () => {
+      captureCurrentState({ includeScroll: false, force: true })
+    }
     editor.on('selectionUpdate', recordSelection)
     editor.on('transaction', recordSelection)
     return () => {
@@ -221,9 +232,18 @@ export function useScrollRestoration({
     }
   }, [editor, pageId, ready, skip, captureCurrentState, flushPersist])
 
+  // Once a deep-link jump finishes owning scroll, treat the landed offset as
+  // the page's new remembered position for ordinary later navigation.
+  useEffect(() => {
+    const wasSkipping = previousSkipRef.current
+    previousSkipRef.current = skip
+    if (!wasSkipping || skip || !ready || !pageId) return
+    captureCurrentState({ immediate: true, force: true })
+  }, [skip, ready, pageId, captureCurrentState])
+
   // --- Restore on page change ---------------------------------------------
   useEffect(() => {
-    if (!ready || !pageId) return undefined
+    if (!ready || !pageId || !editor) return undefined
     if (skip) {
       return undefined
     }
@@ -307,6 +327,7 @@ export function useScrollRestoration({
         if (reached) {
           if (reachedSince == null) reachedSince = performance.now()
           if (performance.now() - reachedSince >= RESTORE_SETTLE_MS) {
+            restoreEditorSelection(saved.selection)
             finish()
             return
           }
@@ -330,6 +351,7 @@ export function useScrollRestoration({
         const surface = getEditorScrollSurface(containerRef.current)
         const max = getMaxScrollableOffset(surface)
         surface.set(Math.min(savedScrollTop, max))
+        restoreEditorSelection(saved.selection)
       }
       finish()
     }, restoreTimeoutMs)
@@ -338,5 +360,5 @@ export function useScrollRestoration({
       cancelled = true
       finish()
     }
-  }, [pageId, ready, skip, containerRef, isTouchOnly, mobileOwnsScroll, restoreEditorSelection])
+  }, [pageId, ready, skip, editor, containerRef, isTouchOnly, mobileOwnsScroll, restoreEditorSelection])
 }

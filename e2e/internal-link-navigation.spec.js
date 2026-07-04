@@ -13,6 +13,18 @@ import {
 // Block ID that will be used as the deep-link target in Page B
 const TARGET_BLOCK_ID = 'e2e-target-block-nav'
 
+const fillerParagraphs = (prefix, count) =>
+  Array.from({ length: count }, (_, index) => ({
+    type: 'paragraph',
+    attrs: { id: `${prefix}-${index + 1}` },
+    content: [
+      {
+        type: 'text',
+        text: `${prefix} filler paragraph ${index + 1}: enough text to make the target page scroll naturally.`,
+      },
+    ],
+  }))
+
 test.describe('Internal link navigation', () => {
   let notebookId = null
   let pageA = null // "Test Scratchpad" with internal link
@@ -34,21 +46,13 @@ test.describe('Internal link navigation', () => {
           attrs: { level: 2, id: 'h-nav-top' },
           content: [{ type: 'text', text: 'Running Stuff' }],
         },
-        {
-          type: 'paragraph',
-          attrs: { id: 'p-nav-filler' },
-          content: [{ type: 'text', text: 'Some filler content above the target.' }],
-        },
+        ...fillerParagraphs('p-nav-above', 45),
         {
           type: 'paragraph',
           attrs: { id: TARGET_BLOCK_ID },
           content: [{ type: 'text', text: 'This is the deep link target paragraph.' }],
         },
-        {
-          type: 'paragraph',
-          attrs: { id: 'p-nav-below' },
-          content: [{ type: 'text', text: 'Content below the target block.' }],
-        },
+        ...fillerParagraphs('p-nav-below', 45),
       ],
     })
 
@@ -100,14 +104,33 @@ test.describe('Internal link navigation', () => {
     const blockId = new URL('http://x/' + href.replace('#', '?')).searchParams.get('block')
     expect(blockId).toBeTruthy()
 
-    // 2. Navigate to the target page ("Test Section") via sidebar so content is loaded
+    // 2. Navigate to the target page ("Test Section") via sidebar, scroll away
+    // from the anchor, and let that wrong position save. This keeps the test
+    // honest: passing requires deep-link navigation to beat ordinary scroll
+    // restoration for this page.
     await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
     await expect(page.locator('.ProseMirror')).toContainText('This is the deep link target paragraph.', {
       timeout: 10000,
     })
+    const targetBlock = page.locator(`[id="${blockId}"]`)
+    await expect(targetBlock).toHaveCount(1)
+    await page.evaluate(() => {
+      const panel = document.querySelector('.editor-panel')
+      if (panel) panel.scrollTop = panel.scrollHeight
+      window.scrollTo(0, document.body.scrollHeight)
+    })
+    await page.waitForTimeout(700)
+    await expect(async () => {
+      const visible = await isElementStartInEditorSafeView(targetBlock)
+      expect(visible).toBe(false)
+    }).toPass({ timeout: 5000 })
 
-    // 3. Trigger the deep link by setting the hash
-    await page.evaluate((h) => { window.location.hash = h }, href)
+    // 3. Return to the source page and click the internal link so the app
+    // performs the same hash navigation a user triggers.
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
+    await expect(internalLink).toBeVisible({ timeout: 10000 })
+    await internalLink.click()
+    await expect(page.locator('.title-input')).toHaveValue('Test Section', { timeout: 10000 })
 
     // 4. The app highlights the target block via a <style> tag
     const styleLocator = page.locator('#deep-link-target-style')
@@ -117,18 +140,29 @@ test.describe('Internal link navigation', () => {
     }).toPass({ timeout: 10000 })
 
     // 5. Target block element should be in the viewport (scrolled to)
-    const targetBlock = page.locator(`[id="${blockId}"]`)
     await expect(targetBlock).toBeVisible({ timeout: 5000 })
     await expect(async () => {
       const visible = await isElementStartInEditorSafeView(targetBlock)
       expect(visible).toBe(true)
     }).toPass({ timeout: 5000 })
 
-    // 6. Click a different paragraph in the editor to dismiss the highlight
+    // 6. After the deep-link jump, ordinary page switching should remember the
+    // anchor landing as this page's latest scroll position.
+    await page.waitForTimeout(700)
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Scratchpad' }).first())
+    await expect(page.locator('.title-input')).toHaveValue('Test Scratchpad', { timeout: 10000 })
+    await clickNavigationItem(page, page.locator('.tree-node-page', { hasText: 'Test Section' }).first())
+    await expect(page.locator('.title-input')).toHaveValue('Test Section', { timeout: 10000 })
+    await expect(async () => {
+      const visible = await isElementStartInEditorSafeView(targetBlock)
+      expect(visible).toBe(true)
+    }).toPass({ timeout: 5000 })
+
+    // 7. Click a different paragraph in the editor to dismiss the highlight
     const otherParagraph = page.locator(`.ProseMirror p:not([id="${blockId}"])`).first()
     await otherParagraph.click()
 
-    // 7. Highlight style should be cleared
+    // 8. Highlight style should be cleared
     await expect(async () => {
       const content = await styleLocator.textContent()
       expect(content?.trim() || '').toBe('')

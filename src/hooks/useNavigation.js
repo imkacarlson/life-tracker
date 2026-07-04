@@ -16,6 +16,13 @@ import {
 } from '../utils/navigationTarget'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../utils/sectionPages'
 
+const sameNavigationTarget = (a, b) =>
+  Boolean(a && b) &&
+  a.notebookId === b.notebookId &&
+  a.sectionId === b.sectionId &&
+  a.pageId === b.pageId &&
+  a.blockId === b.blockId
+
 export const useNavigation = ({
   session,
   notebooks,
@@ -41,12 +48,31 @@ export const useNavigation = ({
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
+  const clearDeepLinkTargetTimerRef = useRef(null)
   const [initialNavReady, setInitialNavReady] = useState(false)
   const [pendingTarget, setPendingTarget] = useState(null)
 
   const clearPendingTarget = useCallback(() => {
+    if (clearDeepLinkTargetTimerRef.current) {
+      clearTimeout(clearDeepLinkTargetTimerRef.current)
+      clearDeepLinkTargetTimerRef.current = null
+    }
     setPendingTarget(null)
     setPendingNav(null)
+  }, [setPendingNav])
+
+  const clearPendingTargetAfterDeepLinkScroll = useCallback((target) => {
+    if (clearDeepLinkTargetTimerRef.current) {
+      clearTimeout(clearDeepLinkTargetTimerRef.current)
+    }
+    clearDeepLinkTargetTimerRef.current = setTimeout(() => {
+      clearDeepLinkTargetTimerRef.current = null
+      setPendingTarget((current) => {
+        if (!sameNavigationTarget(current, target)) return current
+        setPendingNav(null)
+        return null
+      })
+    }, 500)
   }, [setPendingNav])
 
   const setPendingTargetSafely = useCallback(
@@ -190,6 +216,13 @@ export const useNavigation = ({
     navigateToHashRef.current = navigateToHash
   }, [navigateToHash])
 
+  useEffect(() => () => {
+    if (clearDeepLinkTargetTimerRef.current) {
+      clearTimeout(clearDeepLinkTargetTimerRef.current)
+      clearDeepLinkTargetTimerRef.current = null
+    }
+  }, [])
+
   useEffect(() => {
     if (!session) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset nav state when the session prop transitions to null
@@ -283,7 +316,7 @@ export const useNavigation = ({
 
     requestAnimationFrame(() => {
       const found = scrollToBlock(pendingTarget.blockId)
-      if (found) clearPendingTarget()
+      if (found) clearPendingTargetAfterDeepLinkScroll(pendingTarget)
     })
   }, [
     session,
@@ -301,6 +334,7 @@ export const useNavigation = ({
     setActiveTrackerId,
     flushSaveForTracker,
     clearPendingTarget,
+    clearPendingTargetAfterDeepLinkScroll,
     pickNavFallback,
     queueResolvedTarget,
     setMessage,
