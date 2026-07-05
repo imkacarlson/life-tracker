@@ -1,0 +1,113 @@
+/*
+ * PWA update prompt — a small, non-modal toast in the bottom-right corner.
+ * Warm Industrial / minimal per DESIGN.md: teal accent, stone neutrals, no
+ * decorative noise. Functional elevation only (marks a floating layer).
+ */
+
+.pwa-update-banner,
+.pwa-update-pill {
+  position: fixed;
+  right: var(--space-md);
+  bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
+  z-index: 80; /* above modals (70) so a bad deploy is always recoverable */
+  font-family: var(--font-body);
+  box-shadow: 0 4px 16px rgba(28, 25, 23, 0.14);
+}
+
+/* Full banner */
+.pwa-update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  max-width: min(360px, calc(100vw - 2 * var(--space-md)));
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--text);
+}
+
+.pwa-update-text {
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+
+.pwa-update-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: auto;
+}
+
+.pwa-update-refresh {
+  padding: var(--space-xs) var(--space-md);
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-short) var(--ease-out);
+}
+
+.pwa-update-refresh:hover {
+  background: var(--accent-light);
+}
+
+.pwa-update-refresh:active {
+  background: var(--accent-dark);
+}
+
+.pwa-update-dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background var(--duration-short) var(--ease-out),
+    color var(--duration-short) var(--ease-out);
+}
+
+.pwa-update-dismiss:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* Collapsed pill — the deferred "always one click away" reminder */
+.pwa-update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: var(--accent);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-full);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-short) var(--ease-out);
+}
+
+.pwa-update-pill:hover {
+  background: var(--accent-light);
+}
+
+.pwa-update-refresh:focus-visible,
+.pwa-update-dismiss:focus-visible,
+.pwa-update-pill:focus-visible {
+  outline: 2px solid var(--accent-dark);
+  outline-offset: 2px;
+}
