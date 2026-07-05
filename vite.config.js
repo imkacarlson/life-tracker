@@ -7,9 +7,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // New deploys activate immediately instead of stranding the user on a
-      // stale cached version — the #1 service-worker footgun.
-      registerType: 'autoUpdate',
+      // Prompt lifecycle: a new SW waits until the user clicks "Refresh" in the
+      // in-app banner (see PwaUpdatePrompt.jsx), instead of silently activating.
+      // This avoids reloading mid-edit while still guaranteeing new deploys
+      // reach the user (hourly + on-focus update checks drive the prompt).
+      registerType: 'prompt',
       injectRegister: 'auto',
       includeAssets: ['logo.svg', 'apple-touch-icon.png'],
       manifest: {
@@ -39,9 +41,10 @@ export default defineConfig({
         navigateFallback: '/index.html',
         // Never serve a cached app shell for Supabase API calls.
         navigateFallbackDenylist: [/^\/api/, /supabase/],
-        // New SW takes over open clients immediately (pairs with autoUpdate).
-        skipWaiting: true,
-        clientsClaim: true,
+        // Do NOT set skipWaiting/clientsClaim: in the prompt lifecycle the new
+        // SW must stay `waiting` until the user clicks Refresh, at which point
+        // updateServiceWorker(true) sends SKIP_WAITING and reloads. Self-
+        // activating here would defeat the prompt.
         // No runtimeCaching: we deliberately never cache the Supabase origin
         // (auth/REST/realtime/storage) to avoid stale-data and stale-auth bugs.
       },
