@@ -1,12 +1,10 @@
-// Shared, mark-agnostic helpers for "word-level" cursor formatting. These
-// generalize the highlight behavior so Bold, Italic, Underline, Text color, and
-// Highlight all act on the whole word under a collapsed caret WITHOUT moving the
-// caret or showing a native blue selection overlay.
-//
-// The single code path lives here; the toolbar tools and highlightState re-use
-// it so there is one implementation, not a parallel system per mark.
+// Shared, mark-agnostic helpers for collapsed-caret formatting. Highlight uses
+// the word-level target; the regular inline tools use the block-level target.
+// Both paths avoid moving the visible selection, so no native blue overlay
+// flashes over formatted text.
 
 import { TextSelection } from '@tiptap/pm/state'
+import { getBlockTextRange } from './blockRange'
 import { getWordRangeAt } from './wordRange'
 import { getMountedEditorView } from './editorView'
 
@@ -46,8 +44,34 @@ export function syncSelectionFromDom(editor) {
   }
 }
 
+export const rangeFullyHasMark = (state, from, to, markType) => {
+  if (!state || !markType || from >= to) return false
+
+  let sawText = false
+  let fullyMarked = true
+
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!fullyMarked) return false
+    if (!node.isText) return true
+
+    const textFrom = Math.max(from, pos)
+    const textTo = Math.min(to, pos + node.nodeSize)
+    if (textFrom >= textTo) return false
+
+    sawText = true
+    if (!markType.isInSet(node.marks)) {
+      fullyMarked = false
+      return false
+    }
+
+    return false
+  })
+
+  return sawText && fullyMarked
+}
+
 /**
- * True when the mark is present on the toggle target: the word under a collapsed
+ * True when the mark fully covers the toggle target: the word under a collapsed
  * caret, or the current non-empty selection. Mirrors applyMarkToTarget's
  * targeting so the toggle decision matches the action — instead of relying on
  * caret-adjacency marks (isActive), which inclusive:false marks get wrong at
@@ -63,13 +87,36 @@ export const isMarkActiveForToggle = (state, markType) => {
 
   if (selection.empty) {
     const range = getWordRangeAt(state)
-    if (range) return state.doc.rangeHasMark(range.from, range.to, markType)
+    if (range) return rangeFullyHasMark(state, range.from, range.to, markType)
     // Caret on whitespace / empty block: fall back to stored/adjacent marks.
     const marks = state.storedMarks || selection.$from.marks()
     return marks.some((m) => m.type === markType)
   }
 
-  return state.doc.rangeHasMark(selection.from, selection.to, markType)
+  return rangeFullyHasMark(state, selection.from, selection.to, markType)
+}
+
+/**
+ * True when the mark fully covers the block-level toggle target: the current
+ * paragraph/list item under a collapsed caret, or the current non-empty
+ * selection.
+ *
+ * @param {import('@tiptap/pm/state').EditorState} state
+ * @param {import('@tiptap/pm/model').MarkType} markType
+ * @returns {boolean}
+ */
+export const isMarkActiveForBlockToggle = (state, markType) => {
+  if (!state || !markType) return false
+  const { selection } = state
+
+  if (selection.empty) {
+    const range = getBlockTextRange(state)
+    if (range) return rangeFullyHasMark(state, range.from, range.to, markType)
+    const marks = state.storedMarks || selection.$from.marks()
+    return marks.some((m) => m.type === markType)
+  }
+
+  return rangeFullyHasMark(state, selection.from, selection.to, markType)
 }
 
 /**
@@ -95,6 +142,44 @@ export function applyMarkToTarget(editor, markType, { attrs = null, remove = fal
   if (selection.empty) {
     range = getWordRangeAt(editor.state)
     if (!range) return false // whitespace caret: let the caller fall back
+  } else {
+    range = { from: selection.from, to: selection.to }
+  }
+
+  editor
+    .chain()
+    .focus()
+    .command(({ tr, dispatch }) => {
+      if (dispatch) {
+        tr.removeMark(range.from, range.to, markType)
+        if (!remove) tr.addMark(range.from, range.to, markType.create(attrs))
+      }
+      return true
+    })
+    .run()
+
+  return true
+}
+
+/**
+ * Apply (or remove) a mark on the current paragraph/list item when the caret is
+ * collapsed, or on the current selection when text is selected. The caret stays
+ * collapsed; callers do not need to create a temporary text selection.
+ *
+ * @param {import('@tiptap/core').Editor} editor
+ * @param {import('@tiptap/pm/model').MarkType} markType
+ * @param {{ attrs?: object | null, remove?: boolean }} [options]
+ * @returns {boolean} true when a block/selection target was acted on
+ */
+export function applyMarkToBlockTarget(editor, markType, { attrs = null, remove = false } = {}) {
+  if (!editor || !markType) return false
+  syncSelectionFromDom(editor)
+
+  const { selection } = editor.state
+  let range = null
+  if (selection.empty) {
+    range = getBlockTextRange(editor.state)
+    if (!range || range.from >= range.to) return false
   } else {
     range = { from: selection.from, to: selection.to }
   }

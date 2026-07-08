@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Schema } from '@tiptap/pm/model'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
-import { isMarkActiveForToggle } from '../smartMark'
+import { isMarkActiveForBlockToggle, isMarkActiveForToggle, rangeFullyHasMark } from '../smartMark'
 
 // Minimal ProseMirror schema with a plain-text block plus a couple of marks.
 // `underline` stands in for the inclusive Bold/Italic/Underline family; `em`
@@ -80,6 +80,11 @@ describe('isMarkActiveForToggle', () => {
     expect(isMarkActiveForToggle(state, underline)).toBe(false)
   })
 
+  it('returns false when a selected range is only partially marked', () => {
+    const state = withSelection(stateWithMark(d, underline, 1, 6), 1, 12)
+    expect(isMarkActiveForToggle(state, underline)).toBe(false)
+  })
+
   it('reflects stored marks for a caret on whitespace between words', () => {
     // "hi  there": h=1 i=2 (sp)=3 (sp)=4 t=5 ...; caret at pos 4 sits between
     // two spaces (no word). With no stored mark applied -> false.
@@ -102,5 +107,43 @@ describe('isMarkActiveForToggle', () => {
     expect(isMarkActiveForToggle(null, underline)).toBe(false)
     const state = withCursor(stateWithMark(d, underline, 1, 6), 3)
     expect(isMarkActiveForToggle(state, null)).toBe(false)
+  })
+})
+
+describe('isMarkActiveForBlockToggle', () => {
+  const d = doc.create(null, [p('hello world')])
+
+  it('uses the whole text block for a collapsed caret', () => {
+    const state = withCursor(stateWithMark(d, underline, 1, 12), 9)
+    expect(isMarkActiveForBlockToggle(state, underline)).toBe(true)
+  })
+
+  it('does not report active when another word in the same block has a different mark', () => {
+    const state = withCursor(stateWithMark(d, em, 1, 6), 9)
+    expect(isMarkActiveForBlockToggle(state, underline)).toBe(false)
+  })
+
+  it('does not report active when only part of the block has the target mark', () => {
+    const state = withCursor(stateWithMark(d, underline, 1, 6), 9)
+    expect(isMarkActiveForBlockToggle(state, underline)).toBe(false)
+  })
+
+  it('still uses the selected range when text is selected', () => {
+    const state = withSelection(stateWithMark(d, underline, 1, 6), 7, 12)
+    expect(isMarkActiveForBlockToggle(state, underline)).toBe(false)
+  })
+})
+
+describe('rangeFullyHasMark', () => {
+  const d = doc.create(null, [p('hello world')])
+
+  it('returns true only when all text in the range has the mark', () => {
+    const state = stateWithMark(d, underline, 1, 12)
+    expect(rangeFullyHasMark(state, 1, 12, underline)).toBe(true)
+  })
+
+  it('returns false when only part of the text range has the mark', () => {
+    const state = stateWithMark(d, underline, 1, 6)
+    expect(rangeFullyHasMark(state, 1, 12, underline)).toBe(false)
   })
 })

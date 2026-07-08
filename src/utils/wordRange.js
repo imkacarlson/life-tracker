@@ -1,6 +1,5 @@
 // Pure ProseMirror-state helper: find the whitespace-delimited word under a
-// collapsed cursor. Mirrors the pure-state pattern in
-// extensions/keyboard/blockSelectionHelper.js (getBlockTextRange) — read the
+// collapsed cursor. Mirrors the pure-state pattern in blockRange.js: read the
 // resolved position, work in the parent's text content, and map back to
 // document positions via $from.start().
 

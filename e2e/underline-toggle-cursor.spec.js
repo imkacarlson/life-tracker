@@ -1,18 +1,20 @@
 /**
- * E2E regression test for word-level cursor formatting on Bold, Italic,
- * Underline, and Text color — the same UX as Highlight
- * (see highlight-toggle-cursor.spec.js).
+ * E2E regression test for line-level cursor formatting on Bold, Italic,
+ * Underline, and Text color.
  *
  * With a COLLAPSED caret inside a word (nothing selected), clicking each of
- * these buttons formats the WHOLE word under the caret via a ProseMirror
+ * these buttons formats the WHOLE paragraph/list line via a ProseMirror
  * transaction, never touching the visible selection. So:
- *   1. The whole word gets the mark (e.g. wrapped in <u>/<strong>/<em>, or the
+ *   1. The whole line gets the mark (e.g. wrapped in <u>/<strong>/<em>, or the
  *      <span style="color: …"> for text color).
  *   2. The selection stays collapsed/empty (no leftover native blue overlay).
  *   3. Clicking the same button again removes the mark.
  *
+ * Highlight is the exception and stays word-level; see
+ * highlight-toggle-cursor.spec.js.
+ *
  * The text-color dropdown picker lives in the collapsed "extra" toolbar group on
- * touch devices, so these run desktop-only (matching the highlight spec).
+ * touch devices, so that color picker test runs desktop-only.
  */
 
 import { test, expect } from './fixtures'
@@ -23,6 +25,7 @@ import {
   createPage,
   deleteNotebookById,
   waitForApp,
+  ensureToolbarExpanded,
 } from './test-helpers'
 
 const TEXT_BLUE_RGB = 'rgb(37, 99, 235)' // picked text color (#2563eb)
@@ -40,12 +43,26 @@ const buildSeedContent = (id) => ({
   ],
 })
 
+const buildPartialBoldContent = () => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-partial-bold-1' },
+      content: [
+        { type: 'text', marks: [{ type: 'bold' }], text: 'Partial' },
+        { type: 'text', text: ' bold line' },
+      ],
+    },
+  ],
+})
+
 let seedIds = {}
 const seedLabel = `MARK-CURSOR-${Date.now()}`
 
 // Place a COLLAPSED caret in the middle of the seed word — no selection.
-const placeCaretInWord = async (page) => {
-  const line = page.locator('.ProseMirror p', { hasText: SEED_WORD }).first()
+const placeCaretInWord = async (page, word = SEED_WORD) => {
+  const line = page.locator('.ProseMirror p', { hasText: word }).first()
   await expect(line).toBeVisible()
   await line.evaluate((node, word) => {
     const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
@@ -63,25 +80,31 @@ const placeCaretInWord = async (page) => {
     selection?.removeAllRanges()
     selection?.addRange(range)
     node.closest('.ProseMirror')?.focus()
-  }, SEED_WORD)
+  }, word)
 }
 
-// True when the seed word is fully wrapped by an element matching `selector`.
-const wordHasWrapper = (page, selector) =>
+const markedTextForSelector = (page, selector) =>
   page.evaluate(
     ({ word, sel }) => {
       const els = Array.from(document.querySelectorAll(`.ProseMirror ${sel}`))
-      return els.some((el) => (el.textContent ?? '').includes(word))
+      const match = els.find((el) => (el.textContent ?? '').includes(word))
+      return match?.textContent ?? null
     },
     { word: SEED_WORD, sel: selector },
   )
+
+const joinedMarkedTextForSelector = (page, selector) =>
+  page.evaluate((sel) => {
+    const els = Array.from(document.querySelectorAll(`.ProseMirror ${sel}`))
+    return els.map((el) => el.textContent ?? '').join('')
+  }, selector)
 
 // Read the inline text color of the <span> wrapping the seed word, or null.
 const readWordTextColor = (page) =>
   page.evaluate((word) => {
     const spans = Array.from(document.querySelectorAll('.ProseMirror span[style*="color"]'))
     const match = spans.find((s) => (s.textContent ?? '').includes(word))
-    return match ? getComputedStyle(match).color : null
+    return match ? { color: getComputedStyle(match).color, text: match.textContent ?? '' } : null
   }, SEED_WORD)
 
 // True when the native selection is collapsed with no selected text.
@@ -107,7 +130,10 @@ test.beforeAll(async () => {
   const colorPage = await createPage(
     client, userId, section.id, `${seedLabel} Color Page`, buildSeedContent('p-color-1'), 3,
   )
-  seedIds = { notebook, section, boldPage, italicPage, underlinePage, colorPage }
+  const partialBoldPage = await createPage(
+    client, userId, section.id, `${seedLabel} Partial Bold Page`, buildPartialBoldContent(), 4,
+  )
+  seedIds = { notebook, section, boldPage, italicPage, underlinePage, colorPage, partialBoldPage }
 })
 
 test.afterAll(async () => {
@@ -119,34 +145,34 @@ const seedHash = (pageRow) =>
   `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
 // Shared flow for a simple boolean inline mark (bold/italic/underline): the whole
-// word gets wrapped on click, the selection stays collapsed, and a second click
+// line gets wrapped on click, the selection stays collapsed, and a second click
 // removes the wrapper.
 const runInlineMarkToggle = async ({ page, pageRow, buttonName, wrapperSelector }) => {
   await waitForApp(page, seedHash(pageRow), { expectedText: SEED_WORD })
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   await placeCaretInWord(page)
+  await ensureToolbarExpanded(page)
   await page.getByRole('button', { name: buttonName, exact: true }).click()
 
   await expect(async () => {
-    expect(await wordHasWrapper(page, wrapperSelector)).toBe(true)
+    expect(await markedTextForSelector(page, wrapperSelector)).toBe(`${SEED_WORD} notes line`)
   }).toPass({ timeout: 5000 })
 
   expect(await selectionIsCollapsed(page)).toBe(true)
 
   await placeCaretInWord(page)
+  await ensureToolbarExpanded(page)
   await page.getByRole('button', { name: buttonName, exact: true }).click()
 
   await expect(async () => {
-    expect(await wordHasWrapper(page, wrapperSelector)).toBe(false)
+    expect(await markedTextForSelector(page, wrapperSelector)).toBe(null)
   }).toPass({ timeout: 5000 })
 }
 
-test('Underline on a collapsed caret marks the whole word without disturbing the selection', async ({
+test('Underline on a collapsed caret marks the whole line without disturbing the selection', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'Desktop-only: relies on a collapsed-caret word-format flow')
   await runInlineMarkToggle({
     page,
     pageRow: seedIds.underlinePage,
@@ -155,11 +181,9 @@ test('Underline on a collapsed caret marks the whole word without disturbing the
   })
 })
 
-test('Bold on a collapsed caret marks the whole word and toggles off', async ({
+test('Bold on a collapsed caret marks the whole line and toggles off', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'Desktop-only: relies on a collapsed-caret word-format flow')
   await runInlineMarkToggle({
     page,
     pageRow: seedIds.boldPage,
@@ -168,11 +192,34 @@ test('Bold on a collapsed caret marks the whole word and toggles off', async ({
   })
 })
 
-test('Italic on a collapsed caret marks the whole word and toggles off', async ({
+test('Bold on a partially bolded line expands bold to the whole line before toggling off', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'Desktop-only: relies on a collapsed-caret word-format flow')
+  await waitForApp(page, seedHash(seedIds.partialBoldPage), { expectedText: 'Partial bold line' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  await placeCaretInWord(page, 'line')
+  await ensureToolbarExpanded(page)
+  await page.getByRole('button', { name: 'Bold', exact: true }).click()
+
+  await expect(async () => {
+    expect(await joinedMarkedTextForSelector(page, 'strong')).toBe('Partial bold line')
+  }).toPass({ timeout: 5000 })
+
+  expect(await selectionIsCollapsed(page)).toBe(true)
+
+  await placeCaretInWord(page, 'line')
+  await ensureToolbarExpanded(page)
+  await page.getByRole('button', { name: 'Bold', exact: true }).click()
+
+  await expect(async () => {
+    expect(await joinedMarkedTextForSelector(page, 'strong')).toBe('')
+  }).toPass({ timeout: 5000 })
+})
+
+test('Italic on a collapsed caret marks the whole line and toggles off', async ({
+  page,
+}) => {
   await runInlineMarkToggle({
     page,
     pageRow: seedIds.italicPage,
@@ -181,7 +228,7 @@ test('Italic on a collapsed caret marks the whole word and toggles off', async (
   })
 })
 
-test('Picking a text color with a collapsed caret colors the whole word and keeps it collapsed', async ({
+test('Picking a text color with a collapsed caret colors the whole line and keeps it collapsed', async ({
   page,
   isMobile,
 }) => {
@@ -191,11 +238,15 @@ test('Picking a text color with a collapsed caret colors the whole word and keep
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
 
   await placeCaretInWord(page)
+  await ensureToolbarExpanded(page)
   await page.getByRole('button', { name: 'Text colors' }).click()
   await page.getByRole('button', { name: 'Blue', exact: true }).click()
 
   await expect(async () => {
-    expect(await readWordTextColor(page)).toBe(TEXT_BLUE_RGB)
+    expect(await readWordTextColor(page)).toEqual({
+      color: TEXT_BLUE_RGB,
+      text: `${SEED_WORD} notes line`,
+    })
   }).toPass({ timeout: 5000 })
 
   expect(await selectionIsCollapsed(page)).toBe(true)

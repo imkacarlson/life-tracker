@@ -61,6 +61,11 @@ describe('isHighlightActiveForToggle', () => {
     expect(isHighlightActiveForToggle(state, highlight)).toBe(false)
   })
 
+  it('returns false when the word under the caret is only partially highlighted', () => {
+    const state = withCursor(stateWithHighlight(d, 1, 3), 4)
+    expect(isHighlightActiveForToggle(state, highlight)).toBe(false)
+  })
+
   it('returns true for a non-empty selection over highlighted text', () => {
     const state = withSelection(stateWithHighlight(d, 1, 6), 1, 6)
     expect(isHighlightActiveForToggle(state, highlight)).toBe(true)
