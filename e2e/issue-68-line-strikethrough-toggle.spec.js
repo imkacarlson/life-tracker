@@ -64,9 +64,39 @@ const SEED_CONTENT = {
   ],
 }
 
+const BOLDED_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-strike-bolded' },
+      content: [
+        { type: 'text', marks: [{ type: 'bold' }], text: 'Already bolded' },
+        { type: 'text', text: ' mobile line' },
+      ],
+    },
+  ],
+}
+
+const PARTIAL_STRIKE_CONTENT = {
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-partial-strike' },
+      content: [
+        { type: 'text', marks: [{ type: 'strike' }], text: 'Already struck' },
+        { type: 'text', text: ' plain line' },
+      ],
+    },
+  ],
+}
+
 test.describe('Issue #68 strikethrough toggle on entire line', () => {
   let notebookId = null
   let testPage = null
+  let boldedPage = null
+  let partialStrikePage = null
 
   const getStrikeButton = (page) => page.getByTestId('toolbar-strikethrough')
 
@@ -110,6 +140,15 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
     notebookId = nb.id
     const sec = await createSection(client, userId, nb.id, 'Issue68 Section')
     testPage = await createPage(client, userId, sec.id, 'Test Section', SEED_CONTENT)
+    boldedPage = await createPage(client, userId, sec.id, 'Bolded Test Section', BOLDED_CONTENT, 1)
+    partialStrikePage = await createPage(
+      client,
+      userId,
+      sec.id,
+      'Partial Strike Test Section',
+      PARTIAL_STRIKE_CONTENT,
+      2,
+    )
   })
 
   test.afterAll(async () => {
@@ -223,6 +262,78 @@ test.describe('Issue #68 strikethrough toggle on entire line', () => {
         const s = el.querySelector('s')
         return s !== null && s.textContent.trim().length > 0
       })
+      expect(hasStrike).toBe(false)
+    }).toPass({ timeout: 3000 })
+  })
+
+  test('cursor in bolded text: S button strikes whole line and preserves bold', async ({ page }) => {
+    await waitForApp(page, `/#pg=${boldedPage.id}`, { expectedText: 'Already bolded' })
+
+    const block = page.locator('.ProseMirror p', { hasText: 'Already bolded' }).first()
+    await expect(block).toBeVisible({ timeout: 5000 })
+    await placeCaretInBlock(page, block)
+
+    await ensureToolbarExpanded(page)
+    await getStrikeButton(page).click()
+
+    await expect(async () => {
+      const result = await block.evaluate((el) => {
+        const bold = el.querySelector('strong')
+        return {
+          strikeText: Array.from(el.querySelectorAll('s'))
+            .map((node) => node.textContent ?? '')
+            .join(''),
+          boldText: bold?.textContent ?? '',
+          selectionText: window.getSelection()?.toString() ?? '',
+          selectionCollapsed: Boolean(window.getSelection()?.isCollapsed),
+        }
+      })
+
+      expect(result.strikeText).toBe('Already bolded mobile line')
+      expect(result.boldText).toBe('Already bolded')
+      expect(result.selectionCollapsed).toBe(true)
+      expect(result.selectionText).toBe('')
+    }).toPass({ timeout: 3000 })
+
+    await ensureToolbarExpanded(page)
+    await getStrikeButton(page).click()
+
+    await expect(async () => {
+      const result = await block.evaluate((el) => ({
+        hasStrike: el.querySelector('s') !== null,
+        boldText: el.querySelector('strong')?.textContent ?? '',
+      }))
+      expect(result.hasStrike).toBe(false)
+      expect(result.boldText).toBe('Already bolded')
+    }).toPass({ timeout: 3000 })
+  })
+
+  test('cursor in partially struck text: S button expands strike to whole line before toggling off', async ({
+    page,
+  }) => {
+    await waitForApp(page, `/#pg=${partialStrikePage.id}`, { expectedText: 'Already struck' })
+
+    const block = page.locator('.ProseMirror p', { hasText: 'Already struck' }).first()
+    await expect(block).toBeVisible({ timeout: 5000 })
+    await placeCaretInBlock(page, block)
+
+    await ensureToolbarExpanded(page)
+    await getStrikeButton(page).click()
+
+    await expect(async () => {
+      const strikeText = await block.evaluate((el) =>
+        Array.from(el.querySelectorAll('s'))
+          .map((node) => node.textContent ?? '')
+          .join(''),
+      )
+      expect(strikeText).toBe('Already struck plain line')
+    }).toPass({ timeout: 3000 })
+
+    await ensureToolbarExpanded(page)
+    await getStrikeButton(page).click()
+
+    await expect(async () => {
+      const hasStrike = await block.evaluate((el) => el.querySelector('s') !== null)
       expect(hasStrike).toBe(false)
     }).toPass({ timeout: 3000 })
   })

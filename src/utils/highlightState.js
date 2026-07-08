@@ -1,6 +1,6 @@
-// Thin compatibility re-export. The highlight toggle decision was generalized
-// into the mark-agnostic isMarkActiveForToggle in ./smartMark, so Bold, Italic,
-// Underline, Text color, and Highlight share one implementation. Kept as an
-// alias so existing imports (and highlightState.test.js) keep working.
+// Thin compatibility re-export. Highlight still uses the word-level toggle
+// helper in ./smartMark, while the regular inline toolbar tools use the
+// block-level sibling. Kept as an alias so existing imports and tests keep
+// working.
 
 export { isMarkActiveForToggle as isHighlightActiveForToggle } from './smartMark'
