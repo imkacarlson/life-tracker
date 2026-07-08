@@ -237,15 +237,15 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     expect(rowCountAfter).toBe(rowCountBefore)
   })
 
-  test('desktop: indent/outdent buttons are not visible', async ({ page, isMobile }) => {
+  test('desktop: indent/outdent buttons are visible', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop-only check')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Wedding Planning' })
 
-    // Indent/outdent buttons should not exist on desktop
+    // Indent/outdent buttons should be available on desktop too
     const indentBtn = page.getByTestId('toolbar-indent')
     const outdentBtn = page.getByTestId('toolbar-outdent')
-    await expect(indentBtn).not.toBeVisible()
-    await expect(outdentBtn).not.toBeVisible()
+    await expect(indentBtn).toBeVisible()
+    await expect(outdentBtn).toBeVisible()
   })
 })
