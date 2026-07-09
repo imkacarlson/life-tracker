@@ -1,5 +1,6 @@
 import { Extension } from '@tiptap/core'
 import { toggleLineStrike } from './toggleLineStrike'
+import { clearLineFormatting } from './clearLineFormatting'
 
 export const LinkShortcut = Extension.create({
   name: 'linkShortcut',
@@ -21,6 +22,10 @@ export const LinkShortcut = Extension.create({
       },
       'Mod--': () => {
         toggleLineStrike(this.editor)
+        return true
+      },
+      'Mod-\\': () => {
+        clearLineFormatting(this.editor)
         return true
       },
       'Mod-.': () => {
