@@ -6,6 +6,14 @@ export const LinkShortcut = Extension.create({
   name: 'linkShortcut',
   addKeyboardShortcuts() {
     return {
+      'Mod-b': () => {
+        this.editor.chain().focus().toggleBold().run()
+        return true
+      },
+      'Mod-i': () => {
+        this.editor.chain().focus().toggleItalic().run()
+        return true
+      },
       'Mod-k': () => {
         const previous = this.editor.getAttributes('link')?.href ?? ''
         const nextUrl = window.prompt('Enter link URL', previous)

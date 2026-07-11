@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useEditorState } from '@tiptap/react'
 import { useKeepCursorVisible } from '../../hooks/useKeepCursorVisible'
 import { useEditorUIStore } from '../../stores/editorUIStore'
 import FindBar from './FindBar'
@@ -28,6 +29,14 @@ function Toolbar({
   handleSetTrackerFromToolbar,
   contextMenuItems,
 }) {
+  // Toolbar buttons derive their active state from ProseMirror. Subscribe to
+  // transactions so marks set on an empty block (stored marks) immediately
+  // update the button instead of waiting for an unrelated React render.
+  useEditorState({
+    editor,
+    selector: ({ transactionNumber }) => transactionNumber,
+  })
+
   const toolbarExpanded = useEditorUIStore((s) => s.toolbarExpanded)
   const setToolbarExpanded = useEditorUIStore((s) => s.setToolbarExpanded)
   const findOpen = useEditorUIStore((s) => s.findOpen)
