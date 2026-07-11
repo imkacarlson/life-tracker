@@ -57,6 +57,39 @@ const buildPartialBoldContent = () => ({
   ],
 })
 
+const buildCommonInteractionContent = () => ({
+  type: 'doc',
+  content: [
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-bold-typing' },
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-italic-typing' },
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-underline-typing' },
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-bold-selection' },
+      content: [{ type: 'text', text: 'Select bold text' }],
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-italic-selection' },
+      content: [{ type: 'text', text: 'Select italic text' }],
+    },
+    {
+      type: 'paragraph',
+      attrs: { id: 'p-format-underline-selection' },
+      content: [{ type: 'text', text: 'Select underline text' }],
+    },
+  ],
+})
+
 let seedIds = {}
 const seedLabel = `MARK-CURSOR-${Date.now()}`
 
@@ -114,6 +147,50 @@ const selectionIsCollapsed = (page) =>
     return Boolean(selection?.isCollapsed) && (selection?.toString() ?? '') === ''
   })
 
+const selectTextInParagraph = async (page, paragraphId, text) => {
+  await page.locator(`#${paragraphId}`).evaluate((paragraph, textToSelect) => {
+    const textNode = paragraph.firstChild
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+      throw new Error(`Could not resolve text in #${paragraph.id}`)
+    }
+    const start = textNode.textContent.indexOf(textToSelect)
+    if (start < 0) throw new Error(`Could not find "${textToSelect}" in #${paragraph.id}`)
+    const range = document.createRange()
+    range.setStart(textNode, start)
+    range.setEnd(textNode, start + textToSelect.length)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    paragraph.closest('.ProseMirror')?.focus()
+  }, text)
+}
+
+const placeCaretInParagraph = async (page, paragraphId, isMobile = false) => {
+  const paragraph = page.locator(`#${paragraphId}`)
+  if (isMobile) {
+    await page.locator('.ProseMirror').evaluate((node) => node.focus({ preventScroll: true }))
+    await paragraph.tap()
+    return
+  }
+  await paragraph.evaluate((paragraph) => {
+    const range = document.createRange()
+    range.selectNodeContents(paragraph)
+    range.collapse(true)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    paragraph.closest('.ProseMirror')?.focus()
+  })
+}
+
+const activateToolbarButton = async (button, isMobile) => {
+  if (isMobile) {
+    await button.tap()
+    return
+  }
+  await button.click()
+}
+
 test.beforeAll(async () => {
   const { client, userId } = await getSupabase()
   const notebook = await createNotebook(client, userId, `${seedLabel} Notebook`)
@@ -133,7 +210,24 @@ test.beforeAll(async () => {
   const partialBoldPage = await createPage(
     client, userId, section.id, `${seedLabel} Partial Bold Page`, buildPartialBoldContent(), 4,
   )
-  seedIds = { notebook, section, boldPage, italicPage, underlinePage, colorPage, partialBoldPage }
+  const commonInteractionPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Common Interaction Page`,
+    buildCommonInteractionContent(),
+    5,
+  )
+  seedIds = {
+    notebook,
+    section,
+    boldPage,
+    italicPage,
+    underlinePage,
+    colorPage,
+    partialBoldPage,
+    commonInteractionPage,
+  }
 })
 
 test.afterAll(async () => {
@@ -226,6 +320,66 @@ test('Italic on a collapsed caret marks the whole line and toggles off', async (
     buttonName: 'Italic',
     wrapperSelector: 'em',
   })
+})
+
+test('Bold, italic, and underline stay active when typing after a toolbar toggle', async ({ page, isMobile }) => {
+  await waitForApp(page, seedHash(seedIds.commonInteractionPage), { expectedText: 'Select bold text' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  const cases = [
+    { mark: 'bold', button: 'Bold', paragraphId: 'p-format-bold-typing' },
+    { mark: 'italic', button: 'Italic', paragraphId: 'p-format-italic-typing' },
+    { mark: 'underline', button: 'Underline', paragraphId: 'p-format-underline-typing' },
+  ]
+
+  for (const { mark, button, paragraphId } of cases) {
+    await placeCaretInParagraph(page, paragraphId, isMobile)
+    await ensureToolbarExpanded(page)
+    const toolbarButton = page.getByRole('button', { name: button, exact: true })
+    await activateToolbarButton(toolbarButton, isMobile)
+    await expect(toolbarButton).toHaveClass(/active/)
+
+    await page.keyboard.type(`${mark} typed`)
+    await expect(page.locator(`#${paragraphId} ${mark === 'bold' ? 'strong' : mark === 'italic' ? 'em' : 'u'}`))
+      .toHaveText(`${mark} typed`)
+  }
+})
+
+test('Bold, italic, and underline format selected existing text from the toolbar', async ({ page, isMobile }) => {
+  await waitForApp(page, seedHash(seedIds.commonInteractionPage), { expectedText: 'Select bold text' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  const cases = [
+    { mark: 'bold', button: 'Bold', paragraphId: 'p-format-bold-selection', text: 'bold' },
+    { mark: 'italic', button: 'Italic', paragraphId: 'p-format-italic-selection', text: 'italic' },
+    { mark: 'underline', button: 'Underline', paragraphId: 'p-format-underline-selection', text: 'underline' },
+  ]
+
+  for (const { mark, button, paragraphId, text } of cases) {
+    await selectTextInParagraph(page, paragraphId, text)
+    await ensureToolbarExpanded(page)
+    await activateToolbarButton(page.getByRole('button', { name: button, exact: true }), isMobile)
+
+    const wrapper = mark === 'bold' ? 'strong' : mark === 'italic' ? 'em' : 'u'
+    await expect(page.locator(`#${paragraphId} ${wrapper}`)).toHaveText(text)
+  }
+})
+
+test('Ctrl/Cmd+B and Ctrl/Cmd+I format selected existing text', async ({ page, isMobile }) => {
+  await waitForApp(page, seedHash(seedIds.commonInteractionPage), { expectedText: 'Select bold text' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  await selectTextInParagraph(page, 'p-format-bold-selection', 'bold')
+  await page.keyboard.press('ControlOrMeta+b')
+  await expect(page.locator('#p-format-bold-selection strong')).toHaveText('bold')
+
+  await selectTextInParagraph(page, 'p-format-italic-selection', 'italic')
+  await page.keyboard.press('ControlOrMeta+i')
+  await expect(page.locator('#p-format-italic-selection em')).toHaveText('italic')
+
+  // Keep this path exercised on touch emulation too; the shortcut is handled by
+  // ProseMirror even though the real Android keyboard is not present in CI.
+  expect(typeof isMobile).toBe('boolean')
 })
 
 test('Picking a text color with a collapsed caret colors the whole line and keeps it collapsed', async ({

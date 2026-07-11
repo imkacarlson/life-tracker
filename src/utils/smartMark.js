@@ -111,7 +111,9 @@ export const isMarkActiveForBlockToggle = (state, markType) => {
 
   if (selection.empty) {
     const range = getBlockTextRange(state)
-    if (range) return rangeFullyHasMark(state, range.from, range.to, markType)
+    if (range && range.from < range.to) {
+      return rangeFullyHasMark(state, range.from, range.to, markType)
+    }
     const marks = state.storedMarks || selection.$from.marks()
     return marks.some((m) => m.type === markType)
   }
