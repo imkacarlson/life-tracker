@@ -41,6 +41,33 @@ describe('useEditorUIStore - setToolbarExpanded', () => {
   })
 })
 
+describe('useEditorUIStore - setContextMenu', () => {
+  beforeEach(reset)
+
+  it('accepts a next value object', () => {
+    const next = { open: true, x: 10, y: 20, blockId: 'b1', inTable: false, misspelling: null }
+    useEditorUIStore.getState().setContextMenu(next)
+    expect(useEditorUIStore.getState().contextMenu).toEqual(next)
+  })
+
+  it('accepts a functional updater without storing the function', () => {
+    // Regression: the repositioning effect calls setContextMenu((prev) => ({...prev, x, y})).
+    // If the store stored the function itself, contextMenu.open became undefined and the
+    // menu silently closed the moment it needed repositioning.
+    useEditorUIStore.getState().setContextMenu({
+      open: true, x: 0, y: 0, blockId: 'b1', inTable: false, misspelling: { word: 'teh', from: 1, to: 4 },
+    })
+    useEditorUIStore.getState().setContextMenu((prev) => ({ ...prev, x: 99, y: 42 }))
+
+    const menu = useEditorUIStore.getState().contextMenu
+    expect(typeof menu).toBe('object')
+    expect(menu.open).toBe(true)
+    expect(menu.x).toBe(99)
+    expect(menu.y).toBe(42)
+    expect(menu.misspelling).toEqual({ word: 'teh', from: 1, to: 4 })
+  })
+})
+
 describe('useEditorUIStore - setAiDailyDate', () => {
   beforeEach(reset)
 
