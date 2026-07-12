@@ -118,7 +118,7 @@ test.afterAll(async () => {
 const seedHash = (pageRow) =>
   `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
-test('Highlight on a collapsed caret marks the whole word without disturbing the selection', async ({
+test('Highlight on a collapsed caret marks the whole word without disturbing the selection @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -148,7 +148,7 @@ test('Highlight on a collapsed caret marks the whole word without disturbing the
   }).toPass({ timeout: 5000 })
 })
 
-test('Picking a dropdown color with a collapsed caret highlights the word and keeps it collapsed', async ({
+test('Picking a dropdown color with a collapsed caret highlights the word and keeps it collapsed @desktop', async ({
   page,
   isMobile,
 }) => {

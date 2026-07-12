@@ -47,7 +47,7 @@ const createNewPage = async (page) => {
   await page.getByRole('button', { name: '+ New page' }).click()
 }
 
-test('creating a new page collapses the drawer and shows a blank page', async ({ page, isMobile }) => {
+test('creating a new page collapses the drawer and shows a blank page @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}`
@@ -64,7 +64,7 @@ test('creating a new page collapses the drawer and shows a blank page', async ({
   await expect(editor).toHaveText('')
 })
 
-test('creating a new page does NOT open the keyboard', async ({ page, isMobile }) => {
+test('creating a new page does NOT open the keyboard @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}`
@@ -80,7 +80,7 @@ test('creating a new page does NOT open the keyboard', async ({ page, isMobile }
   expect(interactionState.selectionInEditor).toBe(false)
 })
 
-test('tapping the editor after creating a new page DOES focus it', async ({ page, isMobile }) => {
+test('tapping the editor after creating a new page DOES focus it @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}`

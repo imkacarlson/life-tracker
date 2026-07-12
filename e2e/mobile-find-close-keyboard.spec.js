@@ -64,7 +64,7 @@ test.afterAll(async () => {
   await deleteNotebookById(client, seedIds.notebook?.id)
 })
 
-test('closing the find bar with the keyboard down does NOT refocus the editor', async ({
+test('closing the find bar with the keyboard down does NOT refocus the editor @mobile', async ({
   page,
   isMobile,
 }) => {

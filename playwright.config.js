@@ -23,6 +23,9 @@ export default defineConfig({
     },
     {
       name: 'Desktop Chrome',
+      // Platform-specific tests are tagged in their titles so they can be
+      // filtered before test fixtures and database isolation start.
+      grepInvert: /@mobile/,
       use: {
         ...devices['Desktop Chrome'],
         storageState: 'playwright/.auth/user.json',
@@ -31,6 +34,7 @@ export default defineConfig({
     },
     {
       name: 'Mobile Chrome',
+      grepInvert: /@desktop/,
       use: {
         ...devices['Pixel 7'],
         storageState: 'playwright/.auth/user.json',

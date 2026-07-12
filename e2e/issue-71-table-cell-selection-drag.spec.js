@@ -115,7 +115,7 @@ test.describe('Issue #71 cross-cell drag keeps CellSelection', () => {
     await deleteNotebookById(client, notebookId)
   })
 
-  test('drag across two table cells produces CellSelection that persists', async ({ page, isMobile }) => {
+  test('drag across two table cells produces CellSelection that persists @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Mouse drag CellSelection not supported with touch emulation')
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Running' })
 

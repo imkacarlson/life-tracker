@@ -132,7 +132,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
     await waitForApp(page, `/#pg=${pageA.id}`, { expectedText: 'Link to' })
   })
 
-  test('desktop: first click-back after highlight clear keeps keyboard scope in editor', async ({ page, isMobile }) => {
+  test('desktop: first click-back after highlight clear keeps keyboard scope in editor @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop keyboard shortcut regression path')
 
     const { blockId, styleLocator } = await resolveDeepLinkTarget(page)
@@ -160,7 +160,7 @@ test.describe('Issue #61 deep-link focus recovery', () => {
     expect(selectionState.selectedText).not.toContain('Signed in as')
   })
 
-  test('mobile: deep-link landing avoids auto-focus and still supports tap-back editing flow', async ({ page, isMobile }) => {
+  test('mobile: deep-link landing avoids auto-focus and still supports tap-back editing flow @mobile', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile guard regression path')
 
     const { blockId, styleLocator } = await resolveDeepLinkTarget(page)

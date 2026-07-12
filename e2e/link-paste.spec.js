@@ -60,7 +60,7 @@ test.describe.fixme('Link paste round-trip (reported regression)', () => {
     await deleteNotebookById(client, notebookId)
   })
 
-  test('copying hyperlinked text and pasting keeps the link', async ({ page, isMobile }) => {
+  test('copying hyperlinked text and pasting keeps the link @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop keyboard copy/paste flow (Shift+Home, Ctrl+C/V)')
     await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })

@@ -69,7 +69,7 @@ test.afterAll(async () => {
   await deleteNotebookById(client, seedIds.notebook?.id)
 })
 
-test('switching sections in sidebar does NOT focus the editor', async ({ page, isMobile }) => {
+test('switching sections in sidebar does NOT focus the editor @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   // Navigate to Page A
@@ -97,7 +97,7 @@ test('switching sections in sidebar does NOT focus the editor', async ({ page, i
   expect(interactionState.selectionInEditor).toBe(false)
 })
 
-test('tapping the editor after section switch DOES focus it', async ({ page, isMobile }) => {
+test('tapping the editor after section switch DOES focus it @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   // Navigate to Page A

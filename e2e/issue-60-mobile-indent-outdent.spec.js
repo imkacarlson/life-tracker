@@ -147,7 +147,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     await deleteNotebookById(client, notebookId)
   })
 
-  test('mobile: indent/outdent buttons appear and work on list items', async ({ page, isMobile }) => {
+  test('mobile: indent/outdent buttons appear and work on list items @mobile', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Send out wedding invites' })
@@ -198,7 +198,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     expect(rowCountAfter).toBe(rowCountBefore)
   })
 
-  test('mobile: indent/outdent on first list item in table does not create rows', async ({ page, isMobile }) => {
+  test('mobile: indent/outdent on first list item in table does not create rows @mobile', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only toolbar buttons')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Get DJ scheduled' })
@@ -237,7 +237,7 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
     expect(rowCountAfter).toBe(rowCountBefore)
   })
 
-  test('desktop: indent/outdent buttons are visible', async ({ page, isMobile }) => {
+  test('desktop: indent/outdent buttons are visible @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop-only check')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Wedding Planning' })

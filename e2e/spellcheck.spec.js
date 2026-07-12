@@ -84,7 +84,7 @@ test.afterAll(async () => {
 const seedHash = (pageRow) =>
   `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
-test('right-click on a misspelling shows suggestions and corrects the word', async ({
+test('right-click on a misspelling shows suggestions and corrects the word @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -113,7 +113,7 @@ test('right-click on a misspelling shows suggestions and corrects the word', asy
   await expect(page.locator('.spellcheck-error', { hasText: 'teh' })).toHaveCount(0)
 })
 
-test('"Add to dictionary" clears the squiggle and persists across reloads', async ({
+test('"Add to dictionary" clears the squiggle and persists across reloads @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -144,7 +144,7 @@ test('"Add to dictionary" clears the squiggle and persists across reloads', asyn
   await expect(page.locator('.spellcheck-error', { hasText: CUSTOM_WORD })).toHaveCount(0)
 })
 
-test('mobile never underlines and never fetches the dictionary', async ({ page, isMobile }) => {
+test('mobile never underlines and never fetches the dictionary @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only assertion: feature must stay off on touch devices')
 
   const dictionaryRequests = []
