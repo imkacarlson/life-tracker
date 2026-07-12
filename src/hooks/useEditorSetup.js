@@ -38,8 +38,17 @@ import FindInDoc from '../extensions/findInDoc'
 import TableDragEscape from '../extensions/tableDragEscape'
 import { HighlightPreserve } from '../extensions/highlightPreserve'
 import { Clipboard } from '../extensions/clipboard'
+import { Spellcheck } from '../extensions/spellcheck'
+import { isTouchOnlyDevice } from '../utils/device'
 import { scrollSelectionIntoViewWithToolbar } from '../utils/scrollIntoViewWithToolbar'
 import { useEditorFocusRecovery } from './useEditorFocusRecovery'
+
+// Desktop gets our in-app spell checker (custom right-click suggestions); the
+// native browser squiggles are turned off there since our context menu owns the
+// right-click. Touch-only devices keep native keyboard autocorrect and load
+// nothing extra. Computed once at module load — pointer capabilities don't
+// change mid-session.
+const isDesktopSpellcheck = !isTouchOnlyDevice()
 
 export const useEditorSetup = ({
   trackerSession,
@@ -134,10 +143,18 @@ export const useEditorSetup = ({
         Clipboard.configure({
           onImageFile: handleImageFile,
         }),
+        // In-app spell check (desktop only). Underlines misspellings; the
+        // right-click menu reads its storage for suggestions.
+        ...(isDesktopSpellcheck ? [Spellcheck] : []),
       ],
       content: trackerSession.content ?? EMPTY_DOC,
       editorProps: {
-        attributes: { class: 'editor-content' },
+        attributes: {
+          class: 'editor-content',
+          // Suppress the browser's native squiggles on desktop so they don't
+          // double up with ours; leave them (autocorrect) on touch devices.
+          ...(isDesktopSpellcheck ? { spellcheck: 'false' } : {}),
+        },
         // Route *every* selection-driven scroll (typing, arrows, find's
         // setSelection().scrollIntoView(), etc.) through our single chrome-aware
         // scroll. Returning true suppresses ProseMirror's native scroll-into-view

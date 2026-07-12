@@ -167,6 +167,14 @@
   outline: 2px solid #f59e0b;
 }
 
+/* In-app spell check: red wavy underline under flagged words (desktop only).
+   skip-ink off keeps the wave continuous under descenders. */
+.editor-shell .ProseMirror .spellcheck-error {
+  text-decoration: underline wavy var(--error);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+
 .editor-shell .ProseMirror .deep-link-target {
   background: rgba(250, 204, 21, 0.22);
   outline: 2px solid rgba(245, 158, 11, 0.85);

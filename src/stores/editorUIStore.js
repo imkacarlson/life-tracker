@@ -76,7 +76,9 @@ export const useEditorUIStore = create((set, get) => ({
   },
 
   // Context menu
-  contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false },
+  // `misspelling` is { word, from, to } when the right-click landed on a
+  // flagged word, else null.
+  contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false, misspelling: null },
   submenuOpen: false,
   submenuDirection: 'right',
   setContextMenu: (m) => set({ contextMenu: m }),
@@ -95,7 +97,7 @@ export const useEditorUIStore = create((set, get) => ({
     aiSearchLoading: false,
     aiInsertOpen: false,
     aiInsertText: '',
-    contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false },
+    contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false, misspelling: null },
     submenuOpen: false,
   }),
 }))
