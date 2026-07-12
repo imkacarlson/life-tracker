@@ -6,30 +6,8 @@ import { findMisspellings } from '../utils/spellcheckHelpers'
 
 export const spellcheckPluginKey = new PluginKey('spellcheck')
 
-// Re-scan ~400ms after the last edit so typing stays smooth. Scrolling reuses
-// the same debounce so a flick doesn't fire dozens of scans.
+// Re-scan ~400ms after the last edit so typing stays smooth.
 const SCAN_DEBOUNCE_MS = 400
-// Scan a little beyond the visible rect so words just off-screen are already
-// underlined by the time they scroll into view.
-const VIEWPORT_MARGIN_PX = 300
-
-// Resolve the document range currently visible in the editor (plus a margin),
-// so a long document only ever spell-checks the part the user can see.
-const computeVisibleRange = (view) => {
-  const doc = view.state.doc
-  const rect = view.dom.getBoundingClientRect()
-  const viewportBottom = window.innerHeight || document.documentElement.clientHeight || rect.bottom
-  const top = Math.max(rect.top, 0) - VIEWPORT_MARGIN_PX
-  const bottom = Math.min(rect.bottom, viewportBottom) + VIEWPORT_MARGIN_PX
-  // Probe slightly inside the left edge so we land on text, not padding.
-  const x = rect.left + Math.min(20, Math.max(1, rect.width / 2))
-  const start = view.posAtCoords({ left: x, top })
-  const end = view.posAtCoords({ left: x, top: bottom })
-  let from = start ? start.pos : 0
-  let to = end ? end.pos : doc.content.size
-  if (from > to) [from, to] = [to, from]
-  return { from: Math.max(0, from), to: Math.min(doc.content.size, to) }
-}
 
 // Walk the text nodes in `range` and collect a decoration for each misspelling.
 // `cache` memoizes per-word correctness so repeated words (and overlapping scans
@@ -67,31 +45,37 @@ const collectDecorations = (doc, range, checker, ignore, cache) => {
 const decorationSignature = (decorations) =>
   decorations.map((d) => `${d.from}:${d.to}`).join('|')
 
-// Owns the debounced scan loop, the per-word cache, and the scroll listener for
-// one editor view. Created in the plugin's view() lifecycle and torn down with
-// it. Kept out of plugin *state* so scanning (which dispatches its own
-// transaction) never recurses through the state apply path.
+// Owns the debounced scan loop and the per-word cache for one editor view.
+// Created in the plugin's view() lifecycle and torn down with it. Kept out of
+// plugin *state* so scanning (which dispatches its own transaction) never
+// recurses through the state apply path.
 const createScanController = (view, storage) => {
   let timer = null
   let destroyed = false
   let checker = null
   let lastSignature = null
-  let scrollEl = null
 
   const runScan = () => {
     timer = null
     if (destroyed || !checker) return
-    const range = computeVisibleRange(view)
+    // Scan the whole document. Coordinate-based "visible range" probing proved
+    // unreliable in this app: the window (not the editor) is the scroll surface,
+    // so a tall editor extends far past the viewport and posAtCoords returned
+    // degenerate positions, collapsing the range to nothing and leaving real
+    // misspellings unflagged. The per-word cache below keeps a full scan cheap —
+    // repeated words are only checked once, and edits reuse the cache.
+    const doc = view.state.doc
+    const range = { from: 0, to: doc.content.size }
     const decorations = collectDecorations(
-      view.state.doc,
+      doc,
       range,
       checker,
       storage.ignore,
       storage.cache,
     )
     const signature = decorationSignature(decorations)
-    // Skip the dispatch when scrolling reveals nothing new — avoids churning
-    // transactions (and the autosave/selection listeners) for no reason.
+    // Skip the dispatch when nothing changed — avoids churning transactions
+    // (and the autosave/selection listeners) for no reason.
     if (signature === lastSignature) return
     lastSignature = signature
     const decoSet = DecorationSet.create(view.state.doc, decorations)
@@ -106,8 +90,6 @@ const createScanController = (view, storage) => {
     if (immediate) lastSignature = null // force the next scan to dispatch
     timer = setTimeout(runScan, immediate ? 0 : SCAN_DEBOUNCE_MS)
   }
-
-  const onScroll = () => schedule()
 
   const start = () => {
     // Reuse the instance if another view already loaded it; otherwise trigger
@@ -128,14 +110,11 @@ const createScanController = (view, storage) => {
           }
         })
     }
-    scrollEl = view.dom.closest('.editor-panel') || view.dom.parentElement
-    scrollEl?.addEventListener('scroll', onScroll, { passive: true })
   }
 
   const destroy = () => {
     destroyed = true
     if (timer) clearTimeout(timer)
-    scrollEl?.removeEventListener('scroll', onScroll)
   }
 
   return { start, schedule, destroy }

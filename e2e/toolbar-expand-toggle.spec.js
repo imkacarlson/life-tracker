@@ -64,7 +64,7 @@ test.afterAll(async () => {
 })
 
 test(
-  'mobile expand toggle flips state on a single tap',
+  'mobile expand toggle flips state on a single tap @mobile',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
 
@@ -91,7 +91,7 @@ test(
 )
 
 test(
-  'tapping the expand toggle without prior editor focus does NOT focus the editor',
+  'tapping the expand toggle without prior editor focus does NOT focus the editor @mobile',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
 
@@ -127,7 +127,7 @@ test(
 )
 
 test(
-  'tapping a command button preserves editor selection and applies the command',
+  'tapping a command button preserves editor selection and applies the command @mobile',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
 

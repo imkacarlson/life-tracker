@@ -50,7 +50,7 @@ test.afterAll(async () => {
   await deleteNotebookById(client, seedIds.notebook?.id)
 })
 
-test('mobile toolbar is visible and pinned to the bottom of the viewport', async ({ page, isMobile }) => {
+test('mobile toolbar is visible and pinned to the bottom of the viewport @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
@@ -71,7 +71,7 @@ test('mobile toolbar is visible and pinned to the bottom of the viewport', async
   expect(Math.abs(bottomGap)).toBeLessThanOrEqual(2) // within safe-area / rounding
 })
 
-test('bold button works from the mobile toolbar', async ({ page, isMobile }) => {
+test('bold button works from the mobile toolbar @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
@@ -91,7 +91,7 @@ test('bold button works from the mobile toolbar', async ({ page, isMobile }) => 
   expect(hasBold).toBe(true)
 })
 
-test('indent and outdent buttons are visible in collapsed mobile toolbar without expanding', async ({ page, isMobile }) => {
+test('indent and outdent buttons are visible in collapsed mobile toolbar without expanding @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`
@@ -105,7 +105,7 @@ test('indent and outdent buttons are visible in collapsed mobile toolbar without
   await expect(outdentBtn).toBeVisible()
 })
 
-test('editor-panel reserves space so content is not hidden behind the toolbar', async ({ page, isMobile }) => {
+test('editor-panel reserves space so content is not hidden behind the toolbar @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only test')
 
   const hash = `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${seedIds.page.id}`

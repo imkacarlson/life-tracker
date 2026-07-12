@@ -247,7 +247,7 @@ test.describe('scroll + cursor restoration', () => {
     await expect.poll(() => getScroll(page, isMobile), { timeout: 5000 }).toBeLessThan(40)
   })
 
-  test('5. mobile read-mode keeps the keyboard down while restoring', async ({ page, isMobile }) => {
+  test('5. mobile read-mode keeps the keyboard down while restoring @mobile', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only: virtual-keyboard regression guard for #194')
 
     // Seed a scroll offset on the table page via hash nav (no editor focus).

@@ -53,7 +53,7 @@ test.describe.fixme('Issue #62 highlight paste regression', () => {
     await deleteNotebookById(client, notebookId)
   })
 
-  test('copy/paste + date edit keeps highlight on date token only', async ({ page, isMobile }) => {
+  test('copy/paste + date edit keeps highlight on date token only @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop keyboard shortcut flow (Shift+Home, Ctrl+C/V)')
     await waitForApp(page, `/#pg=${testPage.id}`)
     await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })

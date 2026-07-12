@@ -81,7 +81,12 @@ export const useEditorUIStore = create((set, get) => ({
   contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false, misspelling: null },
   submenuOpen: false,
   submenuDirection: 'right',
-  setContextMenu: (m) => set({ contextMenu: m }),
+  // Accepts either a next value or an updater function (prev) => next, matching
+  // React's setState convention. Several callers (closeContextMenu, the
+  // menu-repositioning effect) pass an updater; without this they would store the
+  // function itself as `contextMenu`, silently blanking the menu.
+  setContextMenu: (m) =>
+    set((state) => ({ contextMenu: typeof m === 'function' ? m(state.contextMenu) : m })),
   setSubmenuOpen: (v) => set({ submenuOpen: v }),
   setSubmenuDirection: (d) => set({ submenuDirection: d }),
 

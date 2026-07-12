@@ -382,7 +382,7 @@ test('Ctrl/Cmd+B and Ctrl/Cmd+I format selected existing text', async ({ page, i
   expect(typeof isMobile).toBe('boolean')
 })
 
-test('Picking a text color with a collapsed caret colors the whole line and keeps it collapsed', async ({
+test('Picking a text color with a collapsed caret colors the whole line and keeps it collapsed @desktop', async ({
   page,
   isMobile,
 }) => {

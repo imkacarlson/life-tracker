@@ -228,7 +228,7 @@ test.afterAll(async () => {
 const seedHash = (pageRow) =>
   `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
-test('highlight color picked via caret persists across reload and the main button applies it', async ({
+test('highlight color picked via caret persists across reload and the main button applies it @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -262,7 +262,7 @@ test('highlight color picked via caret persists across reload and the main butto
   }).toPass({ timeout: 5000 })
 })
 
-test('Ctrl+Alt+H applies the persisted highlight color after reload', async ({ page, isMobile }) => {
+test('Ctrl+Alt+H applies the persisted highlight color after reload @desktop', async ({ page, isMobile }) => {
   test.skip(isMobile, 'Desktop keyboard shortcut flow')
 
   await waitForApp(page, seedHash(seedIds.shortcutPage), { expectedText: 'Persisted color test line' })
@@ -285,7 +285,7 @@ test('Ctrl+Alt+H applies the persisted highlight color after reload', async ({ p
   }).toPass({ timeout: 5000 })
 })
 
-test('text color picked via caret persists across reload and the main button applies it', async ({
+test('text color picked via caret persists across reload and the main button applies it @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -317,7 +317,7 @@ test('text color picked via caret persists across reload and the main button app
   }).toPass({ timeout: 5000 })
 })
 
-test('shading color persists across reload and the main button toggles a different cell', async ({
+test('shading color persists across reload and the main button toggles a different cell @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -370,7 +370,7 @@ test('shading color persists across reload and the main button toggles a differe
   )
 })
 
-test('remembered shading color is not clobbered by moving the cursor into a shaded cell', async ({
+test('remembered shading color is not clobbered by moving the cursor into a shaded cell @desktop', async ({
   page,
   isMobile,
 }) => {

@@ -146,38 +146,45 @@ export const test = base.extend({
     // `provide` is Playwright's fixture callback (passed positionally); it is
     // not React's `use` hook. Naming it `provide` avoids react-hooks/rules-of-hooks
     // false positives, and the named first param avoids no-empty-pattern.
-    async ({ baseURL }, provide, testInfo) => {
-      void baseURL
+    async ({ page }, provide, testInfo) => {
       if (testInfo.project.name === 'setup') {
         await provide()
         return
       }
 
       const snapshot = await readSnapshot()
+      const pendingWrites = new Set()
+      const isSupabaseWrite = (request) =>
+        ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method()) &&
+        request.url().includes('/rest/v1/')
+      const trackWrite = (request) => {
+        if (isSupabaseWrite(request)) pendingWrites.add(request)
+      }
+      const finishWrite = (request) => pendingWrites.delete(request)
+
+      page.on('request', trackWrite)
+      page.on('requestfinished', finishWrite)
+      page.on('requestfailed', finishWrite)
       try {
         await provide()
       } finally {
-        // The app's autosave debounce is 2 000 ms.  Wait at least that long
-        // before polling so the debounce has a chance to fire.  Then poll the
-        // DB every 500 ms until two consecutive reads match — meaning any
-        // in-flight save has landed.  Ignore query errors (treat as "changed").
-        await new Promise((r) => setTimeout(r, 2000))
-        const supabase = await getSupabaseClient()
-        const userId = snapshot.userId
-        let prev = null
-        const deadline = Date.now() + 3000
-        while (Date.now() < deadline) {
-          const { data, error } = await supabase
-            .from('pages')
-            .select('id,content,title')
-            .eq('user_id', userId)
-          if (!error) {
-            const snap = JSON.stringify(data ?? [])
-            if (prev !== null && snap === prev) break
-            prev = snap
+        // Editing marks the page as Saving immediately, before the two-second
+        // debounce starts. Wait on that observable state only when it exists;
+        // read-only tests proceed directly to cleanup.
+        const status = page.locator('.status-row')
+        if (await status.count()) {
+          const text = await status.textContent().catch(() => '')
+          if (/Saving|Unsaved \(local\)/.test(text ?? '')) {
+            await expect(status).not.toContainText(/Saving|Unsaved \(local\)/, { timeout: 6000 })
           }
-          await new Promise((r) => setTimeout(r, 500))
         }
+
+        // Also wait for direct create/delete/update requests that do not use
+        // the editor's save status. This normally resolves immediately.
+        await expect.poll(() => pendingWrites.size, { timeout: 5000 }).toBe(0)
+        page.off('request', trackWrite)
+        page.off('requestfinished', finishWrite)
+        page.off('requestfailed', finishWrite)
         await restoreSnapshot(snapshot, getProtectedSeedSnapshot())
       }
     },

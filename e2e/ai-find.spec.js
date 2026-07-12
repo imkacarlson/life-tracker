@@ -248,7 +248,7 @@ test.describe('AI Find scroll-into-view', () => {
     }).toPass({ timeout: 5000 })
   })
 
-  test('literal Find Next keeps the current highlight above the mobile toolbar', async ({ page, isMobile }) => {
+  test('literal Find Next keeps the current highlight above the mobile toolbar @mobile', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile toolbar coverage regression')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Delta Airlines top reference' })
@@ -280,7 +280,7 @@ test.describe('AI Find scroll-into-view', () => {
     }).toPass({ timeout: 5000 })
   })
 
-  test('desktop Find Next keeps the current highlight below the sticky toolbar', async ({ page, isMobile }) => {
+  test('desktop Find Next keeps the current highlight below the sticky toolbar @desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'Desktop sticky top-toolbar coverage')
 
     await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Delta Airlines top reference' })

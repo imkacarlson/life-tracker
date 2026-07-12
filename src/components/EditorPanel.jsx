@@ -493,11 +493,32 @@ function EditorPanel({
       const blockId = getActiveBlockId()
       // Did the click land on a flagged misspelling? (desktop-only extension —
       // storage helper is absent on touch builds, so this is null there.)
+      //
+      // Resolve the word from the decoration element under the cursor via
+      // posAtDOM. Coordinate probing (posAtCoords) is unreliable on this app's
+      // window-scroll layout — a tall page pushes content past the viewport and
+      // the probe returns degenerate positions — so it's only a fallback for
+      // clicks that didn't land on a squiggle span.
       let misspelling = null
-      const coords = editor.view?.posAtCoords({ left: event.clientX, top: event.clientY })
       const getMisspellingAt = editor.storage?.spellcheck?.getMisspellingAt
-      if (coords?.pos !== undefined && typeof getMisspellingAt === 'function') {
-        misspelling = getMisspellingAt(coords.pos)
+      if (typeof getMisspellingAt === 'function') {
+        const targetEl =
+          event.target?.nodeType === Node.TEXT_NODE ? event.target.parentElement : event.target
+        const errorEl = targetEl?.closest?.('.spellcheck-error')
+        if (errorEl && editor.view) {
+          try {
+            const pos = editor.view.posAtDOM(errorEl.firstChild ?? errorEl, 0)
+            misspelling = getMisspellingAt(pos)
+          } catch {
+            misspelling = null
+          }
+        }
+        if (!misspelling) {
+          const coords = editor.view?.posAtCoords({ left: event.clientX, top: event.clientY })
+          if (coords?.pos !== undefined) {
+            misspelling = getMisspellingAt(coords.pos)
+          }
+        }
       }
       openContextMenu({ x: event.clientX, y: event.clientY, blockId, inTable, misspelling })
     }

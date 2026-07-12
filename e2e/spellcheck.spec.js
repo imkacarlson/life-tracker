@@ -6,6 +6,9 @@
  *      shows suggestions in the custom menu; clicking one corrects the word.
  *   2. "Add to dictionary" clears the squiggle and persists — after a reload the
  *      custom word is still not flagged.
+ *   3. A misspelling buried deep in a tall (taller-than-viewport) document is
+ *      flagged without scrolling — regression coverage for the full-document
+ *      scan replacing the old, unreliable viewport-only scan.
  *
  * Mobile flow:
  *   The feature is desktop-only. On the Mobile Chrome project nothing is
@@ -25,6 +28,49 @@ import {
 
 // Coined name that will never be in the dictionary — used for the add-to-dictionary flow.
 const CUSTOM_WORD = 'Kacarlsonia'
+
+// Coined word placed deep in the tall page. Distinctive so the locator can find
+// exactly one squiggle; never a real word, so it is always flagged.
+const DEEP_TYPO = 'Zblorptastic'
+
+// A sentence of only common, correctly-spelled English words, so the tall page's
+// filler never produces incidental squiggles that could confuse assertions.
+const FILLER_SENTENCE =
+  'This is a normal line of tracker notes with plenty of everyday words that the checker should not flag as wrong.'
+
+// Build a document far taller than the viewport — like a real month-long tracker —
+// with the sentinel misspelling buried well below the fold. The old viewport-only
+// scan never reached content this deep (and on this app's window-scroll layout
+// collapsed to nothing entirely); the full-document scan flags it immediately.
+const buildTallTrackerContent = () => {
+  const content = [
+    {
+      type: 'paragraph',
+      attrs: { id: 'tall-title' },
+      content: [{ type: 'text', text: 'Marathon training and life admin tracker' }],
+    },
+  ]
+  for (let i = 0; i < 60; i += 1) {
+    content.push({
+      type: 'paragraph',
+      attrs: { id: `tall-fill-${i}` },
+      content: [{ type: 'text', text: `${i + 1}. ${FILLER_SENTENCE}` }],
+    })
+  }
+  content.push({
+    type: 'paragraph',
+    attrs: { id: 'tall-deep-typo' },
+    content: [{ type: 'text', text: `Remember to call the ${DEEP_TYPO} about the thing.` }],
+  })
+  for (let i = 0; i < 5; i += 1) {
+    content.push({
+      type: 'paragraph',
+      attrs: { id: `tall-tail-${i}` },
+      content: [{ type: 'text', text: FILLER_SENTENCE }],
+    })
+  }
+  return { type: 'doc', content }
+}
 
 const buildSuggestContent = () => ({
   type: 'doc',
@@ -71,7 +117,15 @@ test.beforeAll(async () => {
     buildCustomWordContent(),
     1,
   )
-  seedIds = { notebook, section, suggestPage, customPage }
+  const tallPage = await createPage(
+    client,
+    userId,
+    section.id,
+    `${seedLabel} Tall Page`,
+    buildTallTrackerContent(),
+    2,
+  )
+  seedIds = { notebook, section, suggestPage, customPage, tallPage }
 })
 
 test.afterAll(async () => {
@@ -84,7 +138,7 @@ test.afterAll(async () => {
 const seedHash = (pageRow) =>
   `#nb=${seedIds.notebook.id}&sec=${seedIds.section.id}&pg=${pageRow.id}`
 
-test('right-click on a misspelling shows suggestions and corrects the word', async ({
+test('right-click on a misspelling shows suggestions and corrects the word @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -113,7 +167,7 @@ test('right-click on a misspelling shows suggestions and corrects the word', asy
   await expect(page.locator('.spellcheck-error', { hasText: 'teh' })).toHaveCount(0)
 })
 
-test('"Add to dictionary" clears the squiggle and persists across reloads', async ({
+test('"Add to dictionary" clears the squiggle and persists across reloads @desktop', async ({
   page,
   isMobile,
 }) => {
@@ -144,7 +198,51 @@ test('"Add to dictionary" clears the squiggle and persists across reloads', asyn
   await expect(page.locator('.spellcheck-error', { hasText: CUSTOM_WORD })).toHaveCount(0)
 })
 
-test('mobile never underlines and never fetches the dictionary', async ({ page, isMobile }) => {
+test('flags a misspelling deep in a tall document without scrolling @desktop', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop-only: in-app spell check is gated off on touch devices')
+
+  await waitForApp(page, seedHash(seedIds.tallPage), { expectedText: 'Marathon training' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  // The sentinel typo sits ~60 paragraphs down, far below the initial viewport.
+  // A viewport-only scan would miss it (this is the regression the full-document
+  // scan fixes); assert it is flagged with no scrolling at all.
+  const deepError = page.locator('.spellcheck-error', { hasText: DEEP_TYPO })
+  await expect(deepError).toHaveCount(1, { timeout: 15000 })
+
+  // Confirm it really was below the fold — proving the whole document was scanned,
+  // not just what happened to be on screen.
+  const box = await deepError.boundingBox()
+  const viewportHeight = page.viewportSize()?.height ?? 0
+  expect(box).not.toBeNull()
+  expect(box.y).toBeGreaterThan(viewportHeight)
+})
+
+test('right-click resolves the misspelling under the cursor on a tall page @desktop', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop-only: in-app spell check is gated off on touch devices')
+
+  await waitForApp(page, seedHash(seedIds.tallPage), { expectedText: 'Marathon training' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  const deepError = page.locator('.spellcheck-error', { hasText: DEEP_TYPO })
+  await expect(deepError).toHaveCount(1, { timeout: 15000 })
+
+  // Right-clicking the deep word must open the menu WITH its spelling section.
+  // The menu resolves the word from the clicked element (not coordinate probing),
+  // so it works even though the word is far below the initial viewport.
+  await deepError.click({ button: 'right' })
+  const menu = page.locator('.table-context-menu')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('button', { name: 'Add to dictionary' })).toBeVisible()
+})
+
+test('mobile never underlines and never fetches the dictionary @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only assertion: feature must stay off on touch devices')
 
   const dictionaryRequests = []

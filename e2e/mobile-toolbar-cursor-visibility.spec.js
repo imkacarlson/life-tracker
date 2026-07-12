@@ -66,7 +66,7 @@ test.afterAll(async () => {
 })
 
 test(
-  'cursor stays visible when toolbar expands on mobile',
+  'cursor stays visible when toolbar expands on mobile @mobile',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
 
@@ -126,7 +126,7 @@ test(
 )
 
 test(
-  'toolbar expand does not scroll when cursor is already above the toolbar',
+  'toolbar expand does not scroll when cursor is already above the toolbar @mobile',
   async ({ page, isMobile }) => {
     test.skip(!isMobile, 'Mobile-only test')
 
