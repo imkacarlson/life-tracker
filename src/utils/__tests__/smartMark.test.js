@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { Schema } from '@tiptap/pm/model'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
-import { isMarkActiveForBlockToggle, isMarkActiveForToggle, rangeFullyHasMark } from '../smartMark'
+import {
+  applyMarkSmart,
+  isMarkActiveForBlockToggle,
+  isMarkActiveForToggle,
+  rangeFullyHasMark,
+  toggleMarkSmart,
+} from '../smartMark'
 
 // Minimal ProseMirror schema with a plain-text block plus a couple of marks.
 // `underline` stands in for the inclusive Bold/Italic/Underline family; `em`
@@ -145,5 +151,142 @@ describe('rangeFullyHasMark', () => {
   it('returns false when only part of the text range has the mark', () => {
     const state = stateWithMark(d, underline, 1, 6)
     expect(rangeFullyHasMark(state, 1, 12, underline)).toBe(false)
+  })
+})
+
+// --- applyMarkSmart / toggleMarkSmart ------------------------------------
+//
+// These operate on an `editor` (not a raw state), so we build a minimal fake
+// that mimics the Tiptap chain: chain().focus().command(fn).run() runs each
+// command against a single shared transaction and applies it, exactly like the
+// real chain. syncSelectionFromDom bails out immediately because our stubbed
+// window has no selection, so no editor view is needed.
+
+// syncSelectionFromDom reads window.getSelection(); in the node test env there
+// is no window. A stub returning null makes it bail before touching the view.
+beforeAll(() => {
+  globalThis.window = { getSelection: () => null }
+})
+afterAll(() => {
+  delete globalThis.window
+})
+
+const makeEditor = (initialState) => {
+  const editor = {
+    state: initialState,
+    schema: initialState.schema,
+    isDestroyed: false,
+    get view() {
+      return null
+    },
+    chain() {
+      const ops = []
+      const api = {
+        focus() {
+          return api
+        },
+        command(fn) {
+          ops.push(fn)
+          return api
+        },
+        run() {
+          const tr = editor.state.tr
+          for (const fn of ops) {
+            fn({ state: editor.state, tr, dispatch: () => {} })
+          }
+          editor.state = editor.state.apply(tr)
+          return true
+        },
+      }
+      return api
+    },
+  }
+  return editor
+}
+
+// The marks that would apply to the NEXT typed character: explicit stored marks
+// if set, otherwise the marks at the caret. This is what "arm continued typing"
+// really means — when the caret lands inside a freshly-marked word, the marks at
+// the cursor already carry the format, so addStoredMark is a no-op there.
+const armedMarks = (state) => state.storedMarks || state.selection.$from.marks()
+const isArmed = (state, markType) => markType.isInSet(armedMarks(state)) != null
+
+describe('applyMarkSmart', () => {
+  it('word-level: caret inside a word marks the whole word and arms typing', () => {
+    // doc: p("hello world"); caret at pos 3 (inside "hello" = [1, 6]).
+    const editor = makeEditor(withCursor(EditorState.create({ doc: doc.create(null, [p('hello world')]), schema }), 3))
+    applyMarkSmart(editor, underline, { level: 'word' })
+
+    // Whole word "hello" marked, "world" untouched.
+    expect(rangeFullyHasMark(editor.state, 1, 6, underline)).toBe(true)
+    expect(rangeFullyHasMark(editor.state, 7, 12, underline)).toBe(false)
+    // Continued typing armed.
+    expect(isArmed(editor.state, underline)).toBe(true)
+  })
+
+  it('word-level: caret on whitespace leaves the doc unchanged but arms typing', () => {
+    // doc: p("hi  there"); caret at pos 4 sits between the two spaces (no word).
+    const initial = withCursor(EditorState.create({ doc: doc.create(null, [p('hi  there')]), schema }), 4)
+    const editor = makeEditor(initial)
+    applyMarkSmart(editor, underline, { level: 'word' })
+
+    // Nothing to grab: doc text is untouched, no mark applied anywhere.
+    expect(editor.state.doc.eq(initial.doc)).toBe(true)
+    expect(rangeFullyHasMark(editor.state, 1, 10, underline)).toBe(false)
+    // But typing is armed.
+    expect(isArmed(editor.state, underline)).toBe(true)
+  })
+
+  it('block-level: caret inside a line marks the whole block and arms typing', () => {
+    // doc: p("hello world"); caret at pos 9 (inside "world"). Block = [1, 12].
+    const editor = makeEditor(withCursor(EditorState.create({ doc: doc.create(null, [p('hello world')]), schema }), 9))
+    applyMarkSmart(editor, underline, { level: 'block' })
+
+    expect(rangeFullyHasMark(editor.state, 1, 12, underline)).toBe(true)
+    expect(isArmed(editor.state, underline)).toBe(true)
+  })
+
+  it('remove: clears the range mark and disarms the stored mark', () => {
+    // Start with "hello" underlined; caret inside it; remove.
+    const marked = stateWithMark(doc.create(null, [p('hello world')]), underline, 1, 6)
+    const editor = makeEditor(withCursor(marked, 3))
+    applyMarkSmart(editor, underline, { level: 'word', remove: true })
+
+    expect(rangeFullyHasMark(editor.state, 1, 6, underline)).toBe(false)
+    // Stored mark removed (arming off), not carried into the next characters.
+    expect(isArmed(editor.state, underline)).toBe(false)
+  })
+
+  it('formats a non-empty selection without arming', () => {
+    // Select "world" [7, 12]; no collapsed caret, so no stored mark is set.
+    const editor = makeEditor(
+      withSelection(EditorState.create({ doc: doc.create(null, [p('hello world')]), schema }), 7, 12),
+    )
+    applyMarkSmart(editor, underline, { level: 'word' })
+
+    expect(rangeFullyHasMark(editor.state, 7, 12, underline)).toBe(true)
+    expect(isArmed(editor.state, underline)).toBe(false)
+  })
+})
+
+describe('toggleMarkSmart', () => {
+  it('applies the mark when the word target is not yet marked', () => {
+    const editor = makeEditor(withCursor(EditorState.create({ doc: doc.create(null, [p('hello world')]), schema }), 3))
+    toggleMarkSmart(editor, underline, { level: 'word' })
+    expect(rangeFullyHasMark(editor.state, 1, 6, underline)).toBe(true)
+  })
+
+  it('removes the mark when the word target is already fully marked', () => {
+    const marked = stateWithMark(doc.create(null, [p('hello world')]), underline, 1, 6)
+    const editor = makeEditor(withCursor(marked, 3))
+    toggleMarkSmart(editor, underline, { level: 'word' })
+    expect(rangeFullyHasMark(editor.state, 1, 6, underline)).toBe(false)
+  })
+
+  it('block-level: removes when the whole block already carries the mark', () => {
+    const marked = stateWithMark(doc.create(null, [p('hello world')]), underline, 1, 12)
+    const editor = makeEditor(withCursor(marked, 9))
+    toggleMarkSmart(editor, underline, { level: 'block' })
+    expect(rangeFullyHasMark(editor.state, 1, 12, underline)).toBe(false)
   })
 })
