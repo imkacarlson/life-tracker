@@ -121,82 +121,83 @@ export const isMarkActiveForBlockToggle = (state, markType) => {
   return rangeFullyHasMark(state, selection.from, selection.to, markType)
 }
 
-/**
- * Apply (or remove) a mark on the word under a collapsed caret, or on the
- * current selection. The caret stays collapsed — we never setTextSelection, so
- * no blue overlay flashes over the formatted word.
- *
- * Returns false (without acting) when there is no word/selection target — a
- * caret on whitespace or an empty block — so callers can fall back to the
- * standard stored-mark command ("format the next typed characters").
- *
- * @param {import('@tiptap/core').Editor} editor
- * @param {import('@tiptap/pm/model').MarkType} markType
- * @param {{ attrs?: object | null, remove?: boolean }} [options]
- * @returns {boolean} true when a word/selection target was acted on
- */
-export function applyMarkToTarget(editor, markType, { attrs = null, remove = false } = {}) {
-  if (!editor || !markType) return false
-  syncSelectionFromDom(editor)
-
-  const { selection } = editor.state
-  let range = null
-  if (selection.empty) {
-    range = getWordRangeAt(editor.state)
-    if (!range) return false // whitespace caret: let the caller fall back
-  } else {
-    range = { from: selection.from, to: selection.to }
+// Resolve the target range for a smart mark action. With a non-empty selection
+// we act on the selection. With a collapsed caret we grab the smart target: the
+// word under the cursor (level 'word') or the whole paragraph/list item (level
+// 'block'). Returns null when the caret sits on whitespace / an empty block —
+// there is nothing to grab, so the caller only arms continued typing.
+function resolveSmartRange(state, level) {
+  const { selection } = state
+  if (!selection.empty) {
+    return { from: selection.from, to: selection.to }
   }
-
-  editor
-    .chain()
-    .focus()
-    .command(({ tr, dispatch }) => {
-      if (dispatch) {
-        tr.removeMark(range.from, range.to, markType)
-        if (!remove) tr.addMark(range.from, range.to, markType.create(attrs))
-      }
-      return true
-    })
-    .run()
-
-  return true
+  const range = level === 'word' ? getWordRangeAt(state) : getBlockTextRange(state)
+  if (!range || range.from >= range.to) return null
+  return range
 }
 
 /**
- * Apply (or remove) a mark on the current paragraph/list item when the caret is
- * collapsed, or on the current selection when text is selected. The caret stays
- * collapsed; callers do not need to create a temporary text selection.
+ * Apply (or remove) a mark the way the toolbar buttons do, in one transaction:
+ *
+ *  - Cursor in a word/line (collapsed caret) → format the smart target (word for
+ *    'word', whole block for 'block') AND arm continued typing so newly typed
+ *    text keeps the format.
+ *  - Cursor on whitespace / empty block (nothing to grab) → just arm the next
+ *    typed characters.
+ *  - Text selected → format the selection (no arming).
+ *
+ * The caret stays collapsed — we never setTextSelection, so no native blue
+ * overlay flashes over the formatted text.
  *
  * @param {import('@tiptap/core').Editor} editor
  * @param {import('@tiptap/pm/model').MarkType} markType
- * @param {{ attrs?: object | null, remove?: boolean }} [options]
- * @returns {boolean} true when a block/selection target was acted on
+ * @param {{ attrs?: object | null, level?: 'word' | 'block', remove?: boolean }} [options]
  */
-export function applyMarkToBlockTarget(editor, markType, { attrs = null, remove = false } = {}) {
-  if (!editor || !markType) return false
+export function applyMarkSmart(editor, markType, { attrs = null, level = 'block', remove = false } = {}) {
+  if (!editor || !markType) return
   syncSelectionFromDom(editor)
 
-  const { selection } = editor.state
-  let range = null
-  if (selection.empty) {
-    range = getBlockTextRange(editor.state)
-    if (!range || range.from >= range.to) return false
-  } else {
-    range = { from: selection.from, to: selection.to }
-  }
+  const range = resolveSmartRange(editor.state, level)
 
   editor
     .chain()
     .focus()
-    .command(({ tr, dispatch }) => {
-      if (dispatch) {
+    .command(({ state, tr, dispatch }) => {
+      if (!dispatch) return true
+      const mark = markType.create(attrs)
+
+      if (range) {
         tr.removeMark(range.from, range.to, markType)
-        if (!remove) tr.addMark(range.from, range.to, markType.create(attrs))
+        if (!remove) tr.addMark(range.from, range.to, mark)
       }
+
+      // Collapsed caret: arm continued typing so the next characters match.
+      if (state.selection.empty) {
+        if (remove) tr.removeStoredMark(markType)
+        else tr.addStoredMark(mark)
+      }
+
       return true
     })
     .run()
+}
 
-  return true
+/**
+ * Toggle a mark on the smart target. Reads the current active state via the
+ * matching active-state helper (word- or block-level) so the toggle decision
+ * mirrors the action, then delegates to applyMarkSmart. Shared by the
+ * bold/italic/underline toolbar buttons and their keyboard shortcuts.
+ *
+ * @param {import('@tiptap/core').Editor} editor
+ * @param {import('@tiptap/pm/model').MarkType} markType
+ * @param {{ level?: 'word' | 'block' }} [options]
+ */
+export function toggleMarkSmart(editor, markType, { level = 'block' } = {}) {
+  if (!editor || !markType) return
+  syncSelectionFromDom(editor)
+  const isActive =
+    level === 'word'
+      ? isMarkActiveForToggle(editor.state, markType)
+      : isMarkActiveForBlockToggle(editor.state, markType)
+  applyMarkSmart(editor, markType, { level, remove: isActive })
 }

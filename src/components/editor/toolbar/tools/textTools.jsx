@@ -9,8 +9,8 @@ import HighlightPicker from '../HighlightPicker'
 import { useOutsideClick } from '../useOutsideClick'
 import { cmd } from '../toolHelpers'
 import {
-  applyMarkToTarget,
-  applyMarkToBlockTarget,
+  applyMarkSmart,
+  toggleMarkSmart,
   isMarkActiveForBlockToggle,
   isMarkActiveForToggle,
   syncSelectionFromDom,
@@ -21,17 +21,14 @@ import { Btn } from './ToolButton'
 // --- Inline marks ---------------------------------------------------------
 
 // Bold/Italic/Underline use the user's line-level cursor behavior: a collapsed
-// caret formats the current paragraph/list item. Highlight is the exception and
-// remains word-level below. On an empty block, applyMarkToBlockTarget returns
-// false and we fall back to the standard
-// stored-mark command ("format the next typed characters").
-function toggleInlineMark(editor, markName, fallback) {
+// caret formats the current paragraph/list item AND arms continued typing.
+// Highlight is the exception and remains word-level below. On an empty block /
+// whitespace caret, there's nothing to grab, so toggleMarkSmart just arms the
+// next typed characters.
+function toggleInlineMark(editor, markName) {
   const markType = editor?.schema.marks[markName]
   if (!editor || !markType) return
-  syncSelectionFromDom(editor)
-  const remove = isMarkActiveForBlockToggle(editor.state, markType)
-  const acted = applyMarkToBlockTarget(editor, markType, { remove })
-  if (!acted) fallback(cmd(editor)) // empty block: stored-mark fallback
+  toggleMarkSmart(editor, markType, { level: 'block' })
 }
 
 function isInlineMarkActive(editor, markName) {
@@ -43,7 +40,7 @@ export function BoldTool({ editor }) {
   return (
     <Btn
       active={isInlineMarkActive(editor, 'bold')}
-      onActivate={() => toggleInlineMark(editor, 'bold', (c) => c?.toggleBold().run())}
+      onActivate={() => toggleInlineMark(editor, 'bold')}
       title="Bold"
     >
       <BoldIcon />
@@ -55,7 +52,7 @@ export function ItalicTool({ editor }) {
   return (
     <Btn
       active={isInlineMarkActive(editor, 'italic')}
-      onActivate={() => toggleInlineMark(editor, 'italic', (c) => c?.toggleItalic().run())}
+      onActivate={() => toggleInlineMark(editor, 'italic')}
       title="Italic"
     >
       <ItalicIcon />
@@ -67,7 +64,7 @@ export function UnderlineTool({ editor }) {
   return (
     <Btn
       active={isInlineMarkActive(editor, 'underline')}
-      onActivate={() => toggleInlineMark(editor, 'underline', (c) => c?.toggleUnderline().run())}
+      onActivate={() => toggleInlineMark(editor, 'underline')}
       title="Underline"
     >
       <UnderlineIcon />
@@ -117,22 +114,18 @@ export function H2Tool({ editor }) {
 
 // --- Highlight (with picker) ---------------------------------------------
 
-// Apply (color) or remove (color === null) the highlight via the shared word-level
-// core. A collapsed caret in a word marks the WHOLE word without changing the
-// visible selection, so the cursor stays put and no blue overlay hides the color.
-// A whitespace caret falls back to today's stored-mark behavior.
+// Apply (color) or remove (color === null) the highlight via the shared smart-mark
+// core at word level. A collapsed caret in a word marks the WHOLE word (and arms
+// continued typing) without changing the visible selection, so the cursor stays
+// put and no blue overlay hides the color. A whitespace caret just arms.
 function setHighlightSmart(editor, color) {
   if (!editor) return
   const markType = editor.schema.marks.highlight
-  const acted = applyMarkToTarget(editor, markType, {
+  applyMarkSmart(editor, markType, {
+    level: 'word',
     attrs: color ? { color } : null,
     remove: !color,
   })
-  if (acted) return
-
-  // Caret on whitespace: keep today's stored-mark behavior.
-  if (!color) editor.chain().focus().unsetHighlight().run()
-  else editor.chain().focus().setHighlight({ color }).run()
 }
 
 export function HighlightTool({ editor }) {
@@ -212,18 +205,16 @@ export function TextColorTool({ editor }) {
 
   // Text color is the attribute-mark sibling of Highlight: the textStyle mark
   // carries a `color` attr. It follows the regular formatting tools, so a
-  // collapsed caret colors the current paragraph/list item. An empty block
-  // falls back to the standard setColor/unsetColor stored-mark behavior.
+  // collapsed caret colors the current paragraph/list item (and arms continued
+  // typing). An empty block / whitespace caret just arms.
   const setColorSmart = (color) => {
     if (!editor) return
     const markType = editor.schema.marks.textStyle
-    const acted = applyMarkToBlockTarget(editor, markType, {
+    applyMarkSmart(editor, markType, {
+      level: 'block',
       attrs: color ? { color } : null,
       remove: !color,
     })
-    if (acted) return
-    if (!color) cmd(editor)?.unsetColor().run()
-    else cmd(editor)?.setColor(color).run()
   }
 
   const apply = () => setColorSmart(textColor || null)

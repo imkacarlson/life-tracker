@@ -1,17 +1,25 @@
 import { Extension } from '@tiptap/core'
 import { toggleLineStrike } from './toggleLineStrike'
 import { clearLineFormatting } from './clearLineFormatting'
+import { applyMarkSmart, toggleMarkSmart, isMarkActiveForToggle } from '../../utils/smartMark'
 
 export const LinkShortcut = Extension.create({
   name: 'linkShortcut',
   addKeyboardShortcuts() {
     return {
+      // Bold/Italic/Underline mirror the toolbar buttons: a collapsed caret
+      // formats the whole line and arms continued typing. LinkShortcut already
+      // overrides Mod-b/Mod-i; Mod-u overrides the Underline extension default.
       'Mod-b': () => {
-        this.editor.chain().focus().toggleBold().run()
+        toggleMarkSmart(this.editor, this.editor.schema.marks.bold, { level: 'block' })
         return true
       },
       'Mod-i': () => {
-        this.editor.chain().focus().toggleItalic().run()
+        toggleMarkSmart(this.editor, this.editor.schema.marks.italic, { level: 'block' })
+        return true
+      },
+      'Mod-u': () => {
+        toggleMarkSmart(this.editor, this.editor.schema.marks.underline, { level: 'block' })
         return true
       },
       'Mod-k': () => {
@@ -40,19 +48,19 @@ export const LinkShortcut = Extension.create({
         this.editor.chain().focus().toggleBulletList().run()
         return true
       },
+      // Highlight mirrors the toolbar: word-level on a collapsed caret, driven
+      // by the chosen color (editor.storage.highlightColor mirrors the store).
+      // No hard-coded default — matching the toolbar, an unset color removes.
       'Mod-Alt-h': () => {
-        const isHighlighted = this.editor.isActive('highlight')
-        if (isHighlighted) {
-          this.editor.chain().focus().unsetHighlight().run()
-          return true
-        }
-        const storedColor = this.editor.storage?.highlightColor
-        if (storedColor === null) {
-          return true
-        }
-        const currentColor =
-          storedColor || this.editor.getAttributes('highlight')?.color || '#fef08a'
-        this.editor.chain().focus().setHighlight({ color: currentColor }).run()
+        const editor = this.editor
+        const highlightMark = editor.schema.marks.highlight
+        const color = editor.storage?.highlightColor
+        const remove = isMarkActiveForToggle(editor.state, highlightMark) || !color
+        applyMarkSmart(editor, highlightMark, {
+          level: 'word',
+          attrs: remove ? null : { color },
+          remove,
+        })
         return true
       },
     }
