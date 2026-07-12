@@ -221,6 +221,27 @@ test('flags a misspelling deep in a tall document without scrolling @desktop', a
   expect(box.y).toBeGreaterThan(viewportHeight)
 })
 
+test('right-click resolves the misspelling under the cursor on a tall page @desktop', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop-only: in-app spell check is gated off on touch devices')
+
+  await waitForApp(page, seedHash(seedIds.tallPage), { expectedText: 'Marathon training' })
+  await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
+
+  const deepError = page.locator('.spellcheck-error', { hasText: DEEP_TYPO })
+  await expect(deepError).toHaveCount(1, { timeout: 15000 })
+
+  // Right-clicking the deep word must open the menu WITH its spelling section.
+  // The menu resolves the word from the clicked element (not coordinate probing),
+  // so it works even though the word is far below the initial viewport.
+  await deepError.click({ button: 'right' })
+  const menu = page.locator('.table-context-menu')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('button', { name: 'Add to dictionary' })).toBeVisible()
+})
+
 test('mobile never underlines and never fetches the dictionary @mobile', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile-only assertion: feature must stay off on touch devices')
 
