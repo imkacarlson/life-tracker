@@ -89,7 +89,9 @@ const buildCustomWordContent = () => ({
     {
       type: 'paragraph',
       attrs: { id: 'p-spell-custom' },
-      content: [{ type: 'text', text: `${CUSTOM_WORD} runs daily` }],
+      // Keep a second known typo so the post-reload assertion can prove the
+      // scanner has completed without spending 15 seconds in a swallowed wait.
+      content: [{ type: 'text', text: `${CUSTOM_WORD} runs daily with teh` }],
     },
   ],
 })
@@ -191,10 +193,11 @@ test('"Add to dictionary" clears the squiggle and persists across reloads @deskt
   // so it never gets flagged again.
   await waitForApp(page, seedHash(seedIds.customPage), { expectedText: CUSTOM_WORD })
   await page.waitForSelector('.ProseMirror[contenteditable="true"]', { timeout: 10000 })
-  // Give the lazy load + a debounced scan time to run, then assert no squiggle.
-  await expect(page.locator('.spellcheck-error', { hasText: 'runs' })).toBeVisible({
+  // Wait for a separate known typo to prove lazy dictionary loading and the
+  // debounced scan completed, then verify the persisted custom word stays clear.
+  await expect(page.locator('.spellcheck-error', { hasText: 'teh' })).toBeVisible({
     timeout: 15000,
-  }).catch(() => {})
+  })
   await expect(page.locator('.spellcheck-error', { hasText: CUSTOM_WORD })).toHaveCount(0)
 })
 
