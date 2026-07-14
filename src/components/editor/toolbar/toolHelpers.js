@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { TextSelection } from '@tiptap/pm/state'
 import { mixColors } from '../../../utils/colorUtils'
 import { getListItemInfo } from '../../../utils/listHelpers'
+import { indentListItemWithoutChildren } from '../../../utils/indentListItem'
 import { getMountedEditorView } from '../../../utils/editorView'
 import { THEME_BASE_COLORS } from './toolConstants'
 
@@ -54,7 +55,9 @@ export function useIndentOutdent(editor) {
     syncSelectionFromDom()
     const info = getListItemInfo(editor)
     if (!info || info.index === 0) return
-    editor.chain().focus().sinkListItem(info.itemTypeName).run()
+    // Same smart indent as the Tab key: move only this item under the previous
+    // sibling without dragging its own nested children a level deeper.
+    indentListItemWithoutChildren(editor, info.itemTypeName)
   }, [editor, syncSelectionFromDom])
 
   const handleOutdent = useCallback(() => {
