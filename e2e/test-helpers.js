@@ -553,6 +553,18 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
         await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
       }
       await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+
+      // The fallback reaches mobile pages through the navigation drawer. Under
+      // a slow full-suite run, that drawer can still be open after the editor
+      // becomes ready and intercept the test's first real tap. Match the normal
+      // hash-navigation path by closing only the mobile drawer; the desktop
+      // sidebar remains visible.
+      const mobileDrawerBackdrop = page.getByRole('button', {
+        name: 'Close navigation drawer',
+      })
+      if (await mobileDrawerBackdrop.isVisible().catch(() => false)) {
+        await ensureNavigationHidden(page)
+      }
       return
     }
 

@@ -68,12 +68,36 @@ test.describe('fresh page load always shows content', () => {
   })
 
   test('editor never shows blank then fills in (no flicker)', async ({ page }) => {
+    // Observe the actual regression: a mounted, visibly blank editor. The app
+    // shell may legitimately become ready before Supabase hydration finishes,
+    // so a fixed three-second mount deadline is a performance assertion rather
+    // than a no-flicker assertion.
+    await page.addInitScript(() => {
+      window.__blankEditorObserved = false
+      let consecutiveBlankFrames = 0
+
+      const inspectPaintedFrame = () => {
+        const editor = document.querySelector('.ProseMirror')
+        const isVisible = editor && editor.getClientRects().length > 0
+        if (isVisible && !editor.textContent?.trim()) {
+          consecutiveBlankFrames += 1
+        } else {
+          consecutiveBlankFrames = 0
+        }
+        if (consecutiveBlankFrames >= 2) {
+          window.__blankEditorObserved = true
+        }
+        requestAnimationFrame(inspectPaintedFrame)
+      }
+
+      requestAnimationFrame(inspectPaintedFrame)
+    })
+
     const hash = `nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
     await page.goto(`/#${hash}`)
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
-    // Content should be present within 3 seconds of app ready — no 2-step blank→fill flicker.
-    await expect(page.locator('.ProseMirror')).not.toBeEmpty({ timeout: 3000 })
     await expect(page.locator('.ProseMirror')).toContainText(PAGE_TEXT, { timeout: 10000 })
+    expect(await page.evaluate(() => window.__blankEditorObserved)).toBe(false)
   })
 })

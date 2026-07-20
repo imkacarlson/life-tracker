@@ -110,11 +110,21 @@ test.describe('navigation UX overhaul', () => {
     await waitForApp(page, hashFor(secMain.id, longPage.id))
     await expect(page.locator('.title-input')).toHaveValue('Long Page')
 
+    // The title can update before the long document has finished rendering.
+    // Prove the intended scroll surface is scrollable before assigning scrollTop.
+    await expect(page.locator('.ProseMirror')).toContainText('Long page line 90')
+    await expect
+      .poll(() => page.evaluate((mob) => {
+        const el = mob ? document.documentElement : document.querySelector('.editor-panel')
+        return el ? el.scrollHeight - el.clientHeight : 0
+      }, isMobile), { timeout: 5000 })
+      .toBeGreaterThan(150)
+
     // Scroll the long page down and let the in-memory offset record.
     await setScroll(page, isMobile, 700)
-    await page.waitForTimeout(600)
+    await expect.poll(() => getScroll(page, isMobile), { timeout: 3000 }).toBeGreaterThan(150)
     const saved = await getScroll(page, isMobile)
-    expect(saved).toBeGreaterThan(150)
+    await page.waitForTimeout(600)
 
     // Switch away to a short page, then back.
     await gotoHash(page, hashFor(secMain.id, pageOne.id))
