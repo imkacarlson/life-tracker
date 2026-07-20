@@ -579,6 +579,8 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
       if (treeTitles.pageTitle) {
         await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
       }
+      // waitForExpectedEditorReady closes any stray mobile nav drawer left open
+      // by this fallback path, so it can't intercept the test's first real tap.
       await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText })
       return
     }

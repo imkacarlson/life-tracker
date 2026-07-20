@@ -79,6 +79,44 @@ const SEED_CONTENT = {
         },
       ],
     },
+    // A separate list where a non-first parent item HAS its own nested
+    // children. Indenting that parent must move ONLY the parent under the
+    // previous sibling — its children must stay at their original depth.
+    {
+      type: 'bulletList',
+      attrs: { id: 'bl-nested-1' },
+      content: [
+        {
+          type: 'listItem',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Groom prep' }] },
+          ],
+        },
+        {
+          type: 'listItem',
+          content: [
+            { type: 'paragraph', content: [{ type: 'text', text: 'Bride prep' }] },
+            {
+              type: 'bulletList',
+              content: [
+                {
+                  type: 'listItem',
+                  content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Alter dress' }] },
+                  ],
+                },
+                {
+                  type: 'listItem',
+                  content: [
+                    { type: 'paragraph', content: [{ type: 'text', text: 'Buy shoes' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   ],
 }
 
@@ -121,6 +159,55 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
       }
       return listDepth
     })
+
+  // Place the cursor inside the first text node whose content matches `text`,
+  // resolved via the editor's document rather than fragile DOM selectors (the
+  // nested-list markup makes nth-of-type selectors ambiguous).
+  const placeCursorInTextByContent = async (page, text) => {
+    await page.evaluate((target) => {
+      const editor = window.__lifeTrackerEditor
+      if (!editor || editor.isDestroyed) {
+        throw new Error('Editor test hook is not available')
+      }
+      const { doc } = editor.state
+      let pos = null
+      doc.descendants((node, nodePos) => {
+        if (pos !== null) return false
+        if (node.isText && node.text === target) {
+          pos = nodePos + 1
+          return false
+        }
+        return true
+      })
+      if (pos === null) throw new Error(`text "${target}" not found in editor`)
+      editor.commands.setTextSelection(pos)
+      editor.view.focus()
+    }, text)
+  }
+
+  // Count the list ancestors wrapping the first text node matching `text`.
+  const readListDepthOfText = async (page, text) =>
+    page.evaluate((target) => {
+      const editor = window.__lifeTrackerEditor
+      const { doc } = editor.state
+      let pos = null
+      doc.descendants((node, nodePos) => {
+        if (pos !== null) return false
+        if (node.isText && node.text === target) {
+          pos = nodePos + 1
+          return false
+        }
+        return true
+      })
+      if (pos === null) return -1
+      const $pos = doc.resolve(pos)
+      let depth = 0
+      for (let d = 0; d <= $pos.depth; d += 1) {
+        const name = $pos.node(d).type?.name
+        if (name === 'bulletList' || name === 'orderedList' || name === 'taskList') depth += 1
+      }
+      return depth
+    }, text)
 
   const readSelectedParagraphText = async (page) =>
     page.evaluate(() => {
@@ -235,6 +322,39 @@ test.describe('Issue #60 mobile indent/outdent toolbar buttons', () => {
       document.querySelectorAll('table tr').length
     )
     expect(rowCountAfter).toBe(rowCountBefore)
+  })
+
+  test('toolbar Indent moves only the parent item, not its nested children', async ({ page, isMobile }) => {
+    await waitForApp(page, `/#pg=${testPage.id}`, { expectedText: 'Bride prep' })
+    if (isMobile) await ensureToolbarExpanded(page)
+
+    const indentBtn = page.getByTestId('toolbar-indent')
+    await expect(indentBtn).toBeVisible()
+
+    // Cursor into "Bride prep" — a non-first parent item that owns a nested
+    // child list ("Alter dress", "Buy shoes").
+    await placeCursorInTextByContent(page, 'Bride prep')
+    await expect(async () => {
+      expect(await readSelectedParagraphText(page)).toBe('Bride prep')
+    }).toPass({ timeout: 3000 })
+
+    // Baseline depths: parent at 1, its children nested at 2.
+    expect(await readListDepthOfText(page, 'Bride prep')).toBe(1)
+    expect(await readListDepthOfText(page, 'Alter dress')).toBe(2)
+    expect(await readListDepthOfText(page, 'Buy shoes')).toBe(2)
+
+    if (isMobile) await ensureToolbarExpanded(page)
+    await indentBtn.click()
+
+    // The parent moves one level deeper (1 -> 2)...
+    await expect(async () => {
+      expect(await readListDepthOfText(page, 'Bride prep')).toBe(2)
+    }).toPass({ timeout: 3000 })
+
+    // ...but its children must NOT be dragged deeper — they stay at depth 2.
+    // This is the exact regression: plain sinkListItem pushed them to 3.
+    expect(await readListDepthOfText(page, 'Alter dress')).toBe(2)
+    expect(await readListDepthOfText(page, 'Buy shoes')).toBe(2)
   })
 
   test('desktop: indent/outdent buttons are visible @desktop', async ({ page, isMobile }) => {
