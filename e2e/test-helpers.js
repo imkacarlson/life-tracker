@@ -462,6 +462,33 @@ const waitForExpectedEditor = async (
   }
 }
 
+const closeMobileNavigationDrawerIfOpen = async (page) => {
+  const backdrop = page.getByRole('button', { name: 'Close navigation drawer' })
+  if (!(await backdrop.isVisible().catch(() => false))) return
+
+  const box = await backdrop.boundingBox()
+  if (!box) throw new Error('Mobile navigation backdrop has no clickable bounds')
+
+  // The drawer covers most of the backdrop. Tap its exposed right edge rather
+  // than the covered center that locator.click() chooses by default.
+  await backdrop.click({
+    position: {
+      x: Math.max(1, box.width - 2),
+      y: Math.max(1, box.height / 2),
+    },
+  })
+  await expect(backdrop).toBeHidden({ timeout: 5000 })
+}
+
+const waitForExpectedEditorReady = async (page, options) => {
+  await waitForExpectedEditor(page, options)
+  // The fallback navigation path may open the mobile drawer and then discover
+  // that the requested page is already active. In that case no tree-item click
+  // runs to close the drawer, leaving it over the editor and blocking scroll or
+  // toolbar interactions in the test that follows.
+  await closeMobileNavigationDrawerIfOpen(page)
+}
+
 const waitForExpectedNavigationTarget = async (page, treeTitles) => {
   if (!treeTitles) return
 
@@ -522,14 +549,14 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
       await waitForExpectedNavigationTarget(page, treeTitles)
       return
     }
-    await waitForExpectedEditor(page, { expectedPageTitle, expectedText, timeout: 5000 })
+    await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText, timeout: 5000 })
   } catch (error) {
     if (!hash || hash === '/') {
       const fallbackHash = await findFallbackPageHash()
       if (!fallbackHash) throw error
       await loadRootWorkspace()
       await navigateViaHashChange(page, fallbackHash)
-      await waitForExpectedEditor(page)
+      await waitForExpectedEditorReady(page)
       return
     }
 
@@ -552,12 +579,12 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
       if (treeTitles.pageTitle) {
         await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
       }
-      await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+      await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText })
       return
     }
 
     await navigateViaHashChange(page, navigationHash)
-    await waitForExpectedEditor(page, { expectedPageTitle, expectedText })
+    await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText })
   }
 }
 
@@ -580,8 +607,7 @@ export const ensureNavigationVisible = async (page) => {
 export const ensureNavigationHidden = async (page) => {
   const backdrop = page.getByRole('button', { name: 'Close navigation drawer' })
   if (await backdrop.isVisible().catch(() => false)) {
-    await backdrop.evaluate((el) => el.click())
-    await expect(backdrop).toBeHidden({ timeout: 5000 })
+    await closeMobileNavigationDrawerIfOpen(page)
     return
   }
 
