@@ -24,6 +24,7 @@ import {
   TableHeaderWithBackground,
 } from '../extensions/tableExtensions'
 import { EnsureNodeIds, SecureImage, InternalLink } from '../extensions/editorExtensions'
+import { ItalicCaret } from '../extensions/italicCaret'
 import {
   LinkShortcut,
   ArrowMoveToLineEnd,
@@ -137,6 +138,7 @@ export const useEditorSetup = ({
           placeholder: 'Start writing your tracker...',
         }),
         HighlightPreserve,
+        ItalicCaret,
         // onImageFile only fires inside ProseMirror paste/drop handlers (user
         // events), never during render, so the ref read is safe to defer.
         // eslint-disable-next-line react-hooks/refs

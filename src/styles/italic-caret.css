@@ -1,0 +1,37 @@
+/* Custom italic caret (see src/extensions/italicCaret.js).
+   Only engaged while italic is active — normal typing keeps the native caret. */
+
+/* Hide the native (always-vertical) caret only while our slanted one is shown. */
+.ProseMirror.italic-caret-active {
+  caret-color: transparent;
+}
+
+.italic-caret {
+  position: fixed;
+  width: 2px;
+  background: var(--text);
+  /* Pivot the skew about the baseline so it leans like the glyphs above it. */
+  transform-origin: bottom;
+  pointer-events: none;
+  /* Sits above editor content but below toolbar/menus/modals. */
+  z-index: 5;
+  will-change: transform, top, left, height;
+  animation: italic-caret-blink 1.06s steps(1) infinite;
+}
+
+@keyframes italic-caret-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .italic-caret {
+    animation: none;
+  }
+}
