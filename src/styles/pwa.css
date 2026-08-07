@@ -60,6 +60,16 @@
   background: var(--accent-dark);
 }
 
+/* Busy state while a refresh is in flight — reads as inert, no hover shift. */
+.pwa-update-refresh:disabled,
+.pwa-update-refresh:disabled:hover,
+.pwa-update-pill:disabled,
+.pwa-update-pill:disabled:hover {
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .pwa-update-dismiss {
   display: flex;
   align-items: center;
