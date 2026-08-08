@@ -6,6 +6,7 @@ import {
   buildTrackerContext,
   parseDateResolutions,
   resolveFinalDate,
+  resolveTrackerAnchor,
   serializeTrackerToMarkdown,
   type DateCandidate,
   type DateResolutions,
@@ -158,6 +159,99 @@ describe('buildCandidates', () => {
     expect(candidate.deterministicIso).toBe('2026-07-01')
     expect(candidate.needsAiYear).toBe(true)
   })
+
+  describe('anchoring bare dates to the tracker month', () => {
+    const augustAnchor = new Date(Date.UTC(2026, 7, 1))
+    const augustToday = '2026-08-08'
+
+    it('rolls a bare date earlier than the anchor month to the next year', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Hotel cancel deadline '), hl('1/10')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      expect(candidate.deterministicIso).toBe('2027-01-10')
+      expect(candidate.needsAiYear).toBe(true)
+    })
+
+    it('leaves a bare date inside the anchor month alone (still overdue)', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Overdue thing '), hl('8/1')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      expect(candidate.deterministicIso).toBe('2026-08-01')
+    })
+
+    it('never touches an explicit slash-year', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Due '), hl('4/15/2030')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      expect(candidate.deterministicIso).toBe('2030-04-15')
+    })
+
+    it('never touches a written year on the line', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('They are due by '), hl('4/15'), plain(' (of 2027)')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      expect(candidate.deterministicIso).toBe('2027-04-15')
+      expect(candidate.needsAiYear).toBe(false)
+    })
+
+    it('picks the truly earliest token after rolling (12/26 before 1/10)', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Window '), hl('1/10'), plain(' to '), hl('12/26')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      expect(candidate.deterministicIso).toBe('2026-12-26')
+      expect(candidate.dateText).toBe('12/26')
+    })
+
+    it('defaults the anchor to the first of today’s month', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Deadline '), hl('1/10')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday)
+      expect(candidate.deterministicIso).toBe('2027-01-10')
+    })
+
+    it('still lets the AI year override a rolled candidate', () => {
+      const cidSegments = new Map<string, InlineSegment[]>([
+        ['c1', [plain('Deadline '), hl('1/10')]],
+      ])
+      const [candidate] = buildCandidates(cidSegments, augustToday, augustAnchor)
+      const date = resolveFinalDate(candidate, '2029-01-10', augustToday)
+      expect(date.toISOString().slice(0, 10)).toBe('2029-01-10')
+    })
+  })
+})
+
+describe('resolveTrackerAnchor', () => {
+  const today = '2026-08-08'
+  const iso = (date: Date) => date.toISOString().slice(0, 10)
+
+  it('reads a full month name and year from the title', () => {
+    expect(iso(resolveTrackerAnchor('August 2026 Tracker', today))).toBe('2026-08-01')
+  })
+
+  it('reads a 3-letter abbreviation', () => {
+    expect(iso(resolveTrackerAnchor('Aug 2026', today))).toBe('2026-08-01')
+  })
+
+  it('reads the month and year in either order', () => {
+    expect(iso(resolveTrackerAnchor('2027 September notes', today))).toBe('2027-09-01')
+  })
+
+  it('falls back to the first of the current month for an unparseable title', () => {
+    expect(iso(resolveTrackerAnchor('Untitled Tracker', today))).toBe('2026-08-01')
+    // A word that merely starts with a month abbreviation is not a month.
+    expect(iso(resolveTrackerAnchor('Marathon Tracker 2026', today))).toBe('2026-08-01')
+  })
+
+  it('falls back for a missing or empty title', () => {
+    expect(iso(resolveTrackerAnchor(undefined, today))).toBe('2026-08-01')
+    expect(iso(resolveTrackerAnchor('', today))).toBe('2026-08-01')
+  })
 })
 
 describe('buildTrackerContext — highlightedCids', () => {
@@ -227,6 +321,37 @@ describe('buildTrackerContext — highlightedCids', () => {
     const { candidates, highlightedCids } = buildTrackerContext(trackerPages, today)
     expect(candidates).toEqual([])
     expect(highlightedCids.size).toBe(0)
+  })
+
+  it('anchors each page to its own month', () => {
+    const datedPage = (title: string, id: string) => ({
+      title,
+      content: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { id },
+            content: [
+              { type: 'text', text: 'Deadline ' },
+              { type: 'text', text: '1/10', marks: [{ type: 'highlight' }] },
+            ],
+          },
+        ],
+      },
+    })
+
+    const { candidates, cidToBlockId } = buildTrackerContext(
+      [datedPage('August 2026 Tracker', 'p-aug'), datedPage('February 2027 Tracker', 'p-feb')],
+      '2026-08-08',
+    )
+
+    const byBlock = new Map(
+      candidates.map((c) => [cidToBlockId.get(c.cid), c.deterministicIso]),
+    )
+    // 1/10 is before August 2026 -> next year; 1/10 is before Feb 2027 -> 2028.
+    expect(byBlock.get('p-aug')).toBe('2027-01-10')
+    expect(byBlock.get('p-feb')).toBe('2028-01-10')
   })
 })
 
