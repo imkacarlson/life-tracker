@@ -19,6 +19,7 @@ import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from './utils/sectionPages'
+import { setBeforeReloadHandler, isIntentionalReload } from './utils/reloadCoordinator'
 import {
   readStoredSidebarCollapsed,
   readStoredSelection,
@@ -558,6 +559,10 @@ function App() {
   useEffect(() => {
     const handleBeforeUnload = (event) => {
       flushAllPendingSaves()
+      // A user-clicked "Refresh" on the PWA update banner is explicit consent
+      // to leave. Prompting there strands them on the old build with a dead
+      // banner; the flush above (plus localStorage drafts) covers the writes.
+      if (isIntentionalReload()) return
       if (!isSaving) return
       event.preventDefault()
       event.returnValue = ''
@@ -575,7 +580,11 @@ function App() {
     window.addEventListener('beforeunload', handleBeforeUnload)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pagehide', handlePageHide)
+    // The update banner lives outside this React tree (main.jsx), so it reaches
+    // the save flush through the coordinator module rather than props.
+    const unsubscribeBeforeReload = setBeforeReloadHandler(flushAllPendingSaves)
     return () => {
+      unsubscribeBeforeReload()
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
