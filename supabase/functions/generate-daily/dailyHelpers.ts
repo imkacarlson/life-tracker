@@ -52,6 +52,56 @@ const toUtcDate = (value: string) => {
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10)
 
+const firstOfMonth = (date: Date): Date => {
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  return toUtcDate(`${date.getUTCFullYear()}-${month}-01`) as Date
+}
+
+// Month name (full or 3-letter abbreviation) as a whole word. Longest
+// alternatives first so "september" isn't cut short to "sep". The \b anchors
+// keep "Marathon Tracker" from reading as March.
+const MONTH_NAME_PATTERN =
+  'january|february|march|april|august|september|october|november|december|june|july|jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec'
+const MONTH_NAME_REGEX = new RegExp(`\\b(${MONTH_NAME_PATTERN})\\b`, 'i')
+const MONTH_NUMBER_BY_PREFIX: Record<string, number> = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+}
+
+// A bare MM/DD in a tracker means the next occurrence relative to the tracker's
+// own month, not relative to today — the user only writes a year out when the
+// date is more than a year away. The anchor is the first of the month named in
+// the page title ("August 2026 Tracker" -> 2026-08-01).
+//
+// NOTE: this makes date resolution title-sensitive. Titles are free-form, so a
+// tracker renamed to something without a month silently falls back to the first
+// of the current month.
+export const resolveTrackerAnchor = (title: unknown, today: string): Date => {
+  const todayDate = toUtcDate(today)
+  const fallback = todayDate ? firstOfMonth(todayDate) : null
+
+  const text = typeof title === 'string' ? title : ''
+  const monthMatch = text.match(MONTH_NAME_REGEX)
+  const yearMatch = text.match(WRITTEN_YEAR_REGEX)
+  if (!monthMatch || !yearMatch) return fallback as Date
+
+  const month = MONTH_NUMBER_BY_PREFIX[monthMatch[1].slice(0, 3).toLowerCase()]
+  if (!month) return fallback as Date
+
+  const anchor = toUtcDate(`${yearMatch[1]}-${String(month).padStart(2, '0')}-01`)
+  return anchor || (fallback as Date)
+}
+
 const normalizeText = (value: string) =>
   String(value || '')
     .replace(/\s+/g, ' ')
@@ -116,6 +166,25 @@ const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
   }
 
   return results
+}
+
+// Re-anchor a bare MM/DD token: build it in the anchor's year, and if that lands
+// before the anchor, roll it to the next year. Tokens carrying their own
+// slash-year are never touched. If the rolled year isn't a real date (2/29 in a
+// non-leap year), the un-rolled date stands rather than dropping the candidate.
+const rollTokenToAnchor = (token: DateToken, anchor: Date): DateToken => {
+  if (token.hasSlashYear) return token
+
+  const anchorYear = anchor.getUTCFullYear()
+  const month = String(token.month)
+  const day = String(token.day)
+
+  const atAnchorYear = parseDateToken(month, day, String(anchorYear), anchorYear)
+  if (!atAnchorYear) return token
+  if (atAnchorYear.getTime() >= anchor.getTime()) return { ...token, date: atAnchorYear }
+
+  const nextYear = parseDateToken(month, day, String(anchorYear + 1), anchorYear + 1)
+  return { ...token, date: nextYear || atAnchorYear }
 }
 
 // Validate that a value is a real MM/DD calendar date in a 20xx year written as
@@ -434,10 +503,12 @@ export const serializeTrackerToMarkdown = (content: any, title?: string): Serial
 export const buildCandidates = (
   cidSegments: Map<string, InlineSegment[]>,
   today: string,
+  anchor?: Date,
 ): DateCandidate[] => {
   const todayDate = toUtcDate(today)
   if (!todayDate) return []
 
+  const anchorDate = anchor || firstOfMonth(todayDate)
   const candidates: DateCandidate[] = []
 
   for (const [cid, segments] of cidSegments) {
@@ -450,6 +521,11 @@ export const buildCandidates = (
     const highlightedTokens = segments
       .filter((segment) => segment.highlighted)
       .flatMap((segment) => extractDateTokens(segment.text, defaultYear))
+      // Roll bare dates to the anchor's year (or the next one) BEFORE picking
+      // the earliest, so the pick reflects the real ordering.
+      .map((token) =>
+        writtenYearMatch ? token : rollTokenToAnchor(token, anchorDate),
+      )
 
     if (!highlightedTokens.length) continue
 
@@ -532,22 +608,31 @@ export const buildTrackerContext = (trackerPages: any[], today: string): Tracker
   const cidToText = new Map<string, string>()
   const cidSegments = new Map<string, InlineSegment[]>()
   const sections: string[] = []
+  const candidates: DateCandidate[] = []
 
   for (const page of trackerPages || []) {
     const ctx = createCtx(counter)
-    // Share the accumulating maps so cids stay globally unique across pages.
+    // Share the accumulating maps so cids stay globally unique across pages,
+    // but keep segments page-local: each page's bare dates are anchored to that
+    // page's own month.
     ctx.cidToBlockId = cidToBlockId
     ctx.cidToText = cidToText
-    ctx.cidSegments = cidSegments
     const markdown = serializeContentWithCtx(page?.content, ctx, page?.title)
     if (markdown) sections.push(markdown)
+
+    const anchor = resolveTrackerAnchor(page?.title, today)
+    candidates.push(...buildCandidates(ctx.cidSegments, today, anchor))
+
+    for (const [cid, segments] of ctx.cidSegments) {
+      cidSegments.set(cid, segments)
+    }
   }
 
   return {
     markdown: sections.join('\n\n'),
     cidToBlockId,
     cidToText,
-    candidates: buildCandidates(cidSegments, today),
+    candidates,
     highlightedCids: buildHighlightedCids(cidSegments),
   }
 }
