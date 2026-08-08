@@ -3,15 +3,15 @@
 //
 // Read tools (always available):
 //   - read_current_tracker   : current-month tracker as plain text (for Q&A).
-//   - read_tracker_structure : same, but with {{id:…}} markers so the model can
-//                              name an exact anchor for an addition.
+//   - read_tracker_structure : same, but with short {{b12}} handles so the model
+//                              can name an exact anchor for an addition.
 // Propose tool (only when a capture context is supplied — it needs to send a photo):
 //   - propose_tracker_addition : builds the proposed doc, stores a pending job,
 //                              renders + sends a preview. NEVER writes to `pages`.
 
 import {
   flattenTrackerToText,
-  flattenTrackerToTextWithIds,
+  flattenTrackerToTextWithHandles,
   selectCurrentMonthTracker,
 } from './trackerText.ts'
 import { buildItems, insertRelativeToBlock } from './insertContent.ts'
@@ -43,11 +43,12 @@ const VALID_PLACEMENTS = new Set<Placement>(['after_block', 'append_to_list'])
 
 const PLACEMENT_RULES =
   'How to choose the anchor and placement (ported from the app\'s AI-insert rules):\n' +
-  '- targetBlockId MUST be one of the {{id:…}} markers from read_tracker_structure. ' +
-  'Never invent an id. If no good anchor exists, omit it (the items go at the end).\n' +
+  '- targetBlockId MUST be one of the {{b…}} handles from read_tracker_structure (pass it ' +
+  'bare, e.g. "b12"). Never invent a handle. ' +
+  'If no good anchor exists, omit it (the items go at the end).\n' +
   '- Default placement = the BOTTOM of the section the item belongs to. The user writes ' +
   'oldest-at-top / newest-at-bottom, so a new item continues at the end of its section.\n' +
-  '- placement "append_to_list": targetBlockId is a list (its {{id:…}} sits on its own ' +
+  '- placement "append_to_list": targetBlockId is a list (its {{b…}} handle sits on its own ' +
   'line right after the bullets/tasks). This appends to the BOTTOM of that list and keeps ' +
   'one clean list. PREFER this when the section\'s existing list is already bullets — anchor ' +
   'on that list so the new bullet lands at the bottom of the section.\n' +
@@ -63,7 +64,7 @@ const PLACEMENT_RULES =
   'line of a checkbox list.\n' +
   '- format: default "bullet_list" for plain bullets, "task_list" only when the user ' +
   'explicitly asks for a checklist/to-do/checkboxes, "paragraphs" for prose. items are ' +
-  'concise plain-text lines (no markdown, no ids).\n' +
+  'concise plain-text lines (no markdown, no handles).\n' +
   '- Last resort: if no section fits, omit targetBlockId and the items go to the end of ' +
   'the tracker.'
 
@@ -93,9 +94,9 @@ export function buildTools(
     {
       name: 'read_tracker_structure',
       description:
-        "Read the current month's tracker WITH a {{id:…}} marker after each block. Call this " +
-        'BEFORE propose_tracker_addition so you can pick a real insertion anchor (targetBlockId). ' +
-        'The markers are structural metadata, not content to show the user.',
+        "Read the current month's tracker WITH a short {{b…}} handle after each block (b1, b2, …). " +
+        'Call this BEFORE propose_tracker_addition so you can pick a real insertion anchor ' +
+        '(targetBlockId). The handles are structural metadata, not content to show the user.',
       input_schema: { type: 'object', properties: {} },
     },
   ]
@@ -107,14 +108,16 @@ export function buildTools(
         'Propose adding item(s) to the current-month tracker and show the user a preview ' +
         'screenshot with the new content highlighted in place. This does NOT save anything — ' +
         'it only proposes. The user then confirms (and code applies it) or asks for a change. ' +
-        'Call read_tracker_structure first to get valid block ids.\n\n' +
+        'Call read_tracker_structure first to get valid block handles.\n\n' +
         PLACEMENT_RULES,
       input_schema: {
         type: 'object',
         properties: {
           targetBlockId: {
             type: 'string',
-            description: 'A {{id:…}} value from read_tracker_structure to anchor the insertion. Omit if none fits.',
+            description:
+              'A block handle from read_tracker_structure to anchor the insertion, passed bare ' +
+              '(e.g. "b12", not "{{b12}}"). Omit if none fits.',
           },
           placement: {
             type: 'string',
@@ -161,12 +164,57 @@ export function buildTools(
     return selectCurrentMonthTracker(data ?? [], now, timeZone) as CurrentPage | null
   }
 
+  // handle ("b12") -> real block UUID, populated by read_tracker_structure and
+  // consumed by propose_tracker_addition. Lives in the closure, so it lasts for
+  // exactly one bot turn — anything persisted must store the resolved UUID.
+  let handleMap = new Map<string, string>()
+
+  /**
+   * Turn whatever the model passed as `targetBlockId` into a real block UUID.
+   * Tolerates `{{b12}}` wrapping and a stale `id:` prefix, and accepts a raw
+   * UUID if one is somehow passed through.
+   */
+  async function resolveAnchor(
+    raw: unknown,
+    page: CurrentPage,
+  ): Promise<{ ok: true; blockId: string | null } | { ok: false; error: string }> {
+    let value = typeof raw === 'string' ? raw.trim() : ''
+    // Strip {{…}} wrapping and any leftover "id:" prefix from the old convention.
+    value = value.replace(/^\{\{/, '').replace(/\}\}$/, '').trim()
+    value = value.replace(/^id:/i, '').trim()
+    if (!value) return { ok: true, blockId: null } // append to end of doc
+
+    // If the model called propose without reading first, the map is empty.
+    // Handle generation is deterministic, so re-flattening rebuilds it exactly.
+    if (handleMap.size === 0) {
+      handleMap = flattenTrackerToTextWithHandles(page.content, page.title).handles
+    }
+
+    const mapped = handleMap.get(value)
+    if (mapped) return { ok: true, blockId: mapped }
+
+    // Defensive: a real UUID that exists in the doc is fine too.
+    if (new Set(handleMap.values()).has(value)) return { ok: true, blockId: value }
+
+    return {
+      ok: false,
+      error:
+        `"${value}" isn't a block handle in the current tracker. ` +
+        'Call read_tracker_structure again and pick a current {{b…}} handle.',
+    }
+  }
+
   async function readCurrentTracker(withIds: boolean): Promise<string> {
     const page = await fetchCurrentPage()
     if (!page) return 'No tracker page was found for the current month.'
-    const text = withIds
-      ? flattenTrackerToTextWithIds(page.content, page.title)
-      : flattenTrackerToText(page.content, page.title)
+    let text: string
+    if (withIds) {
+      const flattened = flattenTrackerToTextWithHandles(page.content, page.title)
+      text = flattened.text
+      handleMap = flattened.handles
+    } else {
+      text = flattenTrackerToText(page.content, page.title)
+    }
     // Wrap as untrusted data: the model must treat this as content, not instructions.
     return [`<tracker_data page="${page.title ?? 'Untitled'}">`, text, '</tracker_data>'].join('\n')
   }
@@ -179,10 +227,6 @@ export function buildTools(
     if (!VALID_PLACEMENTS.has(placement)) return `Invalid placement "${input.placement}".`
     if (!VALID_FORMATS.has(format)) return `Invalid format "${input.format}".`
 
-    const rawTarget = input.targetBlockId
-    const targetBlockId =
-      typeof rawTarget === 'string' && rawTarget.trim() ? rawTarget.trim() : null
-
     const items = Array.isArray(input.items)
       ? input.items.map((i) => String(i ?? '').trim()).filter(Boolean)
       : []
@@ -190,6 +234,14 @@ export function buildTools(
 
     const page = await fetchCurrentPage()
     if (!page?.id || !page.content) return 'No tracker page was found for the current month.'
+
+    // Resolve the short handle to a real UUID up front: everything downstream —
+    // insertion, section lookup, and especially the persisted preview job (which
+    // is replayed up to 48h later, long after this handle map is gone) — needs
+    // the UUID, not the handle.
+    const anchor = await resolveAnchor(input.targetBlockId, page)
+    if (!anchor.ok) return anchor.error
+    const targetBlockId = anchor.blockId
 
     const nodes = buildItems(format, items)
     const { doc, insertedBlockIds } = insertRelativeToBlock(
