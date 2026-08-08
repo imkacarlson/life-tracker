@@ -29,7 +29,7 @@ Reply formatting (Telegram-friendly subset only):
 
 Adding things to the tracker:
 - When the user wants to add something (e.g. "add buy more gels to running"), first call
-  read_tracker_structure to see the tracker with {{id:…}} anchors, then call
+  read_tracker_structure to see the tracker with short {{b…}} anchor handles, then call
   propose_tracker_addition with a real targetBlockId. That tool shows the user a preview
   screenshot of the new item highlighted in place — it does NOT save anything.
 - Default to a plain bullet list (format "bullet_list"). Only use a checkbox/task list when
@@ -78,6 +78,15 @@ Planning, Finance). Notation:
   signal and mention it if relevant.
 - "| a | b |" rows and "---" separators are table structure; the first column is usually the category.`
 
+// Appended in /think mode. Without it the "Default to brief" rule above fights
+// the deeper reasoning the user just explicitly asked for.
+const DEEP_MODE = `
+
+The user has switched on deep-thinking mode. For this conversation, set aside the "default to
+brief" rule: think the problem through properly and give a thorough, well-reasoned answer, showing
+your reasoning where it helps. Stay concrete and grounded in their tracker — depth means more
+substance, not more filler. The Telegram formatting rules still apply.`
+
 /**
  * Build the system prompt.
  * @param withTrackerLegend - include the tracker notation legend (Phase 3+).
@@ -85,12 +94,18 @@ Planning, Finance). Notation:
  *   formatNowInZone). When provided, a "today is …" anchor is appended so the
  *   model reasons about dates from the user's local clock, not its training
  *   cutoff. When omitted, no date line is added.
+ * @param deep - /think mode: relax the brevity rule so the extra reasoning
+ *   budget actually shows up in the answer.
  */
-export function buildSystemPrompt(withTrackerLegend = true, nowDisplay?: string): string {
+export function buildSystemPrompt(
+  withTrackerLegend = true,
+  nowDisplay?: string,
+  deep = false,
+): string {
   const base = withTrackerLegend ? BASE_PROMPT + TRACKER_LEGEND : BASE_PROMPT
   const dateLine = nowDisplay
     ? `\n\nThe user's current local date and time is ${nowDisplay}. Use this as "today"/"now" ` +
       `for any date or time reasoning; do not rely on your training cutoff.`
     : ''
-  return base + dateLine
+  return base + dateLine + (deep ? DEEP_MODE : '')
 }
