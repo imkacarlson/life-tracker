@@ -5,7 +5,7 @@ import {
   buildDaily,
   buildTrackerContext,
   parseDateResolutions,
-} from './dailyHelpers.ts'
+} from '../_shared/dailyHelpers.ts'
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
 const CORS_HEADERS = {

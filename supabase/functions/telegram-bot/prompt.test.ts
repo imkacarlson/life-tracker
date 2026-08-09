@@ -54,3 +54,28 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain(display)
   })
 })
+
+describe('buildSystemPrompt — timed reminders', () => {
+  const base = buildSystemPrompt(false)
+
+  it('states the rule that decides whether a phone buzzes', () => {
+    expect(base).toContain(
+      'A highlighted date with a clock time arms a push reminder. A highlighted date alone never does.',
+    )
+  })
+
+  it('puts a stated time inside the token, with an explicit meridiem', () => {
+    expect(base).toContain('{{date:8/21 2:00 PM}}')
+    expect(base).toContain('INSIDE the token')
+  })
+
+  it('forbids inventing a time', () => {
+    expect(base).toContain('NEVER invent a time')
+  })
+
+  it('keeps the lead-time phrase outside the token', () => {
+    expect(base).toContain('(remind 3 hours before)')
+    expect(base).toContain('plain text OUTSIDE')
+    expect(base).toContain('(no reminder)')
+  })
+})

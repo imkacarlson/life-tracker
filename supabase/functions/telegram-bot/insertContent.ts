@@ -6,6 +6,8 @@
 //   - Operates on serialized JSON (the bot has no live editor), so placement is
 //     resolved by walking the doc tree instead of resolving ProseMirror positions.
 
+import { DATE_HIGHLIGHT_COLOR, splitDateTokens } from '../_shared/dateToken.ts'
+
 export type TiptapNode = {
   type?: string
   text?: string
@@ -26,43 +28,26 @@ function createNodeId(): string {
 
 const LIST_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
 
-// The user highlights key dates in this cyan; the app treats a highlighted date
-// as an explicit due date. Mirrors aiInsertHelpers.js `makeHighlightedTextNode`
-// (same mark shape, different color — that one is the yellow review highlight).
-const DATE_HIGHLIGHT_COLOR = '#67e8f9'
-
-// Matches the {{date:…}} sentinel the model wraps a key date phrase in.
-const DATE_TOKEN_RE = /\{\{date:([^}]*)\}\}/g
-
 /**
  * Split an item string into inline text runs, turning each {{date:…}} token into
  * a cyan-highlighted run (the phrase inside the token) and leaving the rest plain.
- * Empty segments are dropped — ProseMirror rejects a text node with text:''.
+ *
+ * The token splitting itself lives in _shared/dateToken.ts because the bot's
+ * "⏰ I'll text you…" confirmation runs the SAME split through the reminder
+ * deriver — so the bot can't promise a reminder the cron won't send.
+ * Mirrors aiInsertHelpers.js `makeHighlightedTextNode` (same mark shape,
+ * different color — that one is the yellow review highlight).
  */
 export function buildInlineRuns(text: string): TiptapNode[] {
-  const runs: TiptapNode[] = []
-  let lastIndex = 0
-
-  const pushPlain = (segment: string) => {
-    if (segment) runs.push({ type: 'text', text: segment })
-  }
-
-  for (const match of text.matchAll(DATE_TOKEN_RE)) {
-    const start = match.index ?? 0
-    pushPlain(text.slice(lastIndex, start))
-    const phrase = (match[1] ?? '').trim()
-    if (phrase) {
-      runs.push({
-        type: 'text',
-        text: phrase,
-        marks: [{ type: 'highlight', attrs: { color: DATE_HIGHLIGHT_COLOR } }],
-      })
-    }
-    lastIndex = start + match[0].length
-  }
-  pushPlain(text.slice(lastIndex))
-
-  return runs
+  return splitDateTokens(text).map((run) =>
+    run.isDate
+      ? {
+          type: 'text',
+          text: run.text,
+          marks: [{ type: 'highlight', attrs: { color: DATE_HIGHLIGHT_COLOR } }],
+        }
+      : { type: 'text', text: run.text },
+  )
 }
 
 function makeParagraph(text: string, createdAt: string): TiptapNode {

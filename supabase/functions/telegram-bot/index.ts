@@ -18,6 +18,15 @@ import {
   purgeExpiredJobs,
 } from './capture.ts'
 import {
+  applyDone,
+  describeArmedForItems,
+  findTargetReminder,
+  listUpcomingReminders,
+  scheduleSnooze,
+} from './reminders.ts'
+import { parseReminderReply } from '../_shared/reminderReply.ts'
+import { describeLead } from '../_shared/reminderMessage.ts'
+import {
   closeActiveSessions,
   loadRecentTurns,
   persistAssistantTurn,
@@ -104,6 +113,52 @@ bot.command('new', async (ctx) => {
 // before the message:text tracker handler so it never collides with it.
 bot.command('blog', handleBlog)
 
+// /reminders -> what's armed for the next two weeks. Pure derivation, zero AI.
+// This is the feedback loop that makes the feature trustworthy instead of the
+// user hoping their phone buzzes.
+bot.command('reminders', async (ctx) => {
+  try {
+    const userId = await getUserId()
+    const text = await listUpcomingReminders(supabase, userId, new Date(), USER_TIMEZONE)
+    await sendReply(ctx.api, ctx.chat.id, text)
+  } catch (err) {
+    console.error('/reminders error:', String(err))
+    await sendReply(ctx.api, ctx.chat.id, 'Couldn’t read your reminders just now.')
+  }
+})
+
+/**
+ * Carry out a "done" or "snooze" on a reminder we sent.
+ *
+ * The confirmation is MANDATORY and quotes the line back with a link: an
+ * accidental cross-off is then visible, and one tap from being undone.
+ */
+async function handleReminderAction(
+  userId: string,
+  target: Awaited<ReturnType<typeof findTargetReminder>>,
+  action: NonNullable<ReturnType<typeof parseReminderReply>>,
+  now: Date,
+): Promise<string> {
+  if (!target) return 'I couldn’t tell which reminder you meant.'
+
+  if (action.kind === 'snooze') {
+    const { ok } = await scheduleSnooze(supabase, userId, target, action.minutes, now)
+    if (!ok) return 'Couldn’t snooze that just now — try again in a moment.'
+    return `⏰ Snoozed ${describeLead(action.minutes)} — I’ll ping you again then.`
+  }
+
+  const result = await applyDone(supabase, target, now)
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      return 'That line isn’t in your tracker anymore, so there was nothing to cross off.'
+    }
+    return 'Couldn’t update your tracker just now — send that again in a moment.'
+  }
+
+  const quoted = result.quoted ? `\n\n"${result.quoted}"` : ''
+  return `✅ Crossed off:${quoted}\n\n[Open in tracker](${result.deepLink})`
+}
+
 /**
  * The whole conversational flow: session, dedup, pending-proposal capture, and
  * the agentic tool loop. Shared by the plain text handler and /think so the
@@ -142,6 +197,25 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
     if (duplicate) return
 
+    // --- Is this message acting on a reminder we sent? ---
+    // Deterministic keyword match, no AI. Runs first so a quote-reply to a
+    // reminder always wins, but only fires on a bare "done"/"snooze" — anything
+    // chattier falls through untouched to the flow below.
+    const reminderAction = parseReminderReply(text)
+    if (reminderAction) {
+      const pendingPreview = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
+      // A pending preview owns bare confirmations ("done" could mean "yes, add it").
+      if (!pendingPreview) {
+        const target = await findTargetReminder(supabase, userId, now, replyToMessageId)
+        if (target) {
+          const reply = await handleReminderAction(userId, target, reminderAction, now)
+          await persistAssistantTurn(supabase, sessionId, reply)
+          await sendReply(ctx.api, chatId, reply)
+          return
+        }
+      }
+    }
+
     // --- Capture: is this message responding to a pending proposal? ---
     const pendingJob = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
     if (pendingJob) {
@@ -152,7 +226,16 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
         let reply: string
         if (result.ok) {
           await deleteJob(supabase, pendingJob.id)
-          reply = `Added ✅ — [Open in tracker](${result.deepLink})`
+          // Derived, never asserted: this runs the same parser the cron sweep
+          // does over the same stored {{date:…}} strings, so the bot can't
+          // promise a text that won't arrive. Silence = nothing armed.
+          const armed = describeArmedForItems(
+            pendingJob.placement?.items ?? [],
+            result.pageTitle,
+            now,
+            USER_TIMEZONE,
+          )
+          reply = `Added ✅ — [Open in tracker](${result.deepLink})` + (armed ? `\n\n${armed}` : '')
         } else if (result.reason === 'anchor_missing') {
           await deleteJob(supabase, pendingJob.id)
           reply =
