@@ -8,6 +8,7 @@
 import { callClaude } from './anthropic.ts'
 import { buildItems, insertRelativeToBlock } from './insertContent.ts'
 import type { Format, Placement, TiptapNode } from './insertContent.ts'
+import { buildDeepLink } from '../_shared/deepLink.ts'
 
 const APP_URL = (Deno.env.get('APP_URL') ?? 'https://life-tracker-mu-sandy.vercel.app').replace(/\/$/, '')
 
@@ -137,23 +138,8 @@ export async function classifyReply(userText: string, model: string): Promise<{ 
   }
 }
 
-function buildDeepLink(parts: {
-  notebookId?: string | null
-  sectionId?: string | null
-  pageId?: string | null
-  blockId?: string | null
-}): string {
-  const params = new URLSearchParams()
-  if (parts.notebookId) params.set('nb', parts.notebookId)
-  if (parts.sectionId) params.set('sec', parts.sectionId)
-  if (parts.pageId) params.set('pg', parts.pageId)
-  if (parts.blockId) params.set('block', parts.blockId)
-  const hash = params.size ? `#${params.toString()}` : ''
-  return APP_URL ? `${APP_URL}/${hash}` : hash
-}
-
 export type ApplyResult =
-  | { ok: true; deepLink: string }
+  | { ok: true; deepLink: string; pageTitle: string | null }
   | { ok: false; reason: 'anchor_missing' | 'conflict' | 'error' }
 
 /**
@@ -172,7 +158,7 @@ export async function applyPendingJob(
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data: page, error } = await supabase
       .from('pages')
-      .select('content, updated_at, section_id')
+      .select('content, updated_at, section_id, title')
       .eq('id', job.page_id)
       .maybeSingle()
     if (error || !page) return { ok: false, reason: 'error' }
@@ -204,13 +190,18 @@ export async function applyPendingJob(
       const { data: section } = page.section_id
         ? await supabase.from('sections').select('notebook_id').eq('id', page.section_id).maybeSingle()
         : { data: null }
-      const deepLink = buildDeepLink({
-        notebookId: section?.notebook_id,
-        sectionId: page.section_id,
-        pageId: job.page_id,
-        blockId,
-      })
-      return { ok: true, deepLink }
+      const deepLink = buildDeepLink(
+        {
+          notebookId: section?.notebook_id,
+          sectionId: page.section_id,
+          pageId: job.page_id,
+          blockId,
+        },
+        APP_URL,
+      )
+      // The page title carries the tracker's month, which anchors any bare M/D
+      // in the confirmation's reminder derivation.
+      return { ok: true, deepLink, pageTitle: page.title ?? null }
     }
     // Zero rows matched -> a concurrent write landed; loop to re-read and re-apply.
   }

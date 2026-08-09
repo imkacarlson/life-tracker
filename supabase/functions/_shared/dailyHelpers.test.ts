@@ -4,8 +4,10 @@ import {
   buildCandidates,
   buildDaily,
   buildTrackerContext,
+  extractDateTokens,
   parseDateResolutions,
   resolveFinalDate,
+  resolveTokenDate,
   resolveTrackerAnchor,
   serializeTrackerToMarkdown,
   type DateCandidate,
@@ -555,5 +557,156 @@ describe('buildDaily — flagged extras (additive only)', () => {
     const { asap, fyi } = buildDaily([], parsed, cidToBlockId, cidToText, highlightedCids, today)
     expect(asap).toEqual([])
     expect(fyi).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multi-column tables. Every highlighted date must be reachable: these rows used
+// to be anchor-suppressed entirely, so 24 real dates in the user's tracker were
+// invisible to the daily list. The row — not the cell — is the addressable unit.
+// ---------------------------------------------------------------------------
+describe('serializeTrackerToMarkdown — multi-column tables', () => {
+  const cell = (id: string, text: string, highlighted = false) => ({
+    type: 'tableCell',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id },
+        content: [{ type: 'text', text, ...(highlighted ? { marks: [{ type: 'highlight' }] } : {}) }],
+      },
+    ],
+  })
+
+  const rewardsTable = {
+    type: 'doc',
+    content: [
+      {
+        type: 'table',
+        content: [
+          {
+            type: 'tableRow',
+            content: [
+              { type: 'tableHeader', content: [{ type: 'paragraph', attrs: { id: 'h-a' }, content: [{ type: 'text', text: 'Reward' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', attrs: { id: 'h-b' }, content: [{ type: 'text', text: 'Use-By Date' }] }] },
+              { type: 'tableHeader', content: [{ type: 'paragraph', attrs: { id: 'h-c' }, content: [{ type: 'text', text: 'Notes' }] }] },
+            ],
+          },
+          {
+            type: 'tableRow',
+            content: [cell('r1-a', 'Chase Ultimate Rewards'), cell('r1-b', '3/2/27', true), cell('r1-c', 'book flights')],
+          },
+          {
+            type: 'tableRow',
+            content: [cell('r2-a', 'Airline credit'), cell('r2-b', '4/5', true), cell('r2-c', '')],
+          },
+        ],
+      },
+    ],
+  }
+
+  it('anchors each body row once, to the first block id in the row', () => {
+    const { markdown, cidToBlockId } = serializeTrackerToMarkdown(rewardsTable)
+    const lines = markdown.split('\n')
+
+    const headerLine = lines.find((l) => l.includes('Reward')) || ''
+    const row1 = lines.find((l) => l.includes('Chase')) || ''
+    const row2 = lines.find((l) => l.includes('Airline')) || ''
+
+    // Header row is column labels, never an item.
+    expect(headerLine).not.toMatch(/⟦c\d+⟧/)
+    // One anchor per body row, appended after the closing pipe.
+    expect(row1).toMatch(/\|\s⟦c1⟧$/)
+    expect(row2).toMatch(/\|\s⟦c2⟧$/)
+    expect(cidToBlockId.get('c1')).toBe('r1-a')
+    expect(cidToBlockId.get('c2')).toBe('r2-a')
+  })
+
+  it('keeps cell interiors free of anchors', () => {
+    const { markdown } = serializeTrackerToMarkdown(rewardsTable)
+    const row1 = markdown.split('\n').find((l) => l.includes('Chase')) || ''
+    expect([...row1.matchAll(/⟦c\d+⟧/g)]).toHaveLength(1)
+  })
+
+  it("reads the row's cells as one line of text, joined by ·", () => {
+    const { cidToText } = serializeTrackerToMarkdown(rewardsTable)
+    expect(cidToText.get('c1')).toBe('Chase Ultimate Rewards · 3/2/27 · book flights')
+  })
+
+  it('makes a highlighted date in a table row a real daily-list candidate', () => {
+    const { candidates, cidToBlockId } = buildTrackerContext(
+      [{ id: 'page-1', title: 'August 2026 Tracker', content: rewardsTable }],
+      '2026-08-09',
+    )
+    const airline = candidates.find((c) => c.deterministicIso.endsWith('-04-05'))
+    expect(airline).toBeDefined()
+    expect(cidToBlockId.get(airline!.cid)).toBe('r2-a')
+    // Bare 4/5 on an August 2026 page rolls forward to the next April.
+    expect(airline!.deterministicIso).toBe('2027-04-05')
+  })
+})
+
+describe('single-column tables are unchanged', () => {
+  it('still preserves inner structure and its own anchors', () => {
+    const content = {
+      type: 'doc',
+      content: [
+        {
+          type: 'table',
+          content: [
+            {
+              type: 'tableRow',
+              content: [
+                {
+                  type: 'tableCell',
+                  content: [
+                    { type: 'paragraph', attrs: { id: 'c-p1' }, content: [{ type: 'text', text: 'RUNNING' }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const { markdown, cidToBlockId } = serializeTrackerToMarkdown(content)
+    expect(markdown).toContain('RUNNING ⟦c1⟧')
+    expect(markdown).not.toContain('|')
+    expect(cidToBlockId.get('c1')).toBe('c-p1')
+  })
+})
+
+describe('resolveTokenDate', () => {
+  const anchor = new Date(Date.UTC(2026, 7, 1)) // August 2026 tracker
+  const tokenFor = (text: string) => extractDateTokens(text, 2026)[0]
+
+  it('lets an explicit slash-year win outright', () => {
+    const result = resolveTokenDate(tokenFor('3/2/27'), '3/2/27', anchor)
+    expect(result.date.toISOString().slice(0, 10)).toBe('2027-03-02')
+    expect(result.needsAiYear).toBe(false)
+  })
+
+  it('uses a written 20xx year found elsewhere on the line', () => {
+    const line = 'Renew 1/5 (of 2028)'
+    const result = resolveTokenDate(tokenFor(line), line, anchor)
+    expect(result.date.toISOString().slice(0, 10)).toBe('2028-01-05')
+    expect(result.needsAiYear).toBe(false)
+  })
+
+  it('rolls a bare date forward past the tracker anchor', () => {
+    const result = resolveTokenDate(tokenFor('1/5'), '1/5', anchor)
+    expect(result.date.toISOString().slice(0, 10)).toBe('2027-01-05')
+    expect(result.needsAiYear).toBe(true)
+  })
+
+  it('keeps a bare date in the anchor year when it is not yet past', () => {
+    const result = resolveTokenDate(tokenFor('9/26'), '9/26', anchor)
+    expect(result.date.toISOString().slice(0, 10)).toBe('2026-09-26')
+  })
+
+  it('resolves each token on a two-date line independently', () => {
+    const line = '8/17 and 1/5'
+    const [first, second] = extractDateTokens(line, 2026)
+    expect(resolveTokenDate(first, line, anchor).date.toISOString().slice(0, 10)).toBe('2026-08-17')
+    expect(resolveTokenDate(second, line, anchor).date.toISOString().slice(0, 10)).toBe('2027-01-05')
   })
 })

@@ -153,6 +153,12 @@ Playwright E2E tests live in `e2e/`. Two viewport projects run automatically:
 
 Functions inside React hooks that use ProseMirror `EditorState` should be extracted into standalone util files (e.g., `src/utils/listHelpers.js`) and unit-tested with real ProseMirror state objects constructed via `@tiptap/pm/model` + `@tiptap/pm/state`. No jsdom needed — ProseMirror's state layer is pure JS.
 
+### Edge function shared code (`supabase/functions/_shared/`)
+
+Logic used by more than one edge function lives in `supabase/functions/_shared/`. The leading underscore is the Supabase CLI convention for non-deployed shared code — the CLI bundles it into every importing function. Prefer this over a peer-function reach-in (`../generate-daily/foo.ts`).
+
+**House rule for every module in `_shared/`:** zero `jsr:` / `npm:` / `https://` imports and zero top-level `Deno.*`. That is what lets Vitest import them directly. Anything needing an env var takes it as a parameter (see `deepLink.ts`, which takes `appUrl`). Their `*.test.ts` files sit alongside them and are picked up by `vitest.config.js`'s glob.
+
 ## Commands
 
 - `npm run dev` - Start dev server (binds to 0.0.0.0 — accessible from phone on same network)

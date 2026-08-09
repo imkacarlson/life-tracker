@@ -143,7 +143,15 @@ export function buildTools(
               'plus a clock time if present) — keep qualifier words like "by", "EOD", or "due" ' +
               'OUTSIDE the token. E.g. "Submit GRC blog post by EOD {{date:6/15}}", ' +
               '"call w/ Sam {{date:6/16 6:59 PM}}", "renew pass {{date:6/15}}". The M/D inside the ' +
-              "token also makes it register as a due date. Don't wrap incidental/context dates.",
+              "token also makes it register as a due date. Don't wrap incidental/context dates.\n" +
+              'A highlighted date with a clock time arms a push reminder; a highlighted date alone ' +
+              'never does. Put a stated clock time INSIDE the token with an explicit AM/PM ' +
+              '("{{date:8/21 2:00 PM}}", never a bare "2:00"). NEVER invent a time — date-only is ' +
+              'the normal case. If the user asked to be reminded a certain amount ahead, append ' +
+              'that phrase in plain text OUTSIDE the token, e.g. ' +
+              '"call the venue {{date:8/21 2:00 PM}} (remind 3 hours before)"; the default is 90 ' +
+              'minutes ahead, so only say otherwise when they asked. If they said not to be ' +
+              'reminded, append "(no reminder)".',
           },
         },
         required: ['placement', 'format', 'items'],

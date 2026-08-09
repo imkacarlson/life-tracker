@@ -37,6 +37,11 @@ export type TrackerContext = {
   markdown: string
   cidToBlockId: Map<string, string>
   cidToText: Map<string, string>
+  // Per-cid highlighted/plain runs. buildCandidates collapses these away, but the
+  // reminder deriver needs them intact (a line can carry two timed dates).
+  cidSegments: Map<string, InlineSegment[]>
+  // Which page each cid came from — the deep link needs a pageId.
+  cidToPageId: Map<string, string>
   candidates: DateCandidate[]
   highlightedCids: Set<string>
 }
@@ -137,15 +142,18 @@ const parseDateToken = (
   return date
 }
 
-type DateToken = {
+export type DateToken = {
   date: Date
   raw: string
   month: number
   day: number
   hasSlashYear: boolean
+  // Offset of the match within the text it was extracted from — the reminder
+  // deriver needs it to read the clock time that follows the date.
+  index: number
 }
 
-const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
+export const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
   const results: DateToken[] = []
   const normalized = String(text || '')
 
@@ -160,6 +168,7 @@ const extractDateTokens = (text: string, defaultYear: number): DateToken[] => {
         month: Number(match[1]),
         day: Number(match[2]),
         hasSlashYear: Boolean(match[3]),
+        index: match.index,
       })
     }
     match = DATE_TOKEN_REGEX.exec(normalized)
@@ -221,7 +230,7 @@ const appendSegment = (segments: InlineSegment[], segment: InlineSegment) => {
 
 // Collect visible inline text as highlighted/plain runs. Struck-through
 // (completed) text is dropped so finished items don't resurface as due dates.
-const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
+export const collectInlineSegments = (nodes: any[]): InlineSegment[] => {
   const segments: InlineSegment[] = []
 
   const walk = (node: any) => {
@@ -304,6 +313,55 @@ function registerAnchor(
   ctx.counter.value += 1
   ctx.cidToBlockId.set(cid, id)
   const segments = collectInlineSegments(inlineContent || [])
+  ctx.cidSegments.set(cid, segments)
+  ctx.cidToText.set(cid, normalizeText(segments.map((s) => s.text).join('')))
+  return ` ⟦${cid}⟧`
+}
+
+// First `attrs.id` found walking the row depth-first. Every cell's first
+// paragraph carries one, so a row effectively always resolves to a block id.
+function firstBlockIdInRow(row: any): string | null {
+  let found: string | null = null
+  const walk = (node: any) => {
+    if (found || !node || typeof node !== 'object') return
+    const id = node.attrs?.id
+    if (typeof id === 'string' && id) {
+      found = id
+      return
+    }
+    if (Array.isArray(node.content)) node.content.forEach(walk)
+  }
+  ;(row?.content || []).forEach(walk)
+  return found
+}
+
+// A row's inline runs: each cell mapped through collectInlineSegments (which
+// already recurses nested lists and drops struck-through text), joined with a
+// plain " · " so cidToText reads sensibly.
+function collectRowSegments(row: any): InlineSegment[] {
+  const segments: InlineSegment[] = []
+  const cells = row?.content || []
+  cells.forEach((cell: any, idx: number) => {
+    if (idx > 0) appendSegment(segments, { text: ' · ', highlighted: false })
+    collectInlineSegments(cell?.content || []).forEach((segment) =>
+      appendSegment(segments, segment),
+    )
+  })
+  return segments
+}
+
+// Row-level sibling of registerAnchor: takes already-collected segments (the row
+// spans several cells) and ignores ctx.suppressAnchors, which is set for the
+// cells' benefit, not the row's.
+function registerRowAnchor(
+  ctx: SerializeCtx,
+  id: string | null,
+  segments: InlineSegment[],
+): string {
+  if (!id) return ''
+  const cid = `c${ctx.counter.value}`
+  ctx.counter.value += 1
+  ctx.cidToBlockId.set(cid, id)
   ctx.cidSegments.set(cid, segments)
   ctx.cidToText.set(cid, normalizeText(segments.map((s) => s.text).join('')))
   return ` ⟦${cid}⟧`
@@ -399,8 +457,14 @@ function serializeNode(
           }
         })
       } else {
-        // Multi-column table: flatten to pipe rows. Anchoring individual cells
-        // inside a joined row would be noise, so suppress anchors here.
+        // Multi-column table: flatten to pipe rows. A ⟦c42⟧ mid-pipe-row would be
+        // noise, so anchors stay suppressed INSIDE the cells — but the row itself
+        // gets one anchor appended to the line. The pipe row is the logical item
+        // (one reward, one expiration), so it's the right addressable unit, and
+        // it's what makes highlighted dates inside these tables reachable at all.
+        //
+        // Nesting rule: the OUTERMOST multi-column row is the anchoring unit. A
+        // nested table inside a cell folds into its parent row's text.
         const previousSuppress = ctx.suppressAnchors
         ctx.suppressAnchors = true
         rows.forEach((row: any, rowIdx: number) => {
@@ -409,7 +473,12 @@ function serializeNode(
             cell.content?.forEach((child: any) => serializeNode(child, cellLines, ctx, 0))
             return cellLines.join(' ').trim()
           })
-          lines.push(prefix + '| ' + cells.join(' | ') + ' |')
+          // Skip the header row — it's column labels, never an item.
+          const anchor =
+            rowIdx === 0
+              ? ''
+              : registerRowAnchor(ctx, firstBlockIdInRow(row), collectRowSegments(row))
+          lines.push(prefix + '| ' + cells.join(' | ') + ' |' + anchor)
           if (rowIdx === 0) {
             const separator = cells.map((c: string) => '-'.repeat(Math.max(c.length, 3))).join(' | ')
             lines.push(prefix + '| ' + separator + ' |')
@@ -500,6 +569,30 @@ export const serializeTrackerToMarkdown = (content: any, title?: string): Serial
 // default. `needsAiYear` is set only in that last case — the one time a
 // plain-language year could change the result — so the AI never touches
 // month/day, only the year for those lines.
+// The year ladder for ONE date token, applied per token rather than per line so
+// a line carrying two dates resolves each independently:
+//   1. an explicit slash-year wins;
+//   2. else a written 20xx year anywhere on the same line (e.g. "(of 2027)");
+//   3. else roll the bare MM/DD to the tracker's anchor month (or the next year).
+// `needsAiYear` is true only in case 3 — the one time a plain-language year on
+// the line could change the answer, so the AI is asked about just those.
+export const resolveTokenDate = (
+  token: DateToken,
+  lineText: string,
+  anchor: Date,
+): { date: Date; needsAiYear: boolean } => {
+  if (token.hasSlashYear) return { date: token.date, needsAiYear: false }
+
+  const writtenYear = String(lineText || '').match(WRITTEN_YEAR_REGEX)
+  if (writtenYear) {
+    const year = Number(writtenYear[1])
+    const rebuilt = parseDateToken(String(token.month), String(token.day), String(year), year)
+    return { date: rebuilt || token.date, needsAiYear: false }
+  }
+
+  return { date: rollTokenToAnchor(token, anchor).date, needsAiYear: true }
+}
+
 export const buildCandidates = (
   cidSegments: Map<string, InlineSegment[]>,
   today: string,
@@ -513,33 +606,28 @@ export const buildCandidates = (
 
   for (const [cid, segments] of cidSegments) {
     const fullText = segments.map((s) => s.text).join('')
-    const writtenYearMatch = fullText.match(WRITTEN_YEAR_REGEX)
-    const defaultYear = writtenYearMatch
-      ? Number(writtenYearMatch[1])
-      : todayDate.getUTCFullYear()
+    const defaultYear = todayDate.getUTCFullYear()
 
-    const highlightedTokens = segments
+    const resolved = segments
       .filter((segment) => segment.highlighted)
       .flatMap((segment) => extractDateTokens(segment.text, defaultYear))
-      // Roll bare dates to the anchor's year (or the next one) BEFORE picking
-      // the earliest, so the pick reflects the real ordering.
-      .map((token) =>
-        writtenYearMatch ? token : rollTokenToAnchor(token, anchorDate),
-      )
+      // Resolve the year BEFORE picking the earliest, so the pick reflects the
+      // real ordering.
+      .map((token) => ({ token, ...resolveTokenDate(token, fullText, anchorDate) }))
 
-    if (!highlightedTokens.length) continue
+    if (!resolved.length) continue
 
-    const earliest = highlightedTokens
+    const earliest = resolved
       .slice()
       .sort((a, b) => a.date.getTime() - b.date.getTime())[0]
 
     candidates.push({
       cid,
-      dateText: earliest.raw,
-      month: earliest.month,
-      day: earliest.day,
+      dateText: earliest.token.raw,
+      month: earliest.token.month,
+      day: earliest.token.day,
       deterministicIso: toIsoDate(earliest.date),
-      needsAiYear: !earliest.hasSlashYear && !writtenYearMatch,
+      needsAiYear: earliest.needsAiYear,
     })
   }
 
@@ -607,6 +695,7 @@ export const buildTrackerContext = (trackerPages: any[], today: string): Tracker
   const cidToBlockId = new Map<string, string>()
   const cidToText = new Map<string, string>()
   const cidSegments = new Map<string, InlineSegment[]>()
+  const cidToPageId = new Map<string, string>()
   const sections: string[] = []
   const candidates: DateCandidate[] = []
 
@@ -623,8 +712,10 @@ export const buildTrackerContext = (trackerPages: any[], today: string): Tracker
     const anchor = resolveTrackerAnchor(page?.title, today)
     candidates.push(...buildCandidates(ctx.cidSegments, today, anchor))
 
+    const pageId = page?.pageId ?? page?.id
     for (const [cid, segments] of ctx.cidSegments) {
       cidSegments.set(cid, segments)
+      if (typeof pageId === 'string' && pageId) cidToPageId.set(cid, pageId)
     }
   }
 
@@ -632,6 +723,8 @@ export const buildTrackerContext = (trackerPages: any[], today: string): Tracker
     markdown: sections.join('\n\n'),
     cidToBlockId,
     cidToText,
+    cidSegments,
+    cidToPageId,
     candidates,
     highlightedCids: buildHighlightedCids(cidSegments),
   }
