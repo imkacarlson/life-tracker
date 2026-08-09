@@ -54,31 +54,45 @@ describe('cleanLineText', () => {
 })
 
 describe('buildReminderText', () => {
-  it('renders header, local time, and the link', () => {
-    const text = buildReminderText(
-      {
-        dueAt: Date.parse('2026-08-17T12:20:00Z'),
-        leadMinutes: 90,
-        lineText: 'Dietician appointment  8/17 8:20am',
-        leadMatch: null,
-      },
-      NY,
-      'https://example.test/#nb=1&block=2',
-    )
-    expect(text).toBe(
+  const reminder = {
+    dueAt: Date.parse('2026-08-17T12:20:00Z'),
+    leadMinutes: 90,
+    lineText: 'Dietician appointment  8/17 8:20am',
+    leadMatch: null,
+  }
+  const link = 'https://example.test/#nb=1&sec=2&block=3'
+
+  it('renders the link as tappable "Open in tracker" text', () => {
+    expect(buildReminderText(reminder, NY, link)).toBe(
       '⏰ In 90 minutes — Dietician appointment 8/17 8:20am\n\n' +
         'Mon Aug 17 · 8:20 AM\n\n' +
-        'https://example.test/#nb=1&block=2',
+        '<a href="https://example.test/#nb=1&amp;sec=2&amp;block=3">Open in tracker</a>',
     )
   })
 
-  it('omits the link line when there is nothing to link to', () => {
-    const text = buildReminderText(
-      { dueAt: Date.parse('2026-08-17T12:20:00Z'), leadMinutes: 30, lineText: 'Thing', leadMatch: null },
-      NY,
-      '',
+  it('escapes HTML-significant characters in the user\'s own line text', () => {
+    const spicy = { ...reminder, lineText: 'Email <sam@x.com> re: A&B  8/17 8:20am' }
+    const text = buildReminderText(spicy, NY, '')
+    expect(text).toContain('Email &lt;sam@x.com&gt; re: A&amp;B')
+    expect(text).not.toContain('<sam@')
+  })
+
+  it('falls back to a bare URL in plain mode', () => {
+    expect(buildReminderText(reminder, NY, link, 'plain')).toBe(
+      '⏰ In 90 minutes — Dietician appointment 8/17 8:20am\n\n' +
+        'Mon Aug 17 · 8:20 AM\n\n' +
+        link,
     )
-    expect(text.split('\n')).toHaveLength(3)
+  })
+
+  it('leaves the plain build unescaped so Telegram auto-links it', () => {
+    const spicy = { ...reminder, lineText: 'Email <sam@x.com> re: A&B' }
+    expect(buildReminderText(spicy, NY, link, 'plain')).toContain('Email <sam@x.com> re: A&B')
+  })
+
+  it('omits the link line when there is nothing to link to', () => {
+    expect(buildReminderText(reminder, NY, '').split('\n')).toHaveLength(3)
+    expect(buildReminderText(reminder, NY, '', 'plain').split('\n')).toHaveLength(3)
   })
 })
 
