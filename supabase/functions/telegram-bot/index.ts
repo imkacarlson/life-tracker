@@ -23,15 +23,33 @@ import {
   persistAssistantTurn,
   persistUserTurn,
   resolveSession,
+  setSessionMode,
 } from './session.ts'
+import type { SessionMode } from './session.ts'
 
 // --- Constants (tunable) ---
 const IDLE_MINUTES = 30 // continue same conversation if last reply was within this window
 const MAX_TURNS = 12 // recent turns loaded into context (sessions are short by design)
-const MODEL = 'claude-sonnet-4-6' // main reasoning: placement choice + Q&A (accuracy-sensitive)
+const MODEL = 'claude-sonnet-5' // main reasoning: placement choice + Q&A (accuracy-sensitive)
+// Sonnet 5 defaults to `high` effort, which would be slower and pricier than the
+// old Sonnet 4.6 behavior. Anthropic rates Sonnet 5 @ medium as comparable to
+// Sonnet 4.6 @ high — i.e. today's quality, cheaper. Don't drop below medium:
+// at `low` the model makes fewer tool calls and may skip read_tracker_structure,
+// which is exactly the step that makes placement good.
+const EFFORT = 'medium' as const
 // The confirm/cancel classification is a tiny, well-scoped yes/no/change call —
 // run it on the fastest model so the "yes" → "Added ✅" round-trip feels instant.
 const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001'
+// /think: a deeper model with adaptive extended thinking, sticky until /new.
+// max_tokens is a hard ceiling that INCLUDES thinking tokens, so the standard
+// 2048 default would let thinking eat the whole budget and truncate the answer.
+const THINK_MODEL = 'claude-opus-5'
+const THINK_EFFORT = 'medium' as const
+const THINK_MAX_TOKENS = 8192
+const THINK_USAGE =
+  'Send /think followed by what you want me to think through, e.g.\n\n' +
+  '/think plan out my marathon build\n\n' +
+  'I stay in deep-thinking mode until you send /new.'
 const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s expiry
 
 // --- Secrets / config ---
@@ -86,9 +104,16 @@ bot.command('new', async (ctx) => {
 // before the message:text tracker handler so it never collides with it.
 bot.command('blog', handleBlog)
 
-bot.on('message:text', async (ctx) => {
+/**
+ * The whole conversational flow: session, dedup, pending-proposal capture, and
+ * the agentic tool loop. Shared by the plain text handler and /think so the
+ * logic lives in exactly one place.
+ *
+ * `forceMode` is set by /think, which switches the session before running.
+ */
+// deno-lint-ignore no-explicit-any
+async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode): Promise<void> {
   const chatId = ctx.chat.id
-  const text = ctx.message.text
   const messageId = ctx.message.message_id
   // A quote-reply to a preview photo lets the user re-activate that exact
   // proposal, even past the idle window.
@@ -102,7 +127,16 @@ bot.on('message:text', async (ctx) => {
     // Opportunistic cleanup so expired proposals never accumulate.
     await purgeExpiredJobs(supabase)
 
-    const sessionId = await resolveSession(supabase, userId, chatId, IDLE_MINUTES, now)
+    const session = await resolveSession(supabase, userId, chatId, IDLE_MINUTES, now)
+    const sessionId = session.id
+
+    let mode: SessionMode = session.mode
+    if (forceMode && forceMode !== mode) {
+      await setSessionMode(supabase, sessionId, forceMode)
+      mode = forceMode
+      await sendReply(ctx.api, chatId, '🧠 Deep thinking on — staying here until /new')
+    }
+    const deep = mode === 'think'
 
     // Dedup: if Telegram retried this exact message, stop after the first time.
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
@@ -162,11 +196,13 @@ bot.on('message:text', async (ctx) => {
     })
 
     const reply = await callClaude({
-      system: buildSystemPrompt(true, nowDisplay),
+      system: buildSystemPrompt(true, nowDisplay, deep),
       messages: turns.map((t) => ({ role: t.role, content: t.content })),
       tools: tools.defs,
       runTool: tools.runTool,
-      model: MODEL,
+      model: deep ? THINK_MODEL : MODEL,
+      effort: deep ? THINK_EFFORT : EFFORT,
+      ...(deep ? { maxTokens: THINK_MAX_TOKENS, thinking: { type: 'adaptive' as const } } : {}),
     })
 
     await persistAssistantTurn(supabase, sessionId, reply)
@@ -177,6 +213,22 @@ bot.on('message:text', async (ctx) => {
   } finally {
     stopTyping()
   }
+}
+
+// /think <question> -> switch this session into deep-thinking mode and answer.
+// Registered before message:text so it never collides with it; ctx.match keeps
+// the literal "/think" out of what the model sees.
+bot.command('think', async (ctx) => {
+  const question = (ctx.match ?? '').trim()
+  if (!question) {
+    await sendReply(ctx.api, ctx.chat.id, THINK_USAGE)
+    return
+  }
+  await handleUserMessage(ctx, question, 'think')
+})
+
+bot.on('message:text', async (ctx) => {
+  await handleUserMessage(ctx, ctx.message.text)
 })
 
 // Register the command menu once at cold start (non-fatal if it fails).

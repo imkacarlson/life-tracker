@@ -8,7 +8,7 @@
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-sonnet-5'
 const MAX_TOKENS = 8000
 
 // Rate limit + transient server/overload errors are worth retrying.
@@ -25,6 +25,9 @@ export async function formatRecap(prompt: string): Promise<string> {
   const body = JSON.stringify({
     model: MODEL,
     max_tokens: MAX_TOKENS,
+    // Sonnet 5 defaults to `high` effort; pin medium so this stays close to the
+    // Sonnet 4.6 behavior the BLOG_EXAMPLE prompt was tuned against.
+    output_config: { effort: 'medium' },
     messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
   })
 

@@ -11,6 +11,11 @@ type SupabaseLike = {
 
 export type Turn = { role: 'user' | 'assistant'; content: string }
 
+/** Deep-thinking mode is sticky for the life of a session (see /think). */
+export type SessionMode = 'standard' | 'think'
+
+export type Session = { id: string; mode: SessionMode }
+
 /**
  * Continue the same conversation if the last activity was within the idle window.
  */
@@ -40,10 +45,10 @@ export async function resolveSession(
   chatId: number,
   idleMinutes: number,
   now: Date,
-): Promise<string> {
+): Promise<Session> {
   const { data: existing } = await supabase
     .from('bot_sessions')
-    .select('id, last_activity_at')
+    .select('id, last_activity_at, mode')
     .eq('telegram_chat_id', chatId)
     .eq('status', 'active')
     .order('last_activity_at', { ascending: false })
@@ -55,17 +60,26 @@ export async function resolveSession(
       .from('bot_sessions')
       .update({ last_activity_at: now.toISOString() })
       .eq('id', existing.id)
-    return existing.id
+    return { id: existing.id, mode: existing.mode === 'think' ? 'think' : 'standard' }
   }
 
   const { data: created, error } = await supabase
     .from('bot_sessions')
     .insert({ user_id: userId, telegram_chat_id: chatId, last_activity_at: now.toISOString() })
-    .select('id')
+    .select('id, mode')
     .single()
 
   if (error || !created) throw new Error(`Failed to create session: ${error?.message ?? 'unknown'}`)
-  return created.id
+  return { id: created.id, mode: created.mode === 'think' ? 'think' : 'standard' }
+}
+
+/** Switch a session's reasoning mode (sticky until the session is closed). */
+export async function setSessionMode(
+  supabase: SupabaseLike,
+  sessionId: string,
+  mode: SessionMode,
+): Promise<void> {
+  await supabase.from('bot_sessions').update({ mode }).eq('id', sessionId)
 }
 
 /** Load the last N turns of a session, oldest first (for the model's context). */

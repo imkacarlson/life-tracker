@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { flattenTrackerToText, selectCurrentMonthTracker } from './trackerText.ts'
+import {
+  flattenTrackerToText,
+  flattenTrackerToTextWithHandles,
+  selectCurrentMonthTracker,
+} from './trackerText.ts'
 
 const now = new Date('2026-05-30T12:00:00Z') // May 2026
 
@@ -144,5 +148,86 @@ describe('flattenTrackerToText', () => {
   it('returns empty string for missing content', () => {
     expect(flattenTrackerToText(null)).toBe('')
     expect(flattenTrackerToText(undefined)).toBe('')
+  })
+})
+
+describe('flattenTrackerToTextWithHandles', () => {
+  const text = (value: string) => ({ type: 'text', text: value })
+  const para = (id: string | undefined, value: string) => ({
+    type: 'paragraph',
+    ...(id ? { attrs: { id } } : {}),
+    content: [text(value)],
+  })
+
+  const doc = {
+    type: 'doc',
+    content: [
+      { type: 'heading', attrs: { id: 'uuid-head' }, content: [text('Running')] },
+      para('uuid-p1', 'First note'),
+      {
+        type: 'bulletList',
+        attrs: { id: 'uuid-list' },
+        content: [
+          { type: 'listItem', content: [para('uuid-li1', 'Buy gels')] },
+          { type: 'listItem', content: [para('uuid-li2', 'Book hotel')] },
+        ],
+      },
+      para(undefined, 'Unanchored paragraph'),
+    ],
+  }
+
+  it('allocates b1, b2, … in document order', () => {
+    const { text: out, handles } = flattenTrackerToTextWithHandles(doc)
+    expect(out).toContain('RUNNING {{b1}}')
+    expect(out).toContain('First note {{b2}}')
+    expect(out).toContain('- Buy gels {{b3}}')
+    expect(out).toContain('- Book hotel {{b4}}')
+    expect(handles.get('b1')).toBe('uuid-head')
+    expect(handles.get('b2')).toBe('uuid-p1')
+    expect(handles.get('b3')).toBe('uuid-li1')
+    expect(handles.get('b4')).toBe('uuid-li2')
+  })
+
+  it('is deterministic — the same doc yields the same handles', () => {
+    const a = flattenTrackerToTextWithHandles(doc)
+    const b = flattenTrackerToTextWithHandles(doc)
+    expect(b.text).toBe(a.text)
+    expect([...b.handles]).toEqual([...a.handles])
+  })
+
+  it('gives the list its own standalone handle line (append_to_list anchor)', () => {
+    const { text: out, handles } = flattenTrackerToTextWithHandles(doc)
+    const listHandle = [...handles].find(([, uuid]) => uuid === 'uuid-list')?.[0]
+    expect(listHandle).toBeTruthy()
+    expect(out.split('\n')).toContain(`{{${listHandle}}}`)
+  })
+
+  it('gives each block exactly one handle', () => {
+    const { handles } = flattenTrackerToTextWithHandles(doc)
+    const uuids = [...handles.values()]
+    expect(new Set(uuids).size).toBe(uuids.length)
+    expect(uuids).toEqual(['uuid-head', 'uuid-p1', 'uuid-li1', 'uuid-li2', 'uuid-list'])
+  })
+
+  it('emits no marker for blocks without an id', () => {
+    const { text: out } = flattenTrackerToTextWithHandles(doc)
+    expect(out).toContain('Unanchored paragraph')
+    expect(out).not.toMatch(/Unanchored paragraph \{\{/)
+  })
+
+  it('emits far fewer characters than raw uuid markers would', () => {
+    const { text: out } = flattenTrackerToTextWithHandles(doc)
+    expect(out).not.toContain('uuid-p1')
+  })
+
+  it('returns an empty map for missing content', () => {
+    expect(flattenTrackerToTextWithHandles(null)).toEqual({ text: '', handles: new Map() })
+    expect(flattenTrackerToTextWithHandles(undefined).text).toBe('')
+  })
+
+  it('includes the title when provided', () => {
+    expect(flattenTrackerToTextWithHandles(doc, 'May 2026 Tracker').text).toContain(
+      'MAY 2026 TRACKER',
+    )
   })
 })

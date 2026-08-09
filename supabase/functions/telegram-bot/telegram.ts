@@ -100,6 +100,7 @@ export async function registerCommands(api: any): Promise<void> {
   try {
     await api.setMyCommands([
       { command: 'new', description: 'Start a fresh conversation' },
+      { command: 'think', description: 'Deep thinking mode (until /new)' },
       { command: 'blog', description: 'Draft a GRC blog post from a race recap' },
     ])
   } catch (_err) {

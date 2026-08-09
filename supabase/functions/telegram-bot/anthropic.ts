@@ -15,6 +15,8 @@ export type ToolDef = {
   input_schema: Record<string, unknown>
 }
 
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 type CallArgs = {
   system: string
   messages: ChatMessage[]
@@ -23,6 +25,16 @@ type CallArgs = {
   model: string
   maxTokens?: number
   maxIterations?: number
+  /**
+   * Reasoning effort. Only send this for models that support it (Sonnet 5 /
+   * Opus 5) — Haiku 4.5 rejects `output_config`, so the classify pass omits it.
+   */
+  effort?: Effort
+  /**
+   * Adaptive extended thinking. The older `{type:'enabled', budget_tokens}`
+   * shape 400s on Sonnet 5 / Opus 5; adaptive + `effort` replaces it.
+   */
+  thinking?: { type: 'adaptive' }
 }
 
 /**
@@ -37,6 +49,8 @@ export async function callClaude({
   model,
   maxTokens = 2048,
   maxIterations = 4,
+  effort,
+  thinking,
 }: CallArgs): Promise<string> {
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
@@ -51,15 +65,21 @@ export async function callClaude({
         'x-api-key': apiKey,
         'anthropic-version': ANTHROPIC_VERSION,
       },
-      // cache_control on the system block caches the stable tools+system prefix
-      // (Anthropic caches everything before the breakpoint). Back-to-back messages
-      // within the cache TTL re-read it at ~10% cost instead of re-billing it.
+      // Two cache breakpoints (of the 4 allowed):
+      //  1. on the system block — pins the stable tools+system prefix.
+      //  2. top-level `cache_control` — Anthropic's automatic caching. The
+      //     breakpoint lands on the last cacheable block and moves forward as
+      //     the conversation grows, so the big read_tracker_structure tool
+      //     result is cached instead of re-billed on every later iteration.
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
         system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
         tools,
         messages: working,
+        cache_control: { type: 'ephemeral' },
+        ...(effort ? { output_config: { effort } } : {}),
+        ...(thinking ? { thinking } : {}),
       }),
     })
 
@@ -68,6 +88,15 @@ export async function callClaude({
       console.error('Anthropic API error:', response.status, data?.error?.type ?? '')
       throw new Error('Anthropic API error')
     }
+
+    // Cheap observability: proves caching is being hit and shows how much of the
+    // budget thinking consumed. Shows up in `supabase functions logs`.
+    const u = data.usage ?? {}
+    console.log(
+      `claude usage [${model} iter=${i}] in=${u.input_tokens ?? 0} ` +
+        `cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0} ` +
+        `out=${u.output_tokens ?? 0} thinking=${u.output_tokens_details?.thinking_tokens ?? 0}`,
+    )
 
     const content = Array.isArray(data.content) ? data.content : []
 

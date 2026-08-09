@@ -70,15 +70,32 @@ function cellShadingPrefix(node: TiptapNode): string {
   return bg ? `(cell shaded ${bg}) ` : ''
 }
 
-// Options threaded through serialization. `withIds` appends a {{id:<block-id>}}
-// marker to each block so the model can name an exact insertion anchor (the same
-// marker convention as src/lib/serializeDoc.js and the ai-insert edge function).
-type SerializeOpts = { withIds?: boolean }
+// Options threaded through serialization. `handleFor` allocates a short handle
+// (b1, b2, …) for a block so the model can name an exact insertion anchor.
+// Short handles rather than raw UUIDs: a full UUID per block cost ~20 tokens
+// each and dominated the structure read (~500 blocks ≈ 10k tokens of pure id).
+type SerializeOpts = { handleFor?: (node: TiptapNode) => string | null }
 
+/** The one place a block's handle is resolved, so the two emission sites agree. */
+function blockHandle(node: TiptapNode, opts: SerializeOpts): string | null {
+  return opts.handleFor ? opts.handleFor(node) : null
+}
+
+/** Trailing ` {{b12}}` marker for a block that carries content on its line. */
 function idMarker(node: TiptapNode, opts: SerializeOpts): string {
-  if (!opts.withIds) return ''
-  const id = node.attrs?.id
-  return typeof id === 'string' && id ? ` {{id:${id}}}` : ''
+  const handle = blockHandle(node, opts)
+  return handle ? ` {{${handle}}}` : ''
+}
+
+/** Standalone `{{b12}}` line, used to name a whole list (append_to_list). */
+function pushHandleLine(
+  node: TiptapNode,
+  lines: string[],
+  prefix: string,
+  opts: SerializeOpts,
+): void {
+  const handle = blockHandle(node, opts)
+  if (handle) lines.push(prefix + `{{${handle}}}`)
 }
 
 function serializeNode(
@@ -111,7 +128,7 @@ function serializeNode(
     case 'bulletList':
       node.content?.forEach((child) => serializeNode(child, lines, indent, 'bullet', opts))
       // Marker line lets the model target the whole list (append_to_list).
-      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
+      pushHandleLine(node, lines, prefix, opts)
       break
 
     case 'orderedList': {
@@ -120,13 +137,13 @@ function serializeNode(
         serializeNode(child, lines, indent, counter, opts)
         counter += 1
       })
-      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
+      pushHandleLine(node, lines, prefix, opts)
       break
     }
 
     case 'taskList':
       node.content?.forEach((child) => serializeNode(child, lines, indent, 'task', opts))
-      if (opts.withIds && node.attrs?.id) lines.push(prefix + `{{id:${node.attrs.id}}}`)
+      pushHandleLine(node, lines, prefix, opts)
       break
 
     case 'listItem':
@@ -243,27 +260,46 @@ export function flattenTrackerToText(content: TiptapNode | null | undefined, tit
 
 /**
  * Same flattening as flattenTrackerToText, but every block is annotated with a
- * {{id:<block-id>}} marker. The capture flow's read_tracker_structure tool uses
+ * short `{{b12}}` handle. The capture flow's read_tracker_structure tool uses
  * this so the model can name an exact insertion anchor for propose_tracker_addition.
+ *
+ * Returns the text plus the handle -> real block UUID map. Handles are allocated
+ * b1, b2, … in document order and memoized per UUID, so a block visited twice
+ * keeps one handle. Generation is deterministic for a given document.
  */
-export function flattenTrackerToTextWithIds(
+export function flattenTrackerToTextWithHandles(
   content: TiptapNode | null | undefined,
   title?: string,
-): string {
-  if (!content || typeof content !== 'object') return ''
+): { text: string; handles: Map<string, string> } {
+  const handles = new Map<string, string>() // handle -> uuid
+  if (!content || typeof content !== 'object') return { text: '', handles }
+
+  const byUuid = new Map<string, string>() // uuid -> handle
+  const handleFor = (node: TiptapNode): string | null => {
+    const id = node.attrs?.id
+    if (typeof id !== 'string' || !id) return null
+    const existing = byUuid.get(id)
+    if (existing) return existing
+    const handle = `b${byUuid.size + 1}`
+    byUuid.set(id, handle)
+    handles.set(handle, id)
+    return handle
+  }
 
   const lines: string[] = []
   if (title) {
     lines.push(title.trim().toUpperCase())
     lines.push('')
   }
-  serializeNode(content, lines, 0, null, { withIds: true })
+  serializeNode(content, lines, 0, null, { handleFor })
 
-  return lines
+  const text = lines
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+\n/g, '\n')
     .trim()
+
+  return { text, handles }
 }
 
 /**
