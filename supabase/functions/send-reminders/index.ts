@@ -69,17 +69,31 @@ type SnoozeRow = {
 }
 
 /** Direct fetch, not grammY — one dependency and one code path. */
-async function sendMessage(text: string): Promise<number | null> {
-  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+async function post(text: string, html: boolean): Promise<Response> {
+  return await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       chat_id: CHAT_ID,
       text,
+      ...(html ? { parse_mode: 'HTML' } : {}),
       // Otherwise Telegram fetches a link-preview card on every single reminder.
       disable_web_page_preview: true,
     }),
   })
+}
+
+/**
+ * Send the HTML build so the deep link renders as tappable "Open in tracker"
+ * text. If Telegram rejects the markup, resend the plain build — a formatting
+ * edge case should cost the user a pretty link, never the reminder itself.
+ */
+async function sendMessage(html: string, plain: string): Promise<number | null> {
+  let resp = await post(html, true)
+  if (!resp.ok) {
+    console.error(`HTML send rejected (${resp.status}), falling back to plain text`)
+    resp = await post(plain, false)
+  }
   if (!resp.ok) {
     throw new Error(`telegram sendMessage failed (${resp.status}) ${await resp.text().catch(() => '')}`)
   }
@@ -237,7 +251,10 @@ Deno.serve(async (req) => {
 
       try {
         if (index > 0) await sleep(SEND_GAP_MS)
-        const messageId = await sendMessage(buildReminderText(reminder, USER_TIMEZONE, deepLink))
+        const messageId = await sendMessage(
+          buildReminderText(reminder, USER_TIMEZONE, deepLink),
+          buildReminderText(reminder, USER_TIMEZONE, deepLink, 'plain'),
+        )
         await supabase
           .from('bot_reminders')
           .update({
@@ -316,12 +333,15 @@ async function sendDueSnoozes(
   for (const row of data as SnoozeRow[]) {
     try {
       const deepLink = buildDeepLink({ pageId: row.page_id, blockId: row.block_id }, APP_URL)
+      const snoozed = {
+        dueAt: Date.parse(row.fire_at),
+        leadMinutes: 0,
+        lineText: row.line_text ?? '',
+        leadMatch: null,
+      }
       const messageId = await sendMessage(
-        buildReminderText(
-          { dueAt: Date.parse(row.fire_at), leadMinutes: 0, lineText: row.line_text ?? '', leadMatch: null },
-          USER_TIMEZONE,
-          deepLink,
-        ),
+        buildReminderText(snoozed, USER_TIMEZONE, deepLink),
+        buildReminderText(snoozed, USER_TIMEZONE, deepLink, 'plain'),
       )
       await supabase
         .from('bot_reminders')

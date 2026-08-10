@@ -49,22 +49,43 @@ export function cleanLineText(
 }
 
 /**
- * The outbound text. Plain — no parse_mode. This function emits a fixed format we
- * control, so it skips the escaping machinery telegram.ts needs for model output,
- * and Telegram auto-links the bare URL.
+ * Escape for Telegram's HTML parse mode, which needs only these three — unlike
+ * MarkdownV2, which would need every one of `_*[]()~\`>#+-=|{}.!` escaped in the
+ * user's own tracker text. A dash or a period in a task line is common enough
+ * that MarkdownV2 here would be a steady source of 400s.
+ */
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * The outbound reminder.
+ *
+ * 'html' is what actually gets sent: the link renders as tappable "Open in
+ * tracker" text, matching the bot's "Added ✅" confirmation. 'plain' is the
+ * fallback if Telegram ever rejects the markup — it degrades to a bare URL,
+ * which Telegram auto-links, rather than dropping the message.
  */
 export function buildReminderText(
   reminder: Pick<TimedDate, 'dueAt' | 'leadMinutes' | 'lineText' | 'leadMatch'>,
   timeZone: string,
   deepLink: string,
+  format: 'html' | 'plain' = 'html',
 ): string {
   const header =
     reminder.leadMinutes > 0 ? `⏰ In ${describeLead(reminder.leadMinutes)}` : '⏰ Now'
   const body = cleanLineText(reminder.lineText, reminder.leadMatch)
   const when = formatInZone(reminder.dueAt, timeZone)
 
-  const lines = [body ? `${header} — ${body}` : header, '', when]
-  if (deepLink) lines.push('', deepLink)
+  if (format === 'plain') {
+    const lines = [body ? `${header} — ${body}` : header, '', when]
+    if (deepLink) lines.push('', deepLink)
+    return lines.join('\n')
+  }
+
+  const heading = body ? `${header} — ${escapeHtml(body)}` : header
+  const lines = [heading, '', escapeHtml(when)]
+  // The href needs escaping too: a deep link carries & between its hash params.
+  if (deepLink) lines.push('', `<a href="${escapeHtml(deepLink)}">Open in tracker</a>`)
   return lines.join('\n')
 }
 
