@@ -12,6 +12,8 @@ import { useEditorSetup } from './hooks/useEditorSetup'
 import { useCustomDictionary } from './hooks/useCustomDictionary'
 import { useTrackerSession } from './hooks/useTrackerSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
+import { useSaveLifecycle } from './components/app/hooks/useSaveLifecycle'
+import { useSidebarLayout } from './components/app/hooks/useSidebarLayout'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
 import { isTouchOnlyDevice } from './utils/device'
 import { getMountedEditorView } from './utils/editorView'
@@ -19,47 +21,13 @@ import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from './utils/sectionPages'
-import { setBeforeReloadHandler, isIntentionalReload } from './utils/reloadCoordinator'
-import {
-  readStoredSidebarCollapsed,
-  readStoredSelection,
-  readStoredSidebarWidth,
-  saveStoredSidebarCollapsed,
-  saveStoredSidebarWidth,
-} from './utils/storage'
-import EditorPanel from './components/EditorPanel'
-import SettingsHub from './components/SettingsHub'
+import { readStoredSelection } from './utils/storage'
 import AuthForm from './components/AuthForm'
 import WelcomeScreen from './components/WelcomeScreen'
-import SlimHeader from './components/app/SlimHeader'
-import NavigationTree from './components/app/NavigationTree'
-import TreeContextMenu from './components/app/TreeContextMenu'
-import CopyMoveModal from './components/app/CopyMoveModal'
-import ConflictModal from './components/app/ConflictModal'
+import Workspace from './components/app/Workspace'
 import './styles/index.css'
 
-const DEFAULT_SIDEBAR_WIDTH = 280
-const MIN_SIDEBAR_WIDTH = 220
-const MIN_EDITOR_WIDTH = 520
-const SIDEBAR_RESIZER_WIDTH = 14
-const SIDEBAR_BADGE_COMPACT_WIDTH = 300
 const POINTER_TAP_DISTANCE_PX = 10
-const MOBILE_BREAKPOINT_PX = 900
-
-const clampSidebarWidth = (width, workspaceWidth) => {
-  const maxSidebarWidth = Math.max(
-    MIN_SIDEBAR_WIDTH,
-    workspaceWidth - SIDEBAR_RESIZER_WIDTH - MIN_EDITOR_WIDTH,
-  )
-  return Math.min(Math.max(width, MIN_SIDEBAR_WIDTH), maxSidebarWidth)
-}
-
-const getWorkspaceContentWidth = (workspaceEl) => {
-  const computed = window.getComputedStyle(workspaceEl)
-  const paddingLeft = Number.parseFloat(computed.paddingLeft) || 0
-  const paddingRight = Number.parseFloat(computed.paddingRight) || 0
-  return Math.max(0, workspaceEl.clientWidth - paddingLeft - paddingRight)
-}
 
 function App() {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -74,26 +42,20 @@ function App() {
   const [touchNavigationGuard, setTouchNavigationGuard] = useState(false)
   const [deepLinkFocusGuard, setDeepLinkFocusGuard] = useState(false)
   const pointerGestureRef = useRef(null)
-  const workspaceRef = useRef(null)
-  const resizeStateRef = useRef(null)
-  const sidebarWidthRef = useRef(DEFAULT_SIDEBAR_WIDTH)
-  const [isMobileViewport, setIsMobileViewport] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth <= MOBILE_BREAKPOINT_PX,
-  )
-  const [sidebarWidth, setSidebarWidth] = useState(() =>
-    readStoredSidebarWidth(DEFAULT_SIDEBAR_WIDTH),
-  )
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    readStoredSidebarCollapsed(false),
-  )
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
-
-  const clampSidebarWidthForWorkspace = useCallback((nextWidth) => {
-    const workspaceEl = workspaceRef.current
-    if (!workspaceEl) return Math.max(nextWidth, MIN_SIDEBAR_WIDTH)
-    return clampSidebarWidth(nextWidth, getWorkspaceContentWidth(workspaceEl))
-  }, [])
+  const {
+    workspaceRef,
+    isMobileViewport,
+    sidebarCollapsed,
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    isSidebarOpen,
+    compactBadges,
+    workspaceClassName,
+    workspaceStyle,
+    handleToggleSidebar,
+    handleSidebarResizeStart,
+    handleSidebarResizeKeyDown,
+  } = useSidebarLayout()
 
   const getPendingNav = useCallback(() => pendingNavRef.current, [])
   const setPendingNav = useCallback((value) => {
@@ -294,6 +256,7 @@ function App() {
 
   const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
   const isSaving = hasPendingSaves || templateSaveStatus === 'Saving...'
+  const { confirmLeaveWhileSaving } = useSaveLifecycle({ isSaving, flushAllPendingSaves })
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
 
   const [treeContextMenu, setTreeContextMenu] = useState({
@@ -304,28 +267,6 @@ function App() {
     item: null,
   })
   const [copyMoveModal, setCopyMoveModal] = useState({ open: false, action: null, section: null, destId: '' })
-
-  useEffect(() => {
-    sidebarWidthRef.current = sidebarWidth
-  }, [sidebarWidth])
-
-  useEffect(() => {
-    const syncViewport = () => {
-      setIsMobileViewport(window.innerWidth <= MOBILE_BREAKPOINT_PX)
-    }
-    syncViewport()
-    window.addEventListener('resize', syncViewport)
-    return () => window.removeEventListener('resize', syncViewport)
-  }, [])
-
-  useEffect(() => {
-    const syncSidebarWidth = () => {
-      setSidebarWidth((prev) => clampSidebarWidthForWorkspace(prev))
-    }
-    syncSidebarWidth()
-    window.addEventListener('resize', syncSidebarWidth)
-    return () => window.removeEventListener('resize', syncSidebarWidth)
-  }, [clampSidebarWidthForWorkspace])
 
   useEffect(() => {
     if (!treeContextMenu.open) return
@@ -347,12 +288,6 @@ function App() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [treeContextMenu.open])
 
-  useEffect(() => {
-    if (!isMobileViewport) {
-      setMobileSidebarOpen(false)
-    }
-  }, [isMobileViewport])
-
   // Record visits so post-delete navigation can return to where you were.
   useEffect(() => {
     if (activeNotebookId) recordNavVisit('notebooks', activeNotebookId)
@@ -363,15 +298,6 @@ function App() {
   useEffect(() => {
     if (activeTrackerId) recordNavVisit('pages', activeTrackerId)
   }, [activeTrackerId, recordNavVisit])
-
-  // Close the mobile drawer on hash/deep-link navigation (internal link taps and
-  // browser back both change the hash), mirroring the page-tap close.
-  useEffect(() => {
-    if (!isMobileViewport) return undefined
-    const handleHashChange = () => setMobileSidebarOpen(false)
-    window.addEventListener('hashchange', handleHashChange)
-    return () => window.removeEventListener('hashchange', handleHashChange)
-  }, [isMobileViewport])
 
   // Auto-open a section's first page when the user clicks the section. Waits for
   // the section's pages to load, then navigates to the first page — unless the
@@ -419,10 +345,6 @@ function App() {
     }
   }
 
-  const confirmLeaveWhileSaving = useCallback(() => {
-    if (!isSaving) return true
-    return window.confirm('Changes are still saving. Leave this page anyway?')
-  }, [isSaving])
   const handleAppPointerDownCapture = useCallback(
     (event) => {
       const target = event.target
@@ -556,41 +478,6 @@ function App() {
     setTemplateSaveStatus('Saved')
   }, [settingsMode, setTemplateSaveStatus])
 
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      flushAllPendingSaves()
-      // A user-clicked "Refresh" on the PWA update banner is explicit consent
-      // to leave. Prompting there strands them on the old build with a dead
-      // banner; the flush above (plus localStorage drafts) covers the writes.
-      if (isIntentionalReload()) return
-      if (!isSaving) return
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    // visibilitychange fires when user switches tabs or apps (primary mobile fix).
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        flushAllPendingSaves()
-      }
-    }
-    // pagehide is a backup — fires when the page is being unloaded/destroyed.
-    const handlePageHide = () => {
-      flushAllPendingSaves()
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('pagehide', handlePageHide)
-    // The update banner lives outside this React tree (main.jsx), so it reaches
-    // the save flush through the coordinator module rather than props.
-    const unsubscribeBeforeReload = setBeforeReloadHandler(flushAllPendingSaves)
-    return () => {
-      unsubscribeBeforeReload()
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('pagehide', handlePageHide)
-    }
-  }, [isSaving, flushAllPendingSaves])
-
   // Tear down the boot splash (baked into index.html) once auth resolves. The
   // error boundary and an inline failsafe timeout also remove it, so this is
   // just the primary, happy-path removal.
@@ -682,79 +569,6 @@ function App() {
     setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
   }
 
-  const handleToggleSidebar = () => {
-    if (isMobileViewport) {
-      setMobileSidebarOpen((prev) => !prev)
-      return
-    }
-
-    setSidebarCollapsed((prev) => {
-      const next = !prev
-      saveStoredSidebarCollapsed(next)
-      return next
-    })
-  }
-
-  const handleSidebarResizeStart = useCallback(
-    (event) => {
-      if (isMobileViewport || sidebarCollapsed) return
-      if (typeof event.button === 'number' && event.button !== 0) return
-      const workspaceEl = workspaceRef.current
-      if (!workspaceEl) return
-
-      event.preventDefault()
-      resizeStateRef.current = {
-        startX: event.clientX,
-        startWidth: sidebarWidthRef.current,
-      }
-      setIsResizingSidebar(true)
-    },
-    [isMobileViewport, sidebarCollapsed],
-  )
-
-  const handleSidebarResizeKeyDown = useCallback(
-    (event) => {
-      if (isMobileViewport || sidebarCollapsed) return
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-      event.preventDefault()
-      const delta = event.key === 'ArrowRight' ? 24 : -24
-      setSidebarWidth((prev) => {
-        const next = clampSidebarWidthForWorkspace(prev + delta)
-        saveStoredSidebarWidth(next)
-        return next
-      })
-    },
-    [clampSidebarWidthForWorkspace, isMobileViewport, sidebarCollapsed],
-  )
-
-  useEffect(() => {
-    if (!isResizingSidebar) return
-
-    const handlePointerMove = (event) => {
-      const resizeState = resizeStateRef.current
-      if (!resizeState) return
-      const deltaX = event.clientX - resizeState.startX
-      const rawWidth = resizeState.startWidth + deltaX
-      setSidebarWidth(clampSidebarWidthForWorkspace(rawWidth))
-    }
-
-    const stopResizing = () => {
-      resizeStateRef.current = null
-      setIsResizingSidebar(false)
-      saveStoredSidebarWidth(sidebarWidthRef.current)
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', stopResizing)
-    window.addEventListener('pointercancel', stopResizing)
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', stopResizing)
-      window.removeEventListener('pointercancel', stopResizing)
-    }
-  }, [isResizingSidebar, clampSidebarWidthForWorkspace])
-
   const isSettingsHub = settingsMode === 'hub'
   const isTemplateEditing = settingsMode === 'daily-template'
   const isSamePageBlockAnchor =
@@ -801,16 +615,6 @@ function App() {
     }
     return { kind: 'none' }
   })()
-  const compactBadges = sidebarWidth < SIDEBAR_BADGE_COMPACT_WIDTH
-  const isSidebarOpen = isMobileViewport ? mobileSidebarOpen : !sidebarCollapsed
-  const workspaceClassName = [
-    'workspace',
-    !isMobileViewport && sidebarCollapsed ? 'sidebar-collapsed' : '',
-    isResizingSidebar ? 'sidebar-resizing' : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-  const workspaceStyle = { '--sidebar-width': `${sidebarWidth}px` }
   const breadcrumbNotebookTitle = activeNotebook?.title
   const breadcrumbSectionTitle = settingsMode ? 'Settings' : activeSection?.title
   const breadcrumbPageTitle = isSettingsHub
@@ -858,194 +662,188 @@ function App() {
     return <WelcomeScreen session={session} onCreateNotebook={() => createNotebook(session)} onSignOut={handleSignOut} />
   }
 
-  return (
-    <div
-      className="app"
-      onPointerDownCapture={handleAppPointerDownCapture}
-      onPointerUpCapture={handleAppPointerUpCapture}
-      onPointerCancelCapture={handleAppPointerCancelCapture}
-      onKeyDownCapture={handleAppKeyDownCapture}
-    >
-      <SlimHeader
-        notebookTitle={breadcrumbNotebookTitle}
-        sectionTitle={isTemplateEditing ? 'Settings' : settingsMode ? null : breadcrumbSectionTitle}
-        pageTitle={breadcrumbPageTitle}
-        mobileTitle={mobileBreadcrumbTitle}
-        settingsActive={Boolean(settingsMode)}
-        sidebarOpen={isSidebarOpen}
-        onToggleSidebar={handleToggleSidebar}
-        onOpenSettings={openSettings}
-        onSignOut={handleSignOut}
-      />
-      {isMobileViewport && isSidebarOpen ? (
-        <button
-          type="button"
-          className="drawer-backdrop"
-          aria-label="Close navigation drawer"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      ) : null}
+  const interactionHandlers = {
+    onPointerDownCapture: handleAppPointerDownCapture,
+    onPointerUpCapture: handleAppPointerUpCapture,
+    onPointerCancelCapture: handleAppPointerCancelCapture,
+    onKeyDownCapture: handleAppKeyDownCapture,
+  }
+  const headerProps = {
+    notebookTitle: breadcrumbNotebookTitle,
+    sectionTitle: isTemplateEditing ? 'Settings' : settingsMode ? null : breadcrumbSectionTitle,
+    pageTitle: breadcrumbPageTitle,
+    mobileTitle: mobileBreadcrumbTitle,
+    settingsActive: Boolean(settingsMode),
+    sidebarOpen: isSidebarOpen,
+    onToggleSidebar: handleToggleSidebar,
+    onOpenSettings: openSettings,
+    onSignOut: handleSignOut,
+  }
+  const layout = {
+    workspaceClassName,
+    workspaceStyle,
+    isMobileViewport,
+    isSidebarOpen,
+    sidebarCollapsed,
+    closeMobileSidebar: () => setMobileSidebarOpen(false),
+    onSidebarResizeStart: handleSidebarResizeStart,
+    onSidebarResizeKeyDown: handleSidebarResizeKeyDown,
+  }
+  const navigationTreeProps = {
+    className: `${isSidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`,
+    notebooks,
+    sections,
+    sectionPageCache,
+    activeNotebookId,
+    activeSectionId,
+    activeTrackerId,
+    userId,
+    loading: dataLoading,
+    compactBadges,
+    isRecipesNotebook,
+    isMobileViewport,
+    mobileSidebarOpen,
+    session,
+    onSelectNotebook: handleNotebookSelect,
+    onSelectSection: handleSectionSelect,
+    onSelectPage: handlePageSelect,
+    onCreateNotebook: () => createNotebook(session),
+    onCreateSection: () => createSection(session, activeNotebookId),
+    onCreatePage: handleCreatePage,
+    onReorderNotebooks: reorderNotebooks,
+    onReorderSections: reorderSections,
+    onReorderPages: reorderSectionPages,
+    onOpenContextMenu: handleOpenTreeContextMenu,
+    onLoadSectionPages: loadSectionPagesMeta,
+    onCreateWithContent: (title, content) =>
+      createTrackerWithContent(session, activeSectionId, title, content),
+  }
+  const settings = {
+    isHub: isSettingsHub,
+    isTemplateEditing,
+    showPrimaryEditor: !settingsMode,
+    hubProps: {
+      onEditDailyTemplate: openDailyTemplate,
+      onBackToPages: closeSettings,
+      loading: settingsLoading,
+    },
+  }
+  const templateEditorProps = {
+    editor,
+    editorLocked: trackerSession.status !== 'ready',
+    title: 'Daily Template',
+    onTitleChange: () => {},
+    onDelete: () => {},
+    saveStatus: templateSaveStatus,
+    onImageUpload: finalUploadImageAndInsert,
+    hasTracker: true,
+    message,
+    notebookId: activeNotebookId,
+    sectionId: activeSectionId,
+    trackerId: activeTrackerId,
+    onNavigateHash: handleInternalHashNavigate,
+    allTrackers: trackers,
+    userId,
+    titleReadOnly: true,
+    showDelete: false,
+    headerActions: (
+      <button type="button" className="ghost" onClick={() => backToSettingsHub()}>
+        Back to Settings
+      </button>
+    ),
+    showAiDaily: false,
+    showAiInsert: false,
+  }
+  const primaryEditorProps = {
+    editor,
+    editorLocked: trackerSession.status !== 'ready' || editorTransitioning,
+    title: titleDraft,
+    onTitleChange: (value) => handleTitleChange(value, editor),
+    onDelete: deleteTracker,
+    saveStatus,
+    onImageUpload: finalUploadImageAndInsert,
+    hasTracker: hasEditorTarget,
+    editorTransitioning,
+    message,
+    notebookId: activeNotebookId,
+    sectionId: activeSectionId,
+    trackerId: activeTrackerId,
+    restorePageId: trackerSession.trackerId,
+    onNavigateHash: handleInternalHashNavigate,
+    allTrackers: trackers,
+    trackerSourcePage: sectionTrackerPage,
+    loadTrackerContent,
+    onSetTrackerPage: setTrackerPage,
+    trackerPageSaving,
+    userId,
+    deepLinkActive,
+    emptyState: editorEmptyState,
+    onAddCustomWord: addCustomWord,
+  }
+  const treeContextMenuProps = {
+    menu: treeContextMenu,
+    onRename: () => {
+      closeTreeContextMenu()
+      if (treeContextMenu.type === 'notebook') {
+        renameNotebook(treeContextMenu.item)
+      } else if (treeContextMenu.type === 'section') {
+        renameSection(treeContextMenu.item)
+      }
+    },
+    onDelete: () => {
+      closeTreeContextMenu()
+      if (treeContextMenu.type === 'notebook') {
+        deleteNotebook(treeContextMenu.item)
+      } else if (treeContextMenu.type === 'section') {
+        deleteSection(treeContextMenu.item)
+      } else if (treeContextMenu.type === 'page') {
+        deleteTracker(treeContextMenu.item)
+      }
+    },
+    onCopy: () => {
+      closeTreeContextMenu()
+      openCopyMoveModal('copy')
+    },
+    onMove: () => {
+      closeTreeContextMenu()
+      openCopyMoveModal('move')
+    },
+  }
+  const copyMoveModalProps = {
+    modal: copyMoveModal,
+    notebooks,
+    activeNotebookId,
+    onDestChange: (destId) => setCopyMoveModal((previous) => ({ ...previous, destId })),
+    onClose: closeCopyMoveModal,
+    onConfirm: handleCopyMoveConfirm,
+  }
+  const conflictModalProps = {
+    conflict: draftConflict,
+    onUseServer: () => {
+      resolveConflictWithServer()
+      bumpSessionNonce()
+    },
+    onUseDraft: () => {
+      resolveConflictWithDraft()
+      bumpSessionNonce()
+    },
+  }
 
-      <div ref={workspaceRef} className={workspaceClassName} style={workspaceStyle}>
-        <NavigationTree
-          className={`${isSidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}
-          notebooks={notebooks}
-          sections={sections}
-          sectionPageCache={sectionPageCache}
-          activeNotebookId={activeNotebookId}
-          activeSectionId={activeSectionId}
-          activeTrackerId={activeTrackerId}
-          userId={userId}
-          loading={dataLoading}
-          compactBadges={compactBadges}
-          isRecipesNotebook={isRecipesNotebook}
-          isMobileViewport={isMobileViewport}
-          mobileSidebarOpen={mobileSidebarOpen}
-          session={session}
-          onSelectNotebook={handleNotebookSelect}
-          onSelectSection={handleSectionSelect}
-          onSelectPage={handlePageSelect}
-          onCreateNotebook={() => createNotebook(session)}
-          onCreateSection={() => createSection(session, activeNotebookId)}
-          onCreatePage={handleCreatePage}
-          onReorderNotebooks={reorderNotebooks}
-          onReorderSections={reorderSections}
-          onReorderPages={reorderSectionPages}
-          onOpenContextMenu={handleOpenTreeContextMenu}
-          onLoadSectionPages={loadSectionPagesMeta}
-          onCreateWithContent={(title, content) =>
-            createTrackerWithContent(session, activeSectionId, title, content)
-          }
-        />
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          aria-label="Resize navigation sidebar"
-          aria-orientation="vertical"
-          tabIndex={sidebarCollapsed || isMobileViewport ? -1 : 0}
-          onPointerDown={handleSidebarResizeStart}
-          onKeyDown={handleSidebarResizeKeyDown}
-        />
-        {isSettingsHub && (
-          <SettingsHub
-            onEditDailyTemplate={openDailyTemplate}
-            onBackToPages={closeSettings}
-            loading={settingsLoading}
-          />
-        )}
-        {isTemplateEditing && (
-          <EditorPanel
-            key={sessionKey}
-            editor={editor}
-            editorLocked={trackerSession.status !== 'ready'}
-            title="Daily Template"
-            onTitleChange={() => {}}
-            onDelete={() => {}}
-            saveStatus={templateSaveStatus}
-            onImageUpload={finalUploadImageAndInsert}
-            hasTracker
-            message={message}
-            notebookId={activeNotebookId}
-            sectionId={activeSectionId}
-            trackerId={activeTrackerId}
-            onNavigateHash={handleInternalHashNavigate}
-            allTrackers={trackers}
-            userId={userId}
-            titleReadOnly
-            showDelete={false}
-            headerActions={
-              <button type="button" className="ghost" onClick={() => backToSettingsHub()}>
-                Back to Settings
-              </button>
-            }
-            showAiDaily={false}
-            showAiInsert={false}
-          />
-        )}
-        {!settingsMode && (
-          <>
-            <EditorPanel
-              key={sessionKey}
-              editor={editor}
-              editorLocked={trackerSession.status !== 'ready' || editorTransitioning}
-              title={titleDraft}
-              onTitleChange={(value) => handleTitleChange(value, editor)}
-              onDelete={deleteTracker}
-              saveStatus={saveStatus}
-              onImageUpload={finalUploadImageAndInsert}
-              hasTracker={hasEditorTarget}
-              editorTransitioning={editorTransitioning}
-              message={message}
-              notebookId={activeNotebookId}
-              sectionId={activeSectionId}
-              trackerId={activeTrackerId}
-              restorePageId={trackerSession.trackerId}
-              onNavigateHash={handleInternalHashNavigate}
-              allTrackers={trackers}
-              trackerSourcePage={sectionTrackerPage}
-              loadTrackerContent={loadTrackerContent}
-              onSetTrackerPage={setTrackerPage}
-              trackerPageSaving={trackerPageSaving}
-              userId={userId}
-              deepLinkActive={deepLinkActive}
-              emptyState={editorEmptyState}
-              onAddCustomWord={addCustomWord}
-            />
-          </>
-        )}
-      </div>
-      <TreeContextMenu
-        menu={treeContextMenu}
-        onRename={() => {
-          closeTreeContextMenu()
-          if (treeContextMenu.type === 'notebook') {
-            renameNotebook(treeContextMenu.item)
-          } else if (treeContextMenu.type === 'section') {
-            renameSection(treeContextMenu.item)
-          }
-        }}
-        onDelete={() => {
-          closeTreeContextMenu()
-          if (treeContextMenu.type === 'notebook') {
-            deleteNotebook(treeContextMenu.item)
-          } else if (treeContextMenu.type === 'section') {
-            deleteSection(treeContextMenu.item)
-          } else if (treeContextMenu.type === 'page') {
-            deleteTracker(treeContextMenu.item)
-          }
-        }}
-        onCopy={() => {
-          closeTreeContextMenu()
-          openCopyMoveModal('copy')
-        }}
-        onMove={() => {
-          closeTreeContextMenu()
-          openCopyMoveModal('move')
-        }}
-      />
-      <CopyMoveModal
-        modal={copyMoveModal}
-        notebooks={notebooks}
-        activeNotebookId={activeNotebookId}
-        onDestChange={(destId) => setCopyMoveModal((prev) => ({ ...prev, destId }))}
-        onClose={closeCopyMoveModal}
-        onConfirm={handleCopyMoveConfirm}
-      />
-      <ConflictModal
-        conflict={draftConflict}
-        onUseServer={() => {
-          // resolveConflictWithServer updates activeTracker content in state;
-          // bumpSessionNonce forces a session remount so the editor mounts with that content.
-          resolveConflictWithServer()
-          bumpSessionNonce()
-        }}
-        onUseDraft={() => {
-          resolveConflictWithDraft()
-          bumpSessionNonce()
-        }}
-      />
-    </div>
+  return (
+    <Workspace
+      interactionHandlers={interactionHandlers}
+      headerProps={headerProps}
+      workspaceRef={workspaceRef}
+      layout={layout}
+      navigationTreeProps={navigationTreeProps}
+      settings={settings}
+      editorKey={sessionKey}
+      templateEditorProps={templateEditorProps}
+      primaryEditorProps={primaryEditorProps}
+      treeContextMenuProps={treeContextMenuProps}
+      copyMoveModalProps={copyMoveModalProps}
+      conflictModalProps={conflictModalProps}
+    />
   )
 }
 

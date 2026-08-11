@@ -1,29 +1,22 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { EMPTY_DOC } from '../utils/constants'
-import { sanitizeContentForSave } from '../utils/contentHelpers'
-import { deleteImagesFromStorage, findRemovedImagePaths, collectAllImagePaths } from '../utils/imageCleanup'
-import { readPageDraft, writePageDraft, clearPageDraft } from '../utils/localDrafts'
+import { readPageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
-import { classifySaveResult } from '../utils/saveConflict'
-import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
-import { reindexSortOrder, insertPageAfter } from '../utils/sidebarReorder'
 import { getSectionPages } from '../utils/sectionPages'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
+import { usePageCrud } from './trackers/usePageCrud'
+import { useSaveQueue } from './trackers/useSaveQueue'
 
 export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null) => {
   const [trackers, setTrackers] = useState([])
   const [loadedTrackerSectionId, setLoadedTrackerSectionId] = useState(null)
   const [activeTrackerId, setActiveTrackerId] = useState(null)
   const [dataLoading, setDataLoading] = useState(false)
-  const [trackerPageSaving, setTrackerPageSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
-  const [saveStatus, setSaveStatus] = useState('Saved')
-  const [hasPendingSaves, setHasPendingSaves] = useState(false)
   const [draftConflict, setDraftConflict] = useState(null)
   const [draftInvalidation, setDraftInvalidation] = useState(0)
   const [activeDraft, setActiveDraft] = useState(null)
@@ -34,16 +27,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
   const activeTrackerRef = useRef(null)
   const draftConflictRef = useRef(null)
   const trackersRef = useRef(trackers)
-  const pendingTitleByTrackerRef = useRef({})
-
-  const saveTimersByTrackerRef = useRef({})
-  const retryTimersByTrackerRef = useRef({})
-  const inFlightByTrackerRef = useRef({})
-  const queuedPayloadByTrackerRef = useRef({})
   const loadRequestIdRef = useRef(0)
-
-  const draftWriteTimersByTrackerRef = useRef({})
-  const latestDraftKeyByTrackerRef = useRef({})
   const {
     sectionPageCache,
     loadSectionPagesMeta,
@@ -67,6 +51,38 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
     pageContentCacheRef.current = pageContentCache
   }, [pageContentCache])
 
+  const {
+    saveStatus,
+    setSaveStatus,
+    hasPendingSaves,
+    scheduleSave,
+    handleTitleChange,
+    getHasPendingForTracker,
+    hasLocalChanges,
+    flushAllPendingSaves,
+    flushSaveForTracker,
+    clearPendingTitle,
+    resolveConflictWithServer,
+    resolveConflictWithDraft,
+  } = useSaveQueue({
+    userId,
+    trackersRef,
+    activeTrackerRef,
+    titleDraftRef,
+    pageContentCacheRef,
+    setTrackers,
+    setPageContent,
+    updateCachedPage,
+    getKnownUpdatedAt,
+    setKnownUpdatedAt,
+    setMessage,
+    draftConflict,
+    setDraftConflict,
+    setActiveDraft,
+    setDraftInvalidation,
+    setTitleDraft,
+  })
+
   // Realtime: when another device writes the active page, react accordingly.
   const handleRemotePageChange = useCallback(
     (payload) => {
@@ -77,10 +93,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
       // Ignore echoes of our own write (we already advanced the token to this value).
       if (incomingTs && getKnownUpdatedAt(trackerId) === incomingTs) return
 
-      const isDirty =
-        !!queuedPayloadByTrackerRef.current[trackerId] ||
-        !!inFlightByTrackerRef.current[trackerId] ||
-        !!latestDraftKeyByTrackerRef.current[trackerId]
+      const isDirty = hasLocalChanges(trackerId)
 
       if (isDirty) {
         // Keep the old version token. The pending save must compare against the
@@ -101,7 +114,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
         )
       }
     },
-    [getKnownUpdatedAt, setKnownUpdatedAt, setPageContent],
+    [getKnownUpdatedAt, hasLocalChanges, setKnownUpdatedAt, setPageContent],
   )
   usePageRealtime(activeTrackerId, handleRemotePageChange, reconnectKey)
 
@@ -188,6 +201,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
   // effect ran with the stale activeDraft and briefly set a conflict.
   useEffect(() => {
     if (!activeTrackerId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- page changes synchronize the local-draft snapshot
       setActiveDraft(null)
       setDraftConflict(null)
       return
@@ -218,273 +232,15 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
 
   useEffect(() => {
     if (userId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset user-scoped state on sign-out
     setTrackers([])
     setLoadedTrackerSectionId(null)
     setActiveTrackerId(null)
     setDataLoading(false)
-    setTrackerPageSaving(false)
     setMessage('')
     setTitleDraft('')
-    setSaveStatus('Saved')
-    setHasPendingSaves(false)
     setActiveDraft(null)
-    pendingTitleByTrackerRef.current = {}
-    saveTimersByTrackerRef.current = {}
-    retryTimersByTrackerRef.current = {}
-    inFlightByTrackerRef.current = {}
-    queuedPayloadByTrackerRef.current = {}
-    draftWriteTimersByTrackerRef.current = {}
-    latestDraftKeyByTrackerRef.current = {}
   }, [userId])
-
-  // Immediately write any debounced localStorage drafts for all trackers.
-  const flushAllPendingDrafts = useCallback(() => {
-    const draftTimers = draftWriteTimersByTrackerRef.current
-    const queued = queuedPayloadByTrackerRef.current
-    for (const trackerId of Object.keys(draftTimers)) {
-      const timerId = draftTimers[trackerId]
-      if (!timerId) continue
-      clearTimeout(timerId)
-      draftTimers[trackerId] = null
-      // Write the draft from the queued payload (the source of truth for pending content).
-      const pending = queued[trackerId]
-      if (pending) {
-        writePageDraft(trackerId, {
-          title: pending.payload.title,
-          content: pending.payload.content,
-          ts: Date.now(),
-        })
-      }
-    }
-  }, [])
-
-  const recomputeHasPendingSaves = useCallback(() => {
-    const timers = saveTimersByTrackerRef.current
-    const retries = retryTimersByTrackerRef.current
-    const inflight = inFlightByTrackerRef.current
-    const queued = queuedPayloadByTrackerRef.current
-    const hasPending =
-      Object.values(timers).some(Boolean) ||
-      Object.values(retries).some(Boolean) ||
-      Object.values(inflight).some(Boolean) ||
-      Object.values(queued).some(Boolean)
-    setHasPendingSaves((prev) => (prev === hasPending ? prev : hasPending))
-    return hasPending
-  }, [])
-
-  const getHasPendingForTracker = useCallback((trackerId) => {
-    if (!trackerId) return false
-    const timer = saveTimersByTrackerRef.current[trackerId]
-    const retry = retryTimersByTrackerRef.current[trackerId]
-    const inflight = inFlightByTrackerRef.current[trackerId]
-    const queued = queuedPayloadByTrackerRef.current[trackerId]
-    return Boolean(timer || retry || inflight || queued)
-  }, [])
-
-  const scheduleLocalDraftWrite = useCallback((trackerId, draft, draftKey) => {
-    if (!trackerId) return
-    latestDraftKeyByTrackerRef.current[trackerId] = draftKey
-    const existingTimer = draftWriteTimersByTrackerRef.current[trackerId]
-    if (existingTimer) clearTimeout(existingTimer)
-    draftWriteTimersByTrackerRef.current[trackerId] = setTimeout(() => {
-      writePageDraft(trackerId, draft)
-      draftWriteTimersByTrackerRef.current[trackerId] = null
-    }, 250)
-  }, [])
-
-  const maybeClearLocalDraft = useCallback((trackerId, payloadKey) => {
-    if (!trackerId || !payloadKey) return
-    if (getHasPendingForTracker(trackerId)) return
-    const latestKey = latestDraftKeyByTrackerRef.current[trackerId]
-    if (!latestKey || latestKey !== payloadKey) return
-    const existingTimer = draftWriteTimersByTrackerRef.current[trackerId]
-    if (existingTimer) {
-      clearTimeout(existingTimer)
-      draftWriteTimersByTrackerRef.current[trackerId] = null
-    }
-    clearPageDraft(trackerId)
-    delete latestDraftKeyByTrackerRef.current[trackerId]
-    // Only invalidate if the cleared draft belongs to the active page to avoid unnecessary re-reads.
-    if (trackerId === activeTrackerRef.current?.id) {
-      setDraftInvalidation((n) => n + 1)
-    }
-  }, [getHasPendingForTracker])
-
-  const flushSaveForTracker = useCallback(
-    async function flushSaveForTrackerImpl(trackerId) {
-      if (!trackerId) return
-      if (inFlightByTrackerRef.current[trackerId]) return
-
-      const queued = queuedPayloadByTrackerRef.current[trackerId]
-      if (!queued) {
-        recomputeHasPendingSaves()
-        return
-      }
-
-      const timer = saveTimersByTrackerRef.current[trackerId]
-      if (timer) {
-        clearTimeout(timer)
-        saveTimersByTrackerRef.current[trackerId] = null
-      }
-
-      queuedPayloadByTrackerRef.current[trackerId] = null
-      inFlightByTrackerRef.current[trackerId] = true
-      recomputeHasPendingSaves()
-
-      const { payload, payloadKey } = queued
-      // Snapshot the old content before the save so we can diff for removed images.
-      const oldContent = pageContentCacheRef.current[trackerId]?.content ?? null
-      // Optimistic concurrency: only write if the server still has the version we last read.
-      // Zero rows matched -> conflict (someone else wrote since we loaded).
-      // If we never observed a version, do not fetch one at save time. A fresh
-      // fetch could adopt another device's newer timestamp and turn a stale local
-      // write into an accepted overwrite. Loaded/created pages seed this token
-      // from server metadata before edits are allowed.
-      let knownTs = getKnownUpdatedAt(trackerId)
-      const { data, error } = await supabase
-        .from('pages')
-        .update(payload)
-        .eq('id', trackerId)
-        .eq('updated_at', knownTs)
-        .select('updated_at')
-        .maybeSingle()
-
-      inFlightByTrackerRef.current[trackerId] = false
-
-      const outcome = classifySaveResult({ data, error, knownTs })
-
-      if (outcome.kind === 'conflict') {
-        // Someone else wrote since we loaded. Fetch the server row, run the
-        // existing detectConflict gate, and surface the modal if content actually
-        // differs. Identical content (e.g. a retry whose first attempt succeeded)
-        // auto-recovers by adopting the server's new version token.
-        const { data: serverRow } = await supabase
-          .from('pages')
-          .select('content, updated_at, title')
-          .eq('id', trackerId)
-          .maybeSingle()
-        const conflictDescriptor = serverRow
-          ? detectConflict(trackerId, serverRow, {
-              ts: Date.parse(payload.updated_at) || Date.now(),
-              content: payload.content,
-              title: payload.title,
-            })
-          : null
-        if (conflictDescriptor) {
-          // Real conflict — drop the in-flight payload (the user will pick a side
-          // via ConflictModal). Stop the retry timer; this is not a network error.
-          const rt = retryTimersByTrackerRef.current[trackerId]
-          if (rt) { clearTimeout(rt); retryTimersByTrackerRef.current[trackerId] = null }
-          if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
-          if (trackerId === activeTrackerRef.current?.id) {
-            setSaveStatus('Conflict')
-          }
-          setDraftConflict(conflictDescriptor)
-          recomputeHasPendingSaves()
-          return
-        }
-        // Identical content — silently adopt the new server version and treat as success.
-        if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
-        // fall through to success cleanup below
-      } else if (outcome.kind === 'error') {
-        // If nothing newer is queued, keep this payload as the next attempt.
-        if (!queuedPayloadByTrackerRef.current[trackerId]) {
-          queuedPayloadByTrackerRef.current[trackerId] = queued
-        }
-        if (!retryTimersByTrackerRef.current[trackerId]) {
-          retryTimersByTrackerRef.current[trackerId] = setTimeout(() => {
-            retryTimersByTrackerRef.current[trackerId] = null
-            flushSaveForTrackerImpl(trackerId)
-            recomputeHasPendingSaves()
-          }, 5000)
-        }
-        const errMsg = outcome.error?.message ?? 'Save failed'
-        setMessage(errMsg)
-        if (trackerId === activeTrackerRef.current?.id) {
-          setSaveStatus('Error')
-        }
-        recomputeHasPendingSaves()
-        return
-      } else if (outcome.kind === 'ok' && outcome.nextKnownTs) {
-        setKnownUpdatedAt(trackerId, outcome.nextKnownTs)
-      }
-
-      const retryTimer = retryTimersByTrackerRef.current[trackerId]
-      if (retryTimer) {
-        clearTimeout(retryTimer)
-        retryTimersByTrackerRef.current[trackerId] = null
-      }
-
-      if (pendingTitleByTrackerRef.current[trackerId] === payload.title) {
-        delete pendingTitleByTrackerRef.current[trackerId]
-      }
-
-      setTrackers((prev) =>
-        prev.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
-      )
-      // Write-through to the content cache so the editor sees its own saves without re-fetching.
-      // Pass the latest server timestamp (when available) so the OCC token stays current.
-      if (payload.content !== undefined) {
-        setPageContent(trackerId, payload.content, outcome.nextKnownTs)
-      }
-      if (typeof payload.title === 'string') {
-        const sectionId = trackersRef.current.find((t) => t.id === trackerId)?.section_id
-        updateCachedPage(sectionId, trackerId, { title: payload.title })
-      }
-
-      if (trackerId === activeTrackerRef.current?.id) {
-        setSaveStatus('Saved')
-      }
-
-      // Clean up images that were removed since the last saved version.
-      // Fire-and-forget — a failed cleanup just leaves an orphan for the manual script.
-      const removedPaths = findRemovedImagePaths(oldContent, payload.content)
-      if (removedPaths.length > 0) {
-        deleteImagesFromStorage(removedPaths)
-      }
-
-      // If this was the latest draft we know about for this page and nothing else is pending,
-      // clear local draft storage.
-      maybeClearLocalDraft(trackerId, payloadKey)
-
-      if (queuedPayloadByTrackerRef.current[trackerId]) {
-        setTimeout(() => flushSaveForTrackerImpl(trackerId), 0)
-      }
-
-      recomputeHasPendingSaves()
-    },
-    [maybeClearLocalDraft, recomputeHasPendingSaves, setPageContent, updateCachedPage, getKnownUpdatedAt, setKnownUpdatedAt],
-  )
-
-  // Flush all pending saves (both localStorage drafts and Supabase writes) immediately.
-  // Called on visibilitychange/pagehide/beforeunload to prevent data loss.
-  const flushAllPendingSaves = useCallback(() => {
-    // 1. Flush localStorage drafts first (synchronous, survives page kill).
-    flushAllPendingDrafts()
-
-    // 2. Trigger Supabase saves for all trackers with pending debounce timers.
-    const timers = saveTimersByTrackerRef.current
-    for (const trackerId of Object.keys(timers)) {
-      const timerId = timers[trackerId]
-      if (!timerId) continue
-      clearTimeout(timerId)
-      timers[trackerId] = null
-      flushSaveForTracker(trackerId)
-    }
-    recomputeHasPendingSaves()
-  }, [flushAllPendingDrafts, flushSaveForTracker, recomputeHasPendingSaves])
-
-  useEffect(() => {
-    return () => {
-      // Flush pending saves before clearing timers on unmount.
-      flushAllPendingSaves()
-
-      const retryTimers = retryTimersByTrackerRef.current
-      Object.values(retryTimers).forEach((timerId) => {
-        if (timerId) clearTimeout(timerId)
-      })
-    }
-  }, [flushAllPendingSaves])
 
   const loadTrackers = useCallback(
     async (sectionId) => {
@@ -528,6 +284,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
   useEffect(() => {
     if (!activeSectionId) {
       loadRequestIdRef.current += 1
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the section snapshot when there is no active section
       setTrackers([])
       setLoadedTrackerSectionId(null)
       setActiveTrackerId(null)
@@ -542,6 +299,7 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
 
   useEffect(() => {
     if (activeTracker) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronize the editable title when the selected page changes
       setTitleDraft(activeTracker.title)
     } else {
       setTitleDraft('')
@@ -559,308 +317,35 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
       return
     }
     setSaveStatus('Saved')
-  }, [activeDraft, activeTrackerId, activeTracker, getHasPendingForTracker])
+  }, [activeDraft, activeTrackerId, activeTracker, getHasPendingForTracker, setSaveStatus])
 
-  const scheduleSave = useCallback(
-    (nextContent, nextTitle, trackerIdOverride = null) => {
-      const trackerId = trackerIdOverride ?? activeTrackerRef.current?.id
-      if (!trackerId) return
-      const tracker = trackersRef.current.find((item) => item.id === trackerId)
-      if (!tracker) return
-
-      if (typeof nextTitle === 'string') {
-        pendingTitleByTrackerRef.current[trackerId] = nextTitle
-      }
-
-      const pendingTitle = pendingTitleByTrackerRef.current[trackerId]
-      const fallbackTitle =
-        pendingTitle ??
-        (trackerId === activeTrackerRef.current?.id ? titleDraftRef.current : tracker.title)
-      const title = (nextTitle ?? fallbackTitle)?.trim() || 'Untitled Tracker'
-      const payload = {
-        title,
-        content: sanitizeContentForSave(nextContent),
-        updated_at: new Date().toISOString(),
-      }
-      const payloadKey = JSON.stringify({ title: payload.title, content: payload.content })
-
-      scheduleLocalDraftWrite(
-        trackerId,
-        { title: payload.title, content: payload.content, ts: Date.now() },
-        payloadKey,
-      )
-
-      queuedPayloadByTrackerRef.current[trackerId] = { payload, payloadKey }
-
-      const existingTimer = saveTimersByTrackerRef.current[trackerId]
-      if (existingTimer) {
-        clearTimeout(existingTimer)
-      }
-      const retryTimer = retryTimersByTrackerRef.current[trackerId]
-      if (retryTimer) {
-        clearTimeout(retryTimer)
-        retryTimersByTrackerRef.current[trackerId] = null
-      }
-
-      if (trackerId === activeTrackerRef.current?.id) {
-        setSaveStatus('Saving...')
-      }
-
-      saveTimersByTrackerRef.current[trackerId] = setTimeout(() => {
-        saveTimersByTrackerRef.current[trackerId] = null
-        flushSaveForTracker(trackerId)
-        recomputeHasPendingSaves()
-      }, 2000)
-
-      recomputeHasPendingSaves()
-    },
-    [flushSaveForTracker, recomputeHasPendingSaves, scheduleLocalDraftWrite],
-  )
-
-  const handleTitleChange = (value, editor) => {
-    setTitleDraft(value)
-    titleDraftRef.current = value
-    if (!editor || !activeTrackerRef.current) return
-    scheduleSave(editor.getJSON(), value)
-  }
-
-  const createTracker = async (session, sectionId) => {
-    if (!session || !sectionId) return
-    setMessage('')
-    const title = 'Untitled'
-    // sort_order here is provisional — reorderSectionPages reindexes 1..n below.
-    // We still need a value to satisfy the column, so append past the current max.
-    const existingOrders = trackers
-      .map((item) => item.sort_order)
-      .filter((value) => typeof value === 'number')
-    const provisionalSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
-
-    const { data, error } = await supabase
-      .from('pages')
-      .insert({
-        title,
-        user_id: session.user.id,
-        content: EMPTY_DOC,
-        section_id: sectionId,
-        sort_order: provisionalSortOrder,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    const created = { ...data, sort_order: provisionalSortOrder }
-    // Place the new page immediately after the currently-selected page, then
-    // persist the whole section order through the same proven reorder path
-    // (reindexes 1..n, batch-updates Supabase, refreshes trackers + page cache).
-    const desiredOrder = insertPageAfter(trackers, created, activeTrackerId)
-    await reorderSectionPages(sectionId, desiredOrder)
-    // Seed the content cache so the editor can mount immediately without a round-trip.
-    setPageContent(data.id, EMPTY_DOC, data.updated_at)
-    setActiveTrackerId(data.id)
-  }
-
-  // Create a page with specific title and content (used by Paste Recipe).
-  const createTrackerWithContent = async (session, sectionId, pageTitle, content) => {
-    if (!session || !sectionId) return null
-    setMessage('')
-    const existingOrders = trackers
-      .map((item) => item.sort_order)
-      .filter((value) => typeof value === 'number')
-    const nextSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
-
-    const { data, error } = await supabase
-      .from('pages')
-      .insert({
-        title: pageTitle,
-        user_id: session.user.id,
-        content,
-        section_id: sectionId,
-        sort_order: nextSortOrder,
-      })
-      .select()
-      .single()
-
-    if (error) {
-      setMessage(error.message)
-      return null
-    }
-
-    const created = { ...data, sort_order: nextSortOrder }
-    setTrackers((prev) => [...prev, created])
-    upsertCachedPage(sectionId, created)
-    // Seed the content cache so the editor can mount immediately without a round-trip.
-    setPageContent(data.id, content, data.updated_at)
-    setActiveTrackerId(data.id)
-    return data
-  }
-
-  // Reorder pages within a section (drag-and-drop). Works for ANY expanded
-  // section, not just the active one: always update that section's page cache,
-  // and additionally update the `trackers` array when the reordered section is
-  // the active one (since `trackers` mirrors the active section's pages).
-  const reorderSectionPages = useCallback(
-    async (sectionId, nextPages) => {
-      if (!userId || !sectionId || !Array.isArray(nextPages)) return
-      const reordered = reindexSortOrder(nextPages)
-      seedSectionPages(sectionId, reordered)
-      if (sectionId === activeSectionId) {
-        setTrackers(reordered)
-      }
-      const updates = reordered.map((item) =>
-        supabase.from('pages').update({ sort_order: item.sort_order }).eq('id', item.id),
-      )
-      const results = await Promise.all(updates)
-      const error = results.find((result) => result.error)?.error
-      if (error) {
-        setMessage(error.message)
-        return
-      }
-      seedSectionPages(sectionId, reordered)
-      if (sectionId === activeSectionId) {
-        setTrackers(reordered)
-      }
-    },
-    [activeSectionId, seedSectionPages, userId],
-  )
-
-  const setTrackerPage = useCallback(
-    async (pageId) => {
-      if (!userId || !activeSectionId || !pageId) return
-      const currentTrackers = trackersRef.current
-      const target = currentTrackers.find((item) => item.id === pageId)
-      if (!target || target.is_tracker_page) return
-
-      setMessage('')
-      setTrackerPageSaving(true)
-      setTrackers((prev) =>
-        prev.map((item) => ({
-          ...item,
-          is_tracker_page: item.id === pageId,
-        })),
-      )
-      markCachedTrackerPage(activeSectionId, pageId)
-
-      const { error: clearError } = await supabase
-        .from('pages')
-        .update({ is_tracker_page: false })
-        .eq('section_id', activeSectionId)
-        .eq('user_id', userId)
-        .eq('is_tracker_page', true)
-
-      if (clearError) {
-        setTrackers(currentTrackers)
-        setMessage(clearError.message)
-        seedSectionPages(activeSectionId, currentTrackers)
-        setTrackerPageSaving(false)
-        return
-      }
-
-      const { error: setError } = await supabase
-        .from('pages')
-        .update({
-          is_tracker_page: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', pageId)
-        .eq('section_id', activeSectionId)
-        .eq('user_id', userId)
-
-      if (setError) {
-        setTrackers(currentTrackers)
-        setMessage(setError.message)
-        await loadTrackers(activeSectionId)
-        setTrackerPageSaving(false)
-        return
-      }
-
-      setTrackerPageSaving(false)
-    },
-    [userId, activeSectionId, loadTrackers, markCachedTrackerPage, seedSectionPages],
-  )
-
-  const deleteTracker = async (trackerToDelete = null) => {
-    const tracker =
-      trackerToDelete != null &&
-      typeof trackerToDelete === 'object' &&
-      typeof trackerToDelete.id === 'string' &&
-      typeof trackerToDelete.title === 'string' &&
-      !('nativeEvent' in trackerToDelete)
-        ? trackerToDelete
-        : activeTrackerRef.current
-    if (!tracker) return
-    const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
-    if (!confirmDelete) return
-
-    // Collect image paths before deletion (pull content from cache, not tracker metadata).
-    const trackerContent = pageContentCacheRef.current[tracker.id]?.content ?? null
-    const imagePaths = collectAllImagePaths([{ ...tracker, content: trackerContent }])
-
-    const { error } = await supabase.from('pages').delete().eq('id', tracker.id)
-
-    if (error) {
-      setMessage(error.message)
-      return
-    }
-
-    // Clean up images from storage after successful DB delete (fire-and-forget).
-    if (imagePaths.length > 0) {
-      deleteImagesFromStorage(imagePaths)
-    }
-
-    clearNavHierarchyCache()
-    const deletedIndex = trackers.findIndex((item) => item.id === tracker.id)
-    const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
-    setTrackers(nextTrackers)
-    removeCachedPage(tracker.section_id ?? activeSectionId, tracker.id)
-    delete pendingTitleByTrackerRef.current[tracker.id]
-    clearPageDraft(tracker.id)
-    // When deleting the open page, land on the user's most-recent previous page
-    // (else the adjacent sibling) instead of always the first page.
-    setActiveTrackerId((prev) =>
-      prev === tracker.id
-        ? getPostDeleteTarget?.(nextTrackers, tracker.id, deletedIndex) ?? nextTrackers[0]?.id ?? null
-        : prev,
-    )
-  }
-
-  const resolveConflictWithServer = useCallback(() => {
-    if (!draftConflict) return
-    clearPageDraft(draftConflict.trackerId)
-    // For save-time conflicts the cache still holds the stale pre-remote-write
-    // snapshot, so refresh it from the descriptor we built when classifying.
-    if (draftConflict.serverContent !== undefined) {
-      setPageContent(draftConflict.trackerId, draftConflict.serverContent, draftConflict.serverUpdatedAt)
-    }
-    if (typeof draftConflict.serverTitle === 'string') {
-      setTrackers((prev) =>
-        prev.map((item) =>
-          item.id === draftConflict.trackerId
-            ? { ...item, title: draftConflict.serverTitle, updated_at: draftConflict.serverUpdatedAt }
-            : item,
-        ),
-      )
-    }
-    // Drop any queued/in-flight save; the user chose to discard their edit.
-    queuedPayloadByTrackerRef.current[draftConflict.trackerId] = null
-    const rt = retryTimersByTrackerRef.current[draftConflict.trackerId]
-    if (rt) { clearTimeout(rt); retryTimersByTrackerRef.current[draftConflict.trackerId] = null }
-    setActiveDraft(null)
-    setDraftConflict(null)
-    setDraftInvalidation((n) => n + 1)
-    setSaveStatus('Saved')
-  }, [draftConflict, setPageContent])
-
-  const resolveConflictWithDraft = useCallback(() => {
-    if (!draftConflict) return
-    const { trackerId, draftContent, draftTitle } = draftConflict
-    setDraftConflict(null)
-    // Push the draft content to the server via the normal save pipeline.
-    scheduleSave(draftContent, draftTitle, trackerId)
-  }, [draftConflict, scheduleSave])
+  const {
+    trackerPageSaving,
+    createTracker,
+    createTrackerWithContent,
+    reorderSectionPages,
+    setTrackerPage,
+    deleteTracker,
+  } = usePageCrud({
+    userId,
+    activeSectionId,
+    activeTrackerId,
+    trackers,
+    trackersRef,
+    activeTrackerRef,
+    pageContentCacheRef,
+    setTrackers,
+    setActiveTrackerId,
+    setMessage,
+    setPageContent,
+    seedSectionPages,
+    upsertCachedPage,
+    removeCachedPage,
+    markCachedTrackerPage,
+    loadTrackers,
+    getPostDeleteTarget,
+    clearPendingTitle,
+  })
 
   const sectionTrackerPage = trackers.find((item) => item.is_tracker_page) ?? null
 

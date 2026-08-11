@@ -8,107 +8,7 @@ import {
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
-
-const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
-
-// Regenerate block IDs in Tiptap JSON, returning the remapped content and an old→new ID map.
-// idMaps: { pageIdMap, sectionId: { old, new }, notebookId: { old, new } }
-const remapContentIds = (content, idMaps) => {
-  const blockIdMap = {}
-  const { pageIdMap, sectionId, notebookId } = idMaps
-
-  const walkNodes = (node) => {
-    if (!node) return node
-    const out = { ...node }
-
-    // Regenerate block IDs for navigable node types
-    if (NODE_TYPES_WITH_IDS.has(node.type) && node.attrs?.id) {
-      const newId = crypto.randomUUID()
-      blockIdMap[node.attrs.id] = newId
-      out.attrs = { ...node.attrs, id: newId, created_at: new Date().toISOString() }
-    }
-
-    // Rewrite internal link hrefs in text marks
-    if (node.marks) {
-      out.marks = node.marks.map((mark) => {
-        if (mark.type !== 'link' || !mark.attrs?.href) return mark
-        const href = mark.attrs.href
-        if (!href.startsWith('#pg=') && !href.startsWith('#sec=') && !href.startsWith('#nb=')) return mark
-
-        const params = new URLSearchParams(href.slice(1))
-        let changed = false
-
-        const oldNb = params.get('nb')
-        if (oldNb && notebookId && oldNb === notebookId.old) {
-          params.set('nb', notebookId.new)
-          changed = true
-        }
-
-        const oldSec = params.get('sec')
-        if (oldSec && sectionId && oldSec === sectionId.old) {
-          params.set('sec', sectionId.new)
-          changed = true
-        }
-
-        const oldPageId = params.get('pg')
-        if (oldPageId && pageIdMap[oldPageId]) {
-          params.set('pg', pageIdMap[oldPageId])
-          changed = true
-        }
-
-        const oldBlockId = params.get('block')
-        if (oldBlockId && blockIdMap[oldBlockId]) {
-          params.set('block', blockIdMap[oldBlockId])
-          changed = true
-        }
-
-        if (!changed) return mark
-        return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
-      })
-    }
-
-    if (node.content) {
-      out.content = node.content.map(walkNodes)
-    }
-
-    return out
-  }
-
-  const remapped = walkNodes(content)
-  return { content: remapped, blockIdMap }
-}
-
-// Second pass: rewrite any block references that were encountered before their new ID was generated
-const fixForwardBlockRefs = (content, blockIdMap) => {
-  const walk = (node) => {
-    if (!node) return node
-    const out = { ...node }
-
-    if (node.marks) {
-      out.marks = node.marks.map((mark) => {
-        if (mark.type !== 'link' || !mark.attrs?.href) return mark
-        const href = mark.attrs.href
-        if (!href.startsWith('#')) return mark
-
-        const params = new URLSearchParams(href.slice(1))
-        const blockId = params.get('block')
-        if (blockId && blockIdMap[blockId]) {
-          params.set('block', blockIdMap[blockId])
-          return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
-        }
-        return mark
-      })
-    }
-
-    if (node.content) {
-      out.content = node.content.map(walk)
-    }
-
-    return out
-  }
-
-  return walk(content)
-}
+import { remapCopiedContents } from './sections/remapCopiedContent'
 
 export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null) => {
   const [sections, setSections] = useState([])
@@ -412,31 +312,22 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
         insertedPages.push(newPage.id)
       }
 
-      // Phase 2: Remap block IDs and internal links in each copied page
-      const allBlockIds = {}
-      const remappedContents = []
-      for (let i = 0; i < sourcePages.length; i++) {
-        if (!sourcePages[i].content) {
-          remappedContents.push(null)
-          continue
-        }
-        const idMaps = {
+      // Phase 2: Regenerate block IDs and rewrite all copied-section links.
+      const remappedContents = remapCopiedContents(
+        sourcePages.map((page) => page.content),
+        {
           pageIdMap,
           sectionId: { old: section.id, new: newSection.id },
           notebookId: { old: activeNotebookId, new: destNotebookId },
-        }
-        const { content: remapped, blockIdMap } = remapContentIds(sourcePages[i].content, idMaps)
-        Object.assign(allBlockIds, blockIdMap)
-        remappedContents.push(remapped)
-      }
+        },
+      )
 
-      // Phase 3: Fix forward block references (links that appeared before their target was remapped)
+      // Phase 3: Persist the transformed contents after every copied page has an ID.
       const updates = remappedContents.map((content, i) => {
         if (!content) return null
-        const fixed = fixForwardBlockRefs(content, allBlockIds)
         return supabase
           .from('pages')
-          .update({ content: fixed })
+          .update({ content })
           .eq('id', insertedPages[i])
       }).filter(Boolean)
 

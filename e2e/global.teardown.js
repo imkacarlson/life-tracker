@@ -1,4 +1,3 @@
-/* global process */
 import { getSupabase, purgeTestUserData } from './test-helpers'
 
 export default async function globalTeardown() {

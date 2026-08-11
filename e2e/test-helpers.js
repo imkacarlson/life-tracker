@@ -1,4 +1,3 @@
-/* global process */
 // Shared test helpers for self-contained E2E seed data.
 // Each test creates its own notebooks/sections/pages in beforeAll
 // and the isolateSupabaseData fixture in fixtures.js handles cleanup.
