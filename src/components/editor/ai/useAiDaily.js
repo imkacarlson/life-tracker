@@ -9,9 +9,6 @@ import { buildDailyInsertContent } from './dailyDocBuilders'
 
 export function useAiDaily({
   editor,
-  aiLoading,
-  aiInsertLoading,
-  setAiLoading,
   notebookId,
   sectionId,
   trackerId,
@@ -39,6 +36,7 @@ export function useAiDaily({
   }
 
   const handleGenerateToday = async () => {
+    const { aiLoading, aiInsertLoading, setAiLoading } = useEditorUIStore.getState()
     if (!editor || aiLoading || aiInsertLoading) return
     setAiLoading(true)
     try {

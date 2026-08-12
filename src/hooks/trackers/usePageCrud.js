@@ -6,11 +6,26 @@ import { clearPageDraft } from '../../utils/localDrafts'
 import { clearNavHierarchyCache } from '../../utils/resolveNavHierarchy'
 import { insertPageAfter, reindexSortOrder } from '../../utils/sidebarReorder'
 
-/**
- * Owns page mutations for a section. Autosave intentionally lives in a
- * separate hook because CRUD actions and the editor's write queue have
- * different lifecycles and failure handling.
- */
+const getNextSortOrder = (pages) => {
+  const orders = pages
+    .map((page) => page.sort_order)
+    .filter((value) => typeof value === 'number')
+  return orders.length > 0 ? Math.max(...orders) + 1 : 1
+}
+
+const insertPage = ({ session, sectionId, title, content, sortOrder }) =>
+  supabase
+    .from('pages')
+    .insert({
+      title,
+      user_id: session.user.id,
+      content,
+      section_id: sectionId,
+      sort_order: sortOrder,
+    })
+    .select()
+    .single()
+
 export function usePageCrud({
   userId,
   activeSectionId,
@@ -71,23 +86,10 @@ export function usePageCrud({
     if (!session || !sectionId) return
     setMessage('')
     const title = 'Untitled'
-    // This value is provisional; reorderSectionPages reindexes 1..n below.
-    const existingOrders = trackers
-      .map((item) => item.sort_order)
-      .filter((value) => typeof value === 'number')
-    const provisionalSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
-
-    const { data, error } = await supabase
-      .from('pages')
-      .insert({
-        title,
-        user_id: session.user.id,
-        content: EMPTY_DOC,
-        section_id: sectionId,
-        sort_order: provisionalSortOrder,
-      })
-      .select()
-      .single()
+    const provisionalSortOrder = getNextSortOrder(trackers)
+    const { data, error } = await insertPage({
+      session, sectionId, title, content: EMPTY_DOC, sortOrder: provisionalSortOrder,
+    })
 
     if (error) {
       setMessage(error.message)
@@ -106,22 +108,10 @@ export function usePageCrud({
   const createTrackerWithContent = async (session, sectionId, pageTitle, content) => {
     if (!session || !sectionId) return null
     setMessage('')
-    const existingOrders = trackers
-      .map((item) => item.sort_order)
-      .filter((value) => typeof value === 'number')
-    const nextSortOrder = existingOrders.length > 0 ? Math.max(...existingOrders) + 1 : 1
-
-    const { data, error } = await supabase
-      .from('pages')
-      .insert({
-        title: pageTitle,
-        user_id: session.user.id,
-        content,
-        section_id: sectionId,
-        sort_order: nextSortOrder,
-      })
-      .select()
-      .single()
+    const nextSortOrder = getNextSortOrder(trackers)
+    const { data, error } = await insertPage({
+      session, sectionId, title: pageTitle, content, sortOrder: nextSortOrder,
+    })
 
     if (error) {
       setMessage(error.message)

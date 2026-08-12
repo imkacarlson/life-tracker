@@ -1,24 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getChecker } from '../../../lib/spellChecker'
+import { useEditorUIStore } from '../../../stores/editorUIStore'
 import { isTouchOnlyDevice } from '../../../utils/device'
 import { getMountedEditorView } from '../../../utils/editorView'
 import { buildHash } from '../../../utils/navigationHelpers'
+
+const getCellFromEvent = (event) => event.target?.closest?.('td, th') ?? null
+
+const getActiveBlockId = (editor) => {
+  if (!editor) return null
+  const { $from } = editor.state.selection
+  let fallbackId = null
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth)
+    const id = node?.attrs?.id
+    if (!id) continue
+    if (node.type?.name === 'paragraph' || node.type?.name === 'heading') return id
+    fallbackId ||= id
+  }
+  return fallbackId
+}
+
+const isTouchContextMenuEvent = (event) =>
+  isTouchOnlyDevice() ||
+  event.pointerType === 'touch' ||
+  Boolean(event.sourceCapabilities?.firesTouchEvents)
 
 export function useEditorContextMenu({
   editor,
   editorLocked,
   isTouchOnly,
-  aiInsertLoading,
-  setAiInsertOpen,
-  contextMenu,
-  setContextMenu,
-  submenuOpen,
-  setSubmenuOpen,
-  submenuDirection,
-  setSubmenuDirection,
-  currentBlockId,
-  setCurrentBlockId,
-  setInTable,
+  hasTracker,
   notebookId,
   sectionId,
   trackerId,
@@ -30,6 +42,19 @@ export function useEditorContextMenu({
   const menuRef = useRef(null)
   const submenuRef = useRef(null)
   const [spellSuggestions, setSpellSuggestions] = useState([])
+  const {
+    contextMenu,
+    setContextMenu,
+    submenuOpen,
+    setSubmenuOpen,
+    submenuDirection,
+    setSubmenuDirection,
+    currentBlockId,
+    setCurrentBlockId,
+    setInTable,
+    aiInsertLoading,
+    setAiInsertOpen,
+  } = useEditorUIStore()
 
   const openContextMenu = useCallback(
     (next) => {
@@ -51,12 +76,6 @@ export function useEditorContextMenu({
     setSubmenuOpen(false)
   }, [setContextMenu, setSubmenuOpen])
 
-  const getCellFromEvent = useCallback((event) => {
-    const target = event.target
-    if (!target?.closest) return null
-    return target.closest('td, th')
-  }, [])
-
   const focusFromCoords = useCallback(
     (coords) => {
       const view = getMountedEditorView(editor)
@@ -69,41 +88,17 @@ export function useEditorContextMenu({
     [editor],
   )
 
-  const getActiveBlockId = useCallback(() => {
-    if (!editor) return null
-    const { $from } = editor.state.selection
-    let fallbackId = null
-    for (let depth = $from.depth; depth > 0; depth -= 1) {
-      const node = $from.node(depth)
-      const id = node?.attrs?.id
-      if (!id) continue
-      const type = node.type?.name
-      if (type === 'paragraph' || type === 'heading') {
-        return id
-      }
-      if (!fallbackId) fallbackId = id
-    }
-    return fallbackId
-  }, [editor])
-
   useEffect(() => {
     const view = getMountedEditorView(editor)
     if (!view?.dom) return
     const dom = view.dom
-
-    const isTouchContextMenuEvent = (event) => {
-      if (isTouchOnlyDevice()) return true
-      if (event.pointerType) return event.pointerType === 'touch'
-      if (event.sourceCapabilities?.firesTouchEvents) return true
-      return false
-    }
 
     const handleContextMenu = (event) => {
       if (editorLocked || event.shiftKey || isTouchContextMenuEvent(event)) return
       event.preventDefault()
       focusFromCoords({ left: event.clientX, top: event.clientY })
       const inTable = Boolean(getCellFromEvent(event))
-      const blockId = getActiveBlockId()
+      const blockId = getActiveBlockId(editor)
       let misspelling = null
       const getMisspellingAt = editor.storage?.spellcheck?.getMisspellingAt
       if (typeof getMisspellingAt === 'function') {
@@ -130,7 +125,7 @@ export function useEditorContextMenu({
 
     dom.addEventListener('contextmenu', handleContextMenu)
     return () => dom.removeEventListener('contextmenu', handleContextMenu)
-  }, [editor, editorLocked, focusFromCoords, getActiveBlockId, getCellFromEvent, openContextMenu])
+  }, [editor, editorLocked, focusFromCoords, openContextMenu])
 
   useEffect(() => {
     if (!contextMenu.open) return
@@ -279,7 +274,7 @@ export function useEditorContextMenu({
         editor.isActive('tableCell') ||
         editor.isActive('tableHeader')
       setInTable(nextInTable)
-      setCurrentBlockId(getActiveBlockId())
+      setCurrentBlockId(getActiveBlockId(editor))
     }
     syncEditorState()
     editor.on('selectionUpdate', syncEditorState)
@@ -288,25 +283,31 @@ export function useEditorContextMenu({
       editor.off('selectionUpdate', syncEditorState)
       editor.off('transaction', syncEditorState)
     }
-  }, [editor, getActiveBlockId, setInTable, setCurrentBlockId])
+  }, [editor, setInTable, setCurrentBlockId])
 
   return {
-    menuRef,
-    submenuRef,
-    contextMenu,
-    submenuOpen,
-    submenuDirection,
-    setSubmenuOpen,
-    spellSuggestions,
-    closeContextMenu,
-    deepLinkHash,
     toolbarDeepLinkHash,
     isCurrentPageTracker,
-    handleCopyLink,
-    handleApplySuggestion,
-    handleAddToDictionary,
-    handleIgnoreWord,
-    handleSetTrackerPageFromMenu,
     handleSetTrackerFromToolbar,
+    contextMenuProps: {
+      menuRef,
+      submenuRef,
+      contextMenu,
+      spellSuggestions,
+      deepLinkHash,
+      hasTracker,
+      isCurrentPageTracker,
+      trackerPageSaving,
+      onSetTrackerPage,
+      submenuOpen,
+      submenuDirection,
+      setSubmenuOpen,
+      closeContextMenu,
+      handleApplySuggestion,
+      handleAddToDictionary,
+      handleIgnoreWord,
+      handleCopyLink,
+      handleSetTrackerPageFromMenu,
+    },
   }
 }

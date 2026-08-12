@@ -13,11 +13,11 @@ export default function EditorContextMenu({
   contextMenuItems,
   setSubmenuOpen,
   closeContextMenu,
-  onApplySuggestion,
-  onAddToDictionary,
-  onIgnoreWord,
-  onCopyLink,
-  onSetTrackerPageFromMenu,
+  handleApplySuggestion,
+  handleAddToDictionary,
+  handleIgnoreWord,
+  handleCopyLink,
+  handleSetTrackerPageFromMenu,
 }) {
   if (!contextMenu.open) return null
 
@@ -35,7 +35,7 @@ export default function EditorContextMenu({
                 key={suggestion}
                 type="button"
                 className="table-context-item spellcheck-suggestion"
-                onClick={() => onApplySuggestion(suggestion)}
+                onClick={() => handleApplySuggestion(suggestion)}
               >
                 {suggestion}
               </button>
@@ -43,10 +43,10 @@ export default function EditorContextMenu({
           ) : (
             <span className="table-context-item disabled">No suggestions</span>
           )}
-          <button type="button" className="table-context-item" onClick={onAddToDictionary}>
+          <button type="button" className="table-context-item" onClick={handleAddToDictionary}>
             Add to dictionary
           </button>
-          <button type="button" className="table-context-item" onClick={onIgnoreWord}>
+          <button type="button" className="table-context-item" onClick={handleIgnoreWord}>
             Ignore
           </button>
           <div className="table-context-divider" />
@@ -55,7 +55,7 @@ export default function EditorContextMenu({
       <button
         type="button"
         className={`table-context-item ${!deepLinkHash ? 'disabled' : ''}`}
-        onClick={onCopyLink}
+        onClick={handleCopyLink}
         disabled={!deepLinkHash}
       >
         Copy link to paragraph
@@ -63,7 +63,7 @@ export default function EditorContextMenu({
       <button
         type="button"
         className={`table-context-item ${isCurrentPageTracker || trackerPageSaving ? 'disabled' : ''}`}
-        onClick={onSetTrackerPageFromMenu}
+        onClick={handleSetTrackerPageFromMenu}
         disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
       >
         {isCurrentPageTracker

@@ -1,30 +1,28 @@
-const DEFAULT_DELAYS = {
-  draft: 250,
-  save: 2000,
-  retry: 5000,
+import { detectConflict } from '../../utils/draftHelpers'
+import { clearPageDraft, writePageDraft } from '../../utils/localDrafts'
+import { classifySaveResult } from '../../utils/saveConflict'
+
+const DRAFT_DELAY = 250
+const SAVE_DELAY = 2000
+const RETRY_DELAY = 5000
+
+const defaultDraftStorage = {
+  write: writePageDraft,
+  clear: clearPageDraft,
 }
 
 export function createSaveQueueController({
   persistPage,
   fetchServerPage,
-  classifyResult,
-  detectConflict,
   getKnownUpdatedAt,
   setKnownUpdatedAt,
-  getActiveTrackerId,
-  getOldContent,
-  writeDraft,
-  clearDraft,
   onPendingChange,
   onStatusChange,
   onConflict,
   onError,
   onSaved,
-  onActiveDraftCleared,
-  setTimer = setTimeout,
-  clearTimer = clearTimeout,
-  now = Date.now,
-  delays = DEFAULT_DELAYS,
+  onDraftCleared,
+  draftStorage = defaultDraftStorage,
 }) {
   let saveTimers = {}
   let retryTimers = {}
@@ -32,35 +30,28 @@ export function createSaveQueueController({
   let queuedPayloads = {}
   let draftWriteTimers = {}
   let latestDraftKeys = {}
-  let pendingTitles = {}
 
-  const isActive = (trackerId) => trackerId === getActiveTrackerId()
+  const clearScheduled = (timers, trackerId) => {
+    if (!timers[trackerId]) return
+    clearTimeout(timers[trackerId])
+    timers[trackerId] = null
+  }
 
-  const hasPendingForTracker = (trackerId) => {
-    if (!trackerId) return false
-    return Boolean(
-      saveTimers[trackerId] ||
-        retryTimers[trackerId] ||
-        inFlight[trackerId] ||
-        queuedPayloads[trackerId],
+  const hasPendingForTracker = (trackerId) =>
+    Boolean(
+      trackerId &&
+        (saveTimers[trackerId] ||
+          retryTimers[trackerId] ||
+          inFlight[trackerId] ||
+          queuedPayloads[trackerId]),
     )
-  }
 
-  const hasPending = () => {
-    const ids = new Set([
-      ...Object.keys(saveTimers),
-      ...Object.keys(retryTimers),
-      ...Object.keys(inFlight),
-      ...Object.keys(queuedPayloads),
-    ])
-    return Array.from(ids).some(hasPendingForTracker)
-  }
+  const hasPending = () =>
+    [saveTimers, retryTimers, inFlight, queuedPayloads].some((entries) =>
+      Object.values(entries).some(Boolean),
+    )
 
-  const notifyPending = () => {
-    const next = hasPending()
-    onPendingChange(next)
-    return next
-  }
+  const notifyPending = () => onPendingChange(hasPending())
 
   const hasLocalChanges = (trackerId) =>
     Boolean(
@@ -68,28 +59,22 @@ export function createSaveQueueController({
         (queuedPayloads[trackerId] || inFlight[trackerId] || latestDraftKeys[trackerId]),
     )
 
-  const scheduleLocalDraftWrite = (trackerId, draft, draftKey) => {
+  const scheduleDraftWrite = (trackerId, draft, draftKey) => {
     latestDraftKeys[trackerId] = draftKey
-    const existingTimer = draftWriteTimers[trackerId]
-    if (existingTimer) clearTimer(existingTimer)
-    draftWriteTimers[trackerId] = setTimer(() => {
-      writeDraft(trackerId, draft)
+    clearScheduled(draftWriteTimers, trackerId)
+    draftWriteTimers[trackerId] = setTimeout(() => {
+      draftStorage.write(trackerId, draft)
       draftWriteTimers[trackerId] = null
-    }, delays.draft)
+    }, DRAFT_DELAY)
   }
 
-  const maybeClearLocalDraft = (trackerId, payloadKey) => {
-    if (!trackerId || !payloadKey || hasPendingForTracker(trackerId)) return
-    const latestKey = latestDraftKeys[trackerId]
-    if (!latestKey || latestKey !== payloadKey) return
-    const existingTimer = draftWriteTimers[trackerId]
-    if (existingTimer) {
-      clearTimer(existingTimer)
-      draftWriteTimers[trackerId] = null
-    }
-    clearDraft(trackerId)
+  const maybeClearDraft = (trackerId, payloadKey) => {
+    if (!payloadKey || hasPendingForTracker(trackerId)) return
+    if (latestDraftKeys[trackerId] !== payloadKey) return
+    clearScheduled(draftWriteTimers, trackerId)
+    draftStorage.clear(trackerId)
     delete latestDraftKeys[trackerId]
-    if (isActive(trackerId)) onActiveDraftCleared()
+    onDraftCleared(trackerId)
   }
 
   async function flush(trackerId) {
@@ -100,135 +85,102 @@ export function createSaveQueueController({
       return
     }
 
-    const saveTimer = saveTimers[trackerId]
-    if (saveTimer) {
-      clearTimer(saveTimer)
-      saveTimers[trackerId] = null
-    }
-
+    clearScheduled(saveTimers, trackerId)
     queuedPayloads[trackerId] = null
     inFlight[trackerId] = true
     notifyPending()
 
     const { payload, payloadKey } = queued
-    const oldContent = getOldContent(trackerId)
     const knownTs = getKnownUpdatedAt(trackerId)
     const { data, error } = await persistPage(trackerId, payload, knownTs)
     inFlight[trackerId] = false
 
-    const outcome = classifyResult({ data, error, knownTs })
+    const outcome = classifySaveResult({ data, error, knownTs })
     if (outcome.kind === 'conflict') {
       const serverRow = await fetchServerPage(trackerId)
-      const conflictDescriptor = serverRow
+      const conflict = serverRow
         ? detectConflict(trackerId, serverRow, {
-            ts: Date.parse(payload.updated_at) || now(),
+            ts: Date.parse(payload.updated_at) || Date.now(),
             content: payload.content,
             title: payload.title,
           })
         : null
-      if (conflictDescriptor) {
-        const retryTimer = retryTimers[trackerId]
-        if (retryTimer) {
-          clearTimer(retryTimer)
-          retryTimers[trackerId] = null
-        }
-        if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
-        if (isActive(trackerId)) onStatusChange('Conflict')
-        onConflict(conflictDescriptor)
+      if (conflict) {
+        clearScheduled(retryTimers, trackerId)
+        if (serverRow.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
+        onStatusChange(trackerId, 'Conflict')
+        onConflict(conflict)
         notifyPending()
         return
       }
       if (serverRow?.updated_at) setKnownUpdatedAt(trackerId, serverRow.updated_at)
     } else if (outcome.kind === 'error') {
-      if (!queuedPayloads[trackerId]) {
-        queuedPayloads[trackerId] = queued
-      }
+      queuedPayloads[trackerId] ||= queued
       if (!retryTimers[trackerId]) {
-        retryTimers[trackerId] = setTimer(() => {
+        retryTimers[trackerId] = setTimeout(() => {
           retryTimers[trackerId] = null
           void flush(trackerId)
           notifyPending()
-        }, delays.retry)
+        }, RETRY_DELAY)
       }
       onError(outcome.error?.message ?? 'Save failed')
-      if (isActive(trackerId)) onStatusChange('Error')
+      onStatusChange(trackerId, 'Error')
       notifyPending()
       return
-    } else if (outcome.kind === 'ok' && outcome.nextKnownTs) {
+    } else if (outcome.nextKnownTs) {
       setKnownUpdatedAt(trackerId, outcome.nextKnownTs)
     }
 
-    const retryTimer = retryTimers[trackerId]
-    if (retryTimer) {
-      clearTimer(retryTimer)
-      retryTimers[trackerId] = null
-    }
-    if (pendingTitles[trackerId] === payload.title) {
-      delete pendingTitles[trackerId]
-    }
+    clearScheduled(retryTimers, trackerId)
+    onSaved({ trackerId, payload, outcome })
+    onStatusChange(trackerId, 'Saved')
+    maybeClearDraft(trackerId, payloadKey)
 
-    onSaved({ trackerId, payload, outcome, oldContent })
-    if (isActive(trackerId)) onStatusChange('Saved')
-    maybeClearLocalDraft(trackerId, payloadKey)
-
-    if (queuedPayloads[trackerId]) {
-      setTimer(() => void flush(trackerId), 0)
-    }
+    if (queuedPayloads[trackerId]) setTimeout(() => void flush(trackerId), 0)
     notifyPending()
   }
 
-  const schedule = ({ trackerId, payload, payloadKey, draft }) => {
-    scheduleLocalDraftWrite(trackerId, draft, payloadKey)
+  const schedule = ({ trackerId, payload, payloadKey }) => {
+    scheduleDraftWrite(
+      trackerId,
+      { title: payload.title, content: payload.content, ts: Date.now() },
+      payloadKey,
+    )
     queuedPayloads[trackerId] = { payload, payloadKey }
+    clearScheduled(saveTimers, trackerId)
+    clearScheduled(retryTimers, trackerId)
+    onStatusChange(trackerId, 'Saving...')
 
-    const existingTimer = saveTimers[trackerId]
-    if (existingTimer) clearTimer(existingTimer)
-    const retryTimer = retryTimers[trackerId]
-    if (retryTimer) {
-      clearTimer(retryTimer)
-      retryTimers[trackerId] = null
-    }
-    if (isActive(trackerId)) onStatusChange('Saving...')
-
-    saveTimers[trackerId] = setTimer(() => {
+    saveTimers[trackerId] = setTimeout(() => {
       saveTimers[trackerId] = null
       void flush(trackerId)
       notifyPending()
-    }, delays.save)
+    }, SAVE_DELAY)
     notifyPending()
   }
 
-  const flushAllPendingDrafts = () => {
-    for (const trackerId of Object.keys(draftWriteTimers)) {
-      const timer = draftWriteTimers[trackerId]
+  const flushAll = () => {
+    for (const [trackerId, timer] of Object.entries(draftWriteTimers)) {
       if (!timer) continue
-      clearTimer(timer)
-      draftWriteTimers[trackerId] = null
+      clearScheduled(draftWriteTimers, trackerId)
       const pending = queuedPayloads[trackerId]
       if (pending) {
-        writeDraft(trackerId, {
+        draftStorage.write(trackerId, {
           title: pending.payload.title,
           content: pending.payload.content,
-          ts: now(),
+          ts: Date.now(),
         })
       }
     }
-  }
-
-  const flushAll = () => {
-    flushAllPendingDrafts()
-    for (const trackerId of Object.keys(saveTimers)) {
-      const timer = saveTimers[trackerId]
+    for (const [trackerId, timer] of Object.entries(saveTimers)) {
       if (!timer) continue
-      clearTimer(timer)
-      saveTimers[trackerId] = null
+      clearScheduled(saveTimers, trackerId)
       void flush(trackerId)
     }
     notifyPending()
   }
 
   const reset = () => {
-    pendingTitles = {}
     saveTimers = {}
     retryTimers = {}
     inFlight = {}
@@ -240,9 +192,12 @@ export function createSaveQueueController({
 
   const dispose = () => {
     flushAll()
-    Object.values(retryTimers).forEach((timer) => {
-      if (timer) clearTimer(timer)
-    })
+    Object.keys(retryTimers).forEach((trackerId) => clearScheduled(retryTimers, trackerId))
+  }
+
+  const discardConflict = (trackerId) => {
+    queuedPayloads[trackerId] = null
+    clearScheduled(retryTimers, trackerId)
   }
 
   return {
@@ -254,20 +209,6 @@ export function createSaveQueueController({
     hasPending,
     hasPendingForTracker,
     hasLocalChanges,
-    getPendingTitle: (trackerId) => pendingTitles[trackerId],
-    setPendingTitle: (trackerId, title) => {
-      pendingTitles[trackerId] = title
-    },
-    clearPendingTitle: (trackerId) => {
-      delete pendingTitles[trackerId]
-    },
-    discardConflict: (trackerId) => {
-      queuedPayloads[trackerId] = null
-      const retryTimer = retryTimers[trackerId]
-      if (retryTimer) {
-        clearTimer(retryTimer)
-        retryTimers[trackerId] = null
-      }
-    },
+    discardConflict,
   }
 }

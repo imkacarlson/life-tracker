@@ -15,7 +15,7 @@ import { useAiDaily } from './editor/ai/useAiDaily'
 import { useAiInsert } from './editor/ai/useAiInsert'
 import EditorContextMenu from './editor/context-menu/EditorContextMenu'
 import { useEditorContextMenu } from './editor/context-menu/useEditorContextMenu'
-import { useTableCommands } from './editor/table/useTableCommands'
+import { buildTableCommands } from './editor/table/tableCommands'
 
 function EditorPanel({
   editor,
@@ -54,27 +54,8 @@ function EditorPanel({
   const zoomBadgeRef = useRef(null)
   const zoomHintRef = useRef(null)
 
-  const {
-    aiLoading,
-    setAiLoading,
-    aiInsertOpen,
-    setAiInsertOpen,
-    aiInsertLoading,
-    setAiInsertLoading,
-    aiInsertText,
-    setAiInsertText,
-    setInTable,
-    currentBlockId,
-    setCurrentBlockId,
-    contextMenu,
-    setContextMenu,
-    submenuOpen,
-    setSubmenuOpen,
-    submenuDirection,
-    setSubmenuDirection,
-    highlightColor,
-    resetOnTrackerChange,
-  } = useEditorUIStore()
+  const highlightColor = useEditorUIStore((state) => state.highlightColor)
+  const resetOnTrackerChange = useEditorUIStore((state) => state.resetOnTrackerChange)
 
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
@@ -105,26 +86,17 @@ function EditorPanel({
     return isTouchOnly && !view?.hasFocus() ? editor.chain() : editor.chain().focus()
   }, [editor, isTouchOnly])
 
-  const { inputRef: aiInsertInputRef, handleAiInsertSubmit } = useAiInsert({
+  const { aiInsertModalProps } = useAiInsert({
     editor,
     hasTracker,
     title,
     trackerId,
     editorPanelRef,
     toolbarRef,
-    aiInsertOpen,
-    aiInsertLoading,
-    aiInsertText,
-    setAiInsertOpen,
-    setAiInsertLoading,
-    setAiInsertText,
   })
 
   const { handleGenerateToday } = useAiDaily({
     editor,
-    aiLoading,
-    aiInsertLoading,
-    setAiLoading,
     notebookId,
     sectionId,
     trackerId,
@@ -134,36 +106,20 @@ function EditorPanel({
     userId,
   })
 
-  const { contextMenuItems } = useTableCommands({ editor, editorCmd })
+  const contextMenuItems = useMemo(
+    () => buildTableCommands({ editor, editorCmd }),
+    [editor, editorCmd],
+  )
   const {
-    menuRef: contextMenuRef,
-    submenuRef,
-    spellSuggestions,
-    closeContextMenu,
-    deepLinkHash,
     toolbarDeepLinkHash,
     isCurrentPageTracker,
-    handleCopyLink,
-    handleApplySuggestion,
-    handleAddToDictionary,
-    handleIgnoreWord,
-    handleSetTrackerPageFromMenu,
     handleSetTrackerFromToolbar,
+    contextMenuProps,
   } = useEditorContextMenu({
     editor,
     editorLocked,
     isTouchOnly,
-    aiInsertLoading,
-    setAiInsertOpen,
-    contextMenu,
-    setContextMenu,
-    submenuOpen,
-    setSubmenuOpen,
-    submenuDirection,
-    setSubmenuDirection,
-    currentBlockId,
-    setCurrentBlockId,
-    setInTable,
+    hasTracker,
     notebookId,
     sectionId,
     trackerId,
@@ -248,14 +204,7 @@ function EditorPanel({
       />
 
       <AiInsertModal
-        inputRef={aiInsertInputRef}
-        open={aiInsertOpen}
-        loading={aiInsertLoading}
-        text={aiInsertText}
-        hasTracker={hasTracker}
-        onTextChange={setAiInsertText}
-        onClose={() => setAiInsertOpen(false)}
-        onSubmit={handleAiInsertSubmit}
+        {...aiInsertModalProps}
       />
 
       {editorLocked && hasTracker ? (
@@ -290,25 +239,8 @@ function EditorPanel({
       )}
 
       <EditorContextMenu
-        menuRef={contextMenuRef}
-        submenuRef={submenuRef}
-        contextMenu={contextMenu}
-        spellSuggestions={spellSuggestions}
-        deepLinkHash={deepLinkHash}
-        hasTracker={hasTracker}
-        isCurrentPageTracker={isCurrentPageTracker}
-        trackerPageSaving={trackerPageSaving}
-        onSetTrackerPage={onSetTrackerPage}
-        submenuOpen={submenuOpen}
-        submenuDirection={submenuDirection}
+        {...contextMenuProps}
         contextMenuItems={contextMenuItems}
-        setSubmenuOpen={setSubmenuOpen}
-        closeContextMenu={closeContextMenu}
-        onApplySuggestion={handleApplySuggestion}
-        onAddToDictionary={handleAddToDictionary}
-        onIgnoreWord={handleIgnoreWord}
-        onCopyLink={handleCopyLink}
-        onSetTrackerPageFromMenu={handleSetTrackerPageFromMenu}
       />
     </section>
   )

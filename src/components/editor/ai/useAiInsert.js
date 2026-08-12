@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { serializeDocToText } from '../../../lib/serializeDoc'
+import { useEditorUIStore } from '../../../stores/editorUIStore'
 import { scrollElementIntoViewWithToolbar } from '../../../utils/scrollIntoViewWithToolbar'
 import {
   buildAiInsertContent,
@@ -18,14 +19,14 @@ export function useAiInsert({
   trackerId,
   editorPanelRef,
   toolbarRef,
-  aiInsertOpen,
-  aiInsertLoading,
-  aiInsertText,
-  setAiInsertOpen,
-  setAiInsertLoading,
-  setAiInsertText,
 }) {
   const inputRef = useRef(null)
+  const aiInsertOpen = useEditorUIStore((state) => state.aiInsertOpen)
+  const aiInsertLoading = useEditorUIStore((state) => state.aiInsertLoading)
+  const aiInsertText = useEditorUIStore((state) => state.aiInsertText)
+  const setAiInsertOpen = useEditorUIStore((state) => state.setAiInsertOpen)
+  const setAiInsertLoading = useEditorUIStore((state) => state.setAiInsertLoading)
+  const setAiInsertText = useEditorUIStore((state) => state.setAiInsertText)
 
   useEffect(() => {
     if (!aiInsertOpen) return
@@ -128,5 +129,16 @@ export function useAiInsert({
     }
   }
 
-  return { inputRef, handleAiInsertSubmit }
+  return {
+    aiInsertModalProps: {
+      inputRef,
+      open: aiInsertOpen,
+      loading: aiInsertLoading,
+      text: aiInsertText,
+      hasTracker,
+      onTextChange: setAiInsertText,
+      onClose: () => setAiInsertOpen(false),
+      onSubmit: handleAiInsertSubmit,
+    },
+  }
 }

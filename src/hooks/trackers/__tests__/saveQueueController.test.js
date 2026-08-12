@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { detectConflict } from '../../../utils/draftHelpers'
-import { classifySaveResult } from '../../../utils/saveConflict'
 import { createSaveQueueController } from '../saveQueueController'
 
 const payload = (title, text, updatedAt = '2026-08-09T12:00:00.000Z') => ({
@@ -17,29 +15,32 @@ const makeController = (overrides = {}) => {
       error: null,
     }))
   const callbacks = {
-    writeDraft: vi.fn(),
-    clearDraft: vi.fn(),
     onPendingChange: vi.fn(),
     onStatusChange: vi.fn(),
     onConflict: vi.fn(),
     onError: vi.fn(),
     onSaved: vi.fn(),
-    onActiveDraftCleared: vi.fn(),
+    onDraftCleared: vi.fn(),
   }
+  const draftStorage = { write: vi.fn(), clear: vi.fn() }
   const controller = createSaveQueueController({
     persistPage,
     fetchServerPage: overrides.fetchServerPage ?? vi.fn(async () => null),
-    classifyResult: classifySaveResult,
-    detectConflict,
     getKnownUpdatedAt: (trackerId) => knownTimestamps[trackerId] ?? null,
     setKnownUpdatedAt: (trackerId, timestamp) => {
       knownTimestamps[trackerId] = timestamp
     },
-    getActiveTrackerId: () => overrides.activeTrackerId ?? 'page-a',
-    getOldContent: () => ({ type: 'doc', content: [] }),
+    draftStorage,
     ...callbacks,
   })
-  return { controller, persistPage, knownTimestamps, ...callbacks }
+  return {
+    controller,
+    persistPage,
+    knownTimestamps,
+    writeDraft: draftStorage.write,
+    clearDraft: draftStorage.clear,
+    ...callbacks,
+  }
 }
 
 const schedule = (controller, trackerId, nextPayload) => {
@@ -48,11 +49,6 @@ const schedule = (controller, trackerId, nextPayload) => {
     trackerId,
     payload: nextPayload,
     payloadKey,
-    draft: {
-      title: nextPayload.title,
-      content: nextPayload.content,
-      ts: Date.now(),
-    },
   })
 }
 
@@ -80,7 +76,7 @@ describe('save queue debounce and drafts', () => {
 
   it('writes a local draft at 250 ms and clears it after a successful latest save', async () => {
     vi.useFakeTimers()
-    const { controller, writeDraft, clearDraft, onActiveDraftCleared } = makeController()
+    const { controller, writeDraft, clearDraft, onDraftCleared } = makeController()
     const nextPayload = payload('Draft', 'body')
 
     schedule(controller, 'page-a', nextPayload)
@@ -92,7 +88,7 @@ describe('save queue debounce and drafts', () => {
 
     await vi.advanceTimersByTimeAsync(1750)
     expect(clearDraft).toHaveBeenCalledWith('page-a')
-    expect(onActiveDraftCleared).toHaveBeenCalledTimes(1)
+    expect(onDraftCleared).toHaveBeenCalledWith('page-a')
   })
 
   it('flushes drafts and starts saves immediately for lifecycle events', async () => {
@@ -191,7 +187,7 @@ describe('save queue concurrency and failures', () => {
     expect(onConflict).toHaveBeenCalledWith(
       expect.objectContaining({ trackerId: 'page-a', serverTitle: 'Remote' }),
     )
-    expect(onStatusChange).toHaveBeenLastCalledWith('Conflict')
+    expect(onStatusChange).toHaveBeenLastCalledWith('page-a', 'Conflict')
     expect(onError).not.toHaveBeenCalled()
   })
 })
