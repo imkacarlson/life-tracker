@@ -1,8 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useEditorUIStore } from '../editorUIStore'
 
 const reset = () => {
-  useEditorUIStore.setState({ toolbarExpanded: false, aiDailyDate: new Date('2026-05-26T00:00:00') })
+  useEditorUIStore.setState({
+    toolbarExpanded: false,
+    aiDailyDate: new Date('2026-05-26T00:00:00'),
+    inTable: false,
+    isInList: false,
+    currentBlockId: null,
+  })
 }
 
 describe('useEditorUIStore - setToolbarExpanded', () => {
@@ -87,5 +93,33 @@ describe('useEditorUIStore - setAiDailyDate', () => {
     const aiDailyDate = useEditorUIStore.getState().aiDailyDate
     expect(aiDailyDate).toBeInstanceOf(Date)
     expect(aiDailyDate.toLocaleDateString('en-CA')).toBe('2026-05-27')
+  })
+})
+
+describe('useEditorUIStore - selection context', () => {
+  beforeEach(reset)
+
+  it('does not notify subscribers when derived editor context is unchanged', () => {
+    const listener = vi.fn()
+    const unsubscribe = useEditorUIStore.subscribe(listener)
+
+    useEditorUIStore.getState().setInTable(false)
+    useEditorUIStore.getState().setIsInList(false)
+    useEditorUIStore.getState().setCurrentBlockId(null)
+
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it('updates and notifies once for a real context change', () => {
+    const listener = vi.fn()
+    const unsubscribe = useEditorUIStore.subscribe(listener)
+
+    useEditorUIStore.getState().setCurrentBlockId('block-1')
+    useEditorUIStore.getState().setCurrentBlockId('block-1')
+
+    expect(useEditorUIStore.getState().currentBlockId).toBe('block-1')
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
   })
 })

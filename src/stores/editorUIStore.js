@@ -49,9 +49,10 @@ export const useEditorUIStore = create((set, get) => ({
   inTable: false,
   isInList: false,
   currentBlockId: null,
-  setInTable: (v) => set({ inTable: v }),
-  setIsInList: (v) => set({ isInList: v }),
-  setCurrentBlockId: (id) => set({ currentBlockId: id }),
+  setInTable: (v) => set((state) => (state.inTable === v ? state : { inTable: v })),
+  setIsInList: (v) => set((state) => (state.isInList === v ? state : { isInList: v })),
+  setCurrentBlockId: (id) =>
+    set((state) => (state.currentBlockId === id ? state : { currentBlockId: id })),
 
   // Colors (synced from editor selection, persisted across sessions).
   // Each setter guards on change before persisting so the selection-sync

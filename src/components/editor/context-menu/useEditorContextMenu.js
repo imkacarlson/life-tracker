@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { getChecker } from '../../../lib/spellChecker'
 import { useEditorUIStore } from '../../../stores/editorUIStore'
 import { isTouchOnlyDevice } from '../../../utils/device'
@@ -54,7 +55,21 @@ export function useEditorContextMenu({
     setInTable,
     aiInsertLoading,
     setAiInsertOpen,
-  } = useEditorUIStore()
+  } = useEditorUIStore(
+    useShallow((state) => ({
+      contextMenu: state.contextMenu,
+      setContextMenu: state.setContextMenu,
+      submenuOpen: state.submenuOpen,
+      setSubmenuOpen: state.setSubmenuOpen,
+      submenuDirection: state.submenuDirection,
+      setSubmenuDirection: state.setSubmenuDirection,
+      currentBlockId: state.currentBlockId,
+      setCurrentBlockId: state.setCurrentBlockId,
+      setInTable: state.setInTable,
+      aiInsertLoading: state.aiInsertLoading,
+      setAiInsertOpen: state.setAiInsertOpen,
+    })),
+  )
 
   const openContextMenu = useCallback(
     (next) => {

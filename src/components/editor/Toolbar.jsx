@@ -7,6 +7,7 @@ import ToolButton from './ToolButton'
 import { ToolbarContext } from './toolbar/ToolbarContext'
 import ToolbarGroup from './toolbar/ToolbarGroup'
 import { CORE_GROUPS, EXTRA_GROUPS } from './toolbar/toolRegistry'
+import { selectToolbarEditorState } from './toolbar/toolbarEditorState'
 import { useFindBar } from './toolbar/useFindBar'
 import { useAiSearch } from './toolbar/useAiSearch'
 
@@ -29,12 +30,11 @@ function Toolbar({
   handleSetDailySourceFromToolbar,
   contextMenuItems,
 }) {
-  // Toolbar buttons derive their active state from ProseMirror. Subscribe to
-  // transactions so marks set on an empty block (stored marks) immediately
-  // update the button instead of waiting for an unrelated React render.
+  // Keep button affordances fresh without re-rendering every tool for ordinary
+  // typing transactions that leave the visible toolbar state unchanged.
   useEditorState({
     editor,
-    selector: ({ transactionNumber }) => transactionNumber,
+    selector: selectToolbarEditorState,
   })
 
   const toolbarExpanded = useEditorUIStore((s) => s.toolbarExpanded)
