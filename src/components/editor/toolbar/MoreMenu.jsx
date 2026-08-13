@@ -2,9 +2,9 @@ function MoreMenu({
   onClose,
   onCopyLink,
   copyLinkDisabled,
-  onSetTrackerPage,
-  setTrackerLabel,
-  setTrackerDisabled,
+  onSetDailySourcePage,
+  dailySourceLabel,
+  dailySourceDisabled,
   inTable,
   contextMenuItems,
 }) {
@@ -23,10 +23,10 @@ function MoreMenu({
         <button
           type="button"
           className="table-context-item"
-          onClick={onSetTrackerPage}
-          disabled={setTrackerDisabled}
+          onClick={onSetDailySourcePage}
+          disabled={dailySourceDisabled}
         >
-          {setTrackerLabel}
+          {dailySourceLabel}
         </button>
         {inTable && contextMenuItems?.length > 0 && (
           <>

@@ -4,7 +4,7 @@
  * Expected call shape:
  *   supabase.from('pages')
  *     .update(payload)
- *     .eq('id', trackerId)
+ *     .eq('id', pageId)
  *     .eq('updated_at', knownTs)
  *     .select('updated_at')
  *     .single()

@@ -10,7 +10,7 @@ const payload = (title, text, updatedAt = '2026-08-09T12:00:00.000Z') => ({
 const makeController = (overrides = {}) => {
   const knownTimestamps = { 'page-a': 'server-old-a', 'page-b': 'server-old-b' }
   const persistPage = overrides.persistPage ??
-    vi.fn(async (_trackerId, _payload, knownTs) => ({
+    vi.fn(async (_pageId, _payload, knownTs) => ({
       data: { updated_at: `${knownTs}-next` },
       error: null,
     }))
@@ -26,9 +26,9 @@ const makeController = (overrides = {}) => {
   const controller = createSaveQueueController({
     persistPage,
     fetchServerPage: overrides.fetchServerPage ?? vi.fn(async () => null),
-    getKnownUpdatedAt: (trackerId) => knownTimestamps[trackerId] ?? null,
-    setKnownUpdatedAt: (trackerId, timestamp) => {
-      knownTimestamps[trackerId] = timestamp
+    getKnownUpdatedAt: (pageId) => knownTimestamps[pageId] ?? null,
+    setKnownUpdatedAt: (pageId, timestamp) => {
+      knownTimestamps[pageId] = timestamp
     },
     draftStorage,
     ...callbacks,
@@ -43,10 +43,10 @@ const makeController = (overrides = {}) => {
   }
 }
 
-const schedule = (controller, trackerId, nextPayload) => {
+const schedule = (controller, pageId, nextPayload) => {
   const payloadKey = JSON.stringify(nextPayload)
   controller.schedule({
-    trackerId,
+    pageId,
     payload: nextPayload,
     payloadKey,
   })
@@ -118,7 +118,7 @@ describe('save queue concurrency and failures', () => {
     await vi.advanceTimersByTimeAsync(2000)
 
     expect(persistPage).toHaveBeenCalledTimes(2)
-    expect(persistPage.mock.calls.map(([trackerId]) => trackerId).sort()).toEqual([
+    expect(persistPage.mock.calls.map(([pageId]) => pageId).sort()).toEqual([
       'page-a',
       'page-b',
     ])
@@ -185,7 +185,7 @@ describe('save queue concurrency and failures', () => {
     await vi.advanceTimersByTimeAsync(2000)
 
     expect(onConflict).toHaveBeenCalledWith(
-      expect.objectContaining({ trackerId: 'page-a', serverTitle: 'Remote' }),
+      expect.objectContaining({ pageId: 'page-a', serverTitle: 'Remote' }),
     )
     expect(onStatusChange).toHaveBeenLastCalledWith('page-a', 'Conflict')
     expect(onError).not.toHaveBeenCalled()

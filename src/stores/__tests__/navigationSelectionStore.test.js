@@ -6,7 +6,7 @@ const getSelection = () => {
   return {
     activeNotebookId: state.activeNotebookId,
     activeSectionId: state.activeSectionId,
-    activeTrackerId: state.activeTrackerId,
+    activePageId: state.activePageId,
   }
 }
 
@@ -16,70 +16,70 @@ describe('useNavigationSelectionStore', () => {
   })
 
   it('commits a complete page hierarchy atomically', () => {
-    useNavigationSelectionStore.getState().selectTracker('nb-1', 'sec-1', 'pg-1')
+    useNavigationSelectionStore.getState().selectPage('nb-1', 'sec-1', 'pg-1')
 
     expect(getSelection()).toEqual({
       activeNotebookId: 'nb-1',
       activeSectionId: 'sec-1',
-      activeTrackerId: 'pg-1',
+      activePageId: 'pg-1',
     })
   })
 
   it('clears incompatible descendants when an ancestor is selected', () => {
     const store = useNavigationSelectionStore.getState()
-    store.selectTracker('nb-1', 'sec-1', 'pg-1')
+    store.selectPage('nb-1', 'sec-1', 'pg-1')
 
     store.selectSection('nb-2', 'sec-2')
     expect(getSelection()).toEqual({
       activeNotebookId: 'nb-2',
       activeSectionId: 'sec-2',
-      activeTrackerId: null,
+      activePageId: null,
     })
 
     store.selectNotebook('nb-3')
     expect(getSelection()).toEqual({
       activeNotebookId: 'nb-3',
       activeSectionId: null,
-      activeTrackerId: null,
+      activePageId: null,
     })
   })
 
   it('never retains descendants without their required ancestors', () => {
     const store = useNavigationSelectionStore.getState()
 
-    store.selectTracker(null, 'sec-1', 'pg-1')
+    store.selectPage(null, 'sec-1', 'pg-1')
     expect(getSelection()).toEqual({
       activeNotebookId: null,
       activeSectionId: null,
-      activeTrackerId: null,
+      activePageId: null,
     })
 
-    store.selectTracker('nb-1', null, 'pg-1')
+    store.selectPage('nb-1', null, 'pg-1')
     expect(getSelection()).toEqual({
       activeNotebookId: 'nb-1',
       activeSectionId: null,
-      activeTrackerId: null,
+      activePageId: null,
     })
   })
 
   it('supports page and section fallback transitions after deletion', () => {
     const store = useNavigationSelectionStore.getState()
-    store.selectTracker('nb-1', 'sec-1', 'pg-deleted')
+    store.selectPage('nb-1', 'sec-1', 'pg-deleted')
 
-    store.selectTracker('nb-1', 'sec-1', 'pg-fallback')
-    expect(getSelection().activeTrackerId).toBe('pg-fallback')
+    store.selectPage('nb-1', 'sec-1', 'pg-fallback')
+    expect(getSelection().activePageId).toBe('pg-fallback')
 
     store.selectSection('nb-1', 'sec-1')
     expect(getSelection()).toEqual({
       activeNotebookId: 'nb-1',
       activeSectionId: 'sec-1',
-      activeTrackerId: null,
+      activePageId: null,
     })
   })
 
   it('does not notify subscribers when the complete selection is unchanged', () => {
     const listener = vi.fn()
-    useNavigationSelectionStore.getState().selectTracker('nb-1', 'sec-1', 'pg-1')
+    useNavigationSelectionStore.getState().selectPage('nb-1', 'sec-1', 'pg-1')
     const unsubscribe = useNavigationSelectionStore.subscribe(listener)
 
     useNavigationSelectionStore.getState().selectTarget({
@@ -94,13 +94,13 @@ describe('useNavigationSelectionStore', () => {
 
   it('clears the complete selection on sign-out reset', () => {
     const store = useNavigationSelectionStore.getState()
-    store.selectTracker('nb-1', 'sec-1', 'pg-1')
+    store.selectPage('nb-1', 'sec-1', 'pg-1')
     store.clearSelection()
 
     expect(getSelection()).toEqual({
       activeNotebookId: null,
       activeSectionId: null,
-      activeTrackerId: null,
+      activePageId: null,
     })
   })
 })

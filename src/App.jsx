@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { useNotebooks } from './hooks/useNotebooks'
 import { useSections } from './hooks/useSections'
-import { useTrackers } from './hooks/useTrackers'
+import { usePages } from './hooks/usePages'
 import { useSettings } from './hooks/useSettings'
 import { useNavigation } from './hooks/useNavigation'
 import { useNavigationHistory } from './hooks/useNavigationHistory'
@@ -10,7 +10,7 @@ import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
 import { useEditorSetup } from './hooks/useEditorSetup'
 import { useCustomDictionary } from './hooks/useCustomDictionary'
-import { useTrackerSession } from './hooks/useTrackerSession'
+import { useEditorSession } from './hooks/useEditorSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
 import { useSaveLifecycle } from './components/app/hooks/useSaveLifecycle'
 import { useSidebarLayout } from './components/app/hooks/useSidebarLayout'
@@ -165,38 +165,38 @@ function App() {
   } = useSections(userId, getPostDeleteSectionTarget)
 
   const {
-    trackers,
+    pages,
     sectionPageCache,
     loadSectionPagesMeta,
-    activeTrackerId,
-    activeTracker,
-    sectionTrackerPage,
-    loadTrackerContent,
+    activePageId,
+    activePage,
+    sectionDailySourcePage,
+    loadPageContentById,
     titleDraft,
     saveStatus,
     hasPendingSaves,
     dataLoading,
-    trackerPageSaving,
-    message: trackerMessage,
-    setMessage: setTrackerMessage,
+    dailySourceSaving,
+    message: pageMessage,
+    setMessage: setPageMessage,
     scheduleSave,
     handleTitleChange,
-    createTracker,
-    createTrackerWithContent,
+    createPage,
+    createPageWithContent,
     reorderSectionPages,
-    setTrackerPage,
-    deleteTracker,
+    setDailySourcePage,
+    deletePage,
     draftConflict,
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
-    flushSaveForTracker,
+    flushSaveForPage,
     handleResume,
-  } = useTrackers(userId, getPostDeletePageTarget)
+  } = usePages(userId, getPostDeletePageTarget)
 
-  const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
-    activeTrackerId,
-    activeTracker,
+  const { session: editorSession, sessionKey, bumpSessionNonce } = useEditorSession({
+    activePageId,
+    activePage,
     dataLoading,
     settingsMode,
     settingsContentVersion,
@@ -212,10 +212,10 @@ function App() {
       setAuthMessage(msg)
       setNotebookMessage(msg)
       setSectionMessage(msg)
-      setTrackerMessage(msg)
+      setPageMessage(msg)
       setSettingsMessage(msg)
     },
-    [setAuthMessage, setNotebookMessage, setSectionMessage, setTrackerMessage, setSettingsMessage],
+    [setAuthMessage, setNotebookMessage, setSectionMessage, setPageMessage, setSettingsMessage],
   )
 
   const {
@@ -231,13 +231,13 @@ function App() {
     sectionPageCache,
     sectionsLoading,
     loadSectionPagesMeta,
-    editorReady: trackerSession.status === 'ready',
-    flushSaveForTracker,
+    editorReady: editorSession.status === 'ready',
+    flushSaveForPage,
     setDeepLinkFocusGuard: setDeepLinkFocusGuardValue,
     setMessage,
   })
 
-  const message = authMessage || notebookMessage || sectionMessage || trackerMessage || settingsMessage
+  const message = authMessage || notebookMessage || sectionMessage || pageMessage || settingsMessage
   const isSaving = hasPendingSaves || templateSaveStatus === 'Saving...'
   const { confirmLeaveWhileSaving } = useSaveLifecycle({ isSaving, flushAllPendingSaves })
   const activeSection = sections.find((section) => section.id === activeSectionId) ?? null
@@ -279,8 +279,8 @@ function App() {
     if (activeSectionId) recordNavVisit('sections', activeSectionId)
   }, [activeSectionId, recordNavVisit])
   useEffect(() => {
-    if (activeTrackerId) recordNavVisit('pages', activeTrackerId)
-  }, [activeTrackerId, recordNavVisit])
+    if (activePageId) recordNavVisit('pages', activePageId)
+  }, [activePageId, recordNavVisit])
 
   // Auto-open a section's first page when the user clicks the section. Waits for
   // the section's pages to load, then navigates to the first page — unless the
@@ -293,7 +293,7 @@ function App() {
     const entry = getSectionPageEntry(sectionPageCache, sectionId)
     if (entry.status !== SECTION_PAGE_STATUS.LOADED) return
     autoOpenSectionRef.current = null
-    const activeInSection = entry.pages.some((page) => page.id === activeTrackerId)
+    const activeInSection = entry.pages.some((page) => page.id === activePageId)
     if (activeInSection) return
     const firstPage = entry.pages[0]
     if (!firstPage) return
@@ -305,7 +305,7 @@ function App() {
   }, [
     autoOpenNonce,
     activeSectionId,
-    activeTrackerId,
+    activePageId,
     activeNotebookId,
     sectionPageCache,
     selectNavigationTarget,
@@ -321,7 +321,7 @@ function App() {
           ? {
               notebookId: destId,
               sectionId: section.id,
-              pageId: activeTrackerId,
+              pageId: activePageId,
             }
           : { notebookId: destId }
       const moved = await moveSection(section, destId)
@@ -413,7 +413,7 @@ function App() {
 
   const { editor, suppressFocusRef } = useEditorSetup({
     authSession: session,
-    trackerSession,
+    editorSession,
     sessionKey,
     scheduleSave,
     scheduleSettingsSave,
@@ -476,7 +476,7 @@ function App() {
   }, [missingEnv, bootLoading, session, notebooksLoading])
 
   // On returning to the foreground / regaining network: resubscribe realtime
-  // and refetch the active tracker so a change made on another device shows up.
+  // and refetch the active page so a change made on another device shows up.
   useResumeRefresh(handleResume)
 
   const handleSignOut = async () => {
@@ -534,7 +534,7 @@ function App() {
     if (isMobileViewport) {
       setMobileSidebarOpen(false)
     }
-    createTracker(session, activeSectionId)
+    createPage(session, activeSectionId)
   }
 
   const handleOpenTreeContextMenu = (event, type, item) => {
@@ -560,23 +560,23 @@ function App() {
     Boolean(pendingTarget?.blockId) &&
     pendingTarget.notebookId === activeNotebookId &&
     pendingTarget.sectionId === activeSectionId &&
-    pendingTarget.pageId === activeTrackerId
+    pendingTarget.pageId === activePageId
   const navigationRequiresEditorTransition = Boolean(
     pendingTarget &&
       !isSamePageBlockAnchor &&
       (pendingTarget.notebookId !== activeNotebookId ||
         pendingTarget.sectionId !== activeSectionId ||
-        pendingTarget.pageId !== activeTrackerId),
+        pendingTarget.pageId !== activePageId),
   )
   // editorTransitioning is true only while content is actually loading — the
   // activeSectionPending gate is gone because the content cache + session status
   // already covers that wait accurately.
   const editorTransitioning =
-    (pendingTarget && navigationRequiresEditorTransition && trackerSession.status !== 'ready') ||
-    trackerSession.status === 'loading'
+    (pendingTarget && navigationRequiresEditorTransition && editorSession.status !== 'ready') ||
+    editorSession.status === 'loading'
   const hasEditorTarget =
-    Boolean(activeTracker) ||
-    Boolean(activeTrackerId) ||
+    Boolean(activePage) ||
+    Boolean(activePageId) ||
     navigationRequiresEditorTransition ||
     dataLoading
   // A deep-link block jump owns scroll; scroll restoration must defer to it.
@@ -606,12 +606,12 @@ function App() {
     ? 'Settings'
     : isTemplateEditing
       ? 'Daily Template'
-      : titleDraft || activeTracker?.title
+      : titleDraft || activePage?.title
   const mobileBreadcrumbTitle = isSettingsHub
     ? 'Settings'
     : isTemplateEditing
       ? 'Daily Template'
-      : titleDraft || activeTracker?.title || activeSection?.title || activeNotebook?.title || 'Life Tracker'
+      : titleDraft || activePage?.title || activeSection?.title || activeNotebook?.title || 'Life Tracker'
 
   if (missingEnv) {
     return (
@@ -635,7 +635,7 @@ function App() {
     // The branded splash baked into index.html is still covering the screen;
     // render nothing so there's one continuous loading state, not three. This
     // also waits on the initial notebooks fetch so returning users don't flash
-    // the empty-account WelcomeScreen before their trackers load.
+    // the empty-account WelcomeScreen before their pages load.
     return null
   }
 
@@ -681,7 +681,7 @@ function App() {
     sectionPageCache,
     activeNotebookId,
     activeSectionId,
-    activeTrackerId,
+    activePageId,
     userId,
     loading: dataLoading,
     compactBadges,
@@ -701,7 +701,7 @@ function App() {
     onOpenContextMenu: handleOpenTreeContextMenu,
     onLoadSectionPages: loadSectionPagesMeta,
     onCreateWithContent: (title, content) =>
-      createTrackerWithContent(session, activeSectionId, title, content),
+      createPageWithContent(session, activeSectionId, title, content),
   }
   const settings = {
     isHub: isSettingsHub,
@@ -715,19 +715,19 @@ function App() {
   }
   const templateEditorProps = {
     editor,
-    editorLocked: trackerSession.status !== 'ready',
+    editorLocked: editorSession.status !== 'ready',
     title: 'Daily Template',
     onTitleChange: () => {},
     onDelete: () => {},
     saveStatus: templateSaveStatus,
     onImageUpload: finalUploadImageAndInsert,
-    hasTracker: true,
+    hasEditorTarget: true,
     message,
     notebookId: activeNotebookId,
     sectionId: activeSectionId,
-    trackerId: activeTrackerId,
+    pageId: activePageId,
     onNavigateHash: handleInternalHashNavigate,
-    allTrackers: trackers,
+    allPages: pages,
     userId,
     titleReadOnly: true,
     showDelete: false,
@@ -741,25 +741,25 @@ function App() {
   }
   const primaryEditorProps = {
     editor,
-    editorLocked: trackerSession.status !== 'ready' || editorTransitioning,
+    editorLocked: editorSession.status !== 'ready' || editorTransitioning,
     title: titleDraft,
     onTitleChange: (value) => handleTitleChange(value, editor),
-    onDelete: deleteTracker,
+    onDelete: deletePage,
     saveStatus,
     onImageUpload: finalUploadImageAndInsert,
-    hasTracker: hasEditorTarget,
+    hasEditorTarget: hasEditorTarget,
     editorTransitioning,
     message,
     notebookId: activeNotebookId,
     sectionId: activeSectionId,
-    trackerId: activeTrackerId,
-    restorePageId: trackerSession.trackerId,
+    pageId: activePageId,
+    restorePageId: editorSession.pageId,
     onNavigateHash: handleInternalHashNavigate,
-    allTrackers: trackers,
-    trackerSourcePage: sectionTrackerPage,
-    loadTrackerContent,
-    onSetTrackerPage: setTrackerPage,
-    trackerPageSaving,
+    allPages: pages,
+    dailySourcePage: sectionDailySourcePage,
+    loadPageContentById,
+    onSetDailySourcePage: setDailySourcePage,
+    dailySourceSaving,
     userId,
     deepLinkActive,
     emptyState: editorEmptyState,
@@ -782,7 +782,7 @@ function App() {
       } else if (treeContextMenu.type === 'section') {
         deleteSection(treeContextMenu.item)
       } else if (treeContextMenu.type === 'page') {
-        deleteTracker(treeContextMenu.item)
+        deletePage(treeContextMenu.item)
       }
     },
     onCopy: () => {

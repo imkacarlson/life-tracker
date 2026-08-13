@@ -44,7 +44,7 @@ const MAX_PER_TICK = num('REMINDER_MAX_PER_TICK', 10)
 const MIN_FIRE_AT = Deno.env.get('REMINDER_MIN_FIRE_AT') ?? ''
 const DRY_RUN = (Deno.env.get('REMINDER_DRY_RUN') ?? '') === '1'
 
-// The autosave debounce is 2s (useTrackers.js), so a tick can otherwise catch a
+// The autosave debounce is 2s (usePages.js), so a tick can otherwise catch a
 // half-typed "8/17 8:20am" on its way to "8:20pm" and send it. Costs ≤1 minute
 // of latency to skip pages that were touched in the last minute.
 const STABILITY_WINDOW_MS = 60_000

@@ -105,12 +105,12 @@ Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 - `clearNavHierarchyCache()` called on sign-out and on notebook/section/page deletion to prevent stale cache entries
 
 ### Changed
-- `activeDraft` in `useTrackers` moved from `useMemo` to `useEffect`+`useState`; now also reacts to `activeTrackerServer?.updated_at` settling, fixing a race where fast navigation could arrive before the server row resolved
+- `activeDraft` in `usePages` moved from `useMemo` to `useEffect`+`useState`; now also reacts to `activePageServer?.updated_at` settling, fixing a race where fast navigation could arrive before the server row resolved
 - `onUseDraft` conflict resolution handler now explicitly calls `editor.commands.setContent()` to match `onUseServer` — fixes editor not showing selected content after conflict resolution
 - `navigateToHash` now logs `console.warn` when `resolveNavHierarchy` returns null instead of silently dropping the navigation
 
 ### Fixed
-- Mobile E2E: `issue-77` draft-conflict modal no longer fails due to hash navigation drop on slow mobile networks (cache + `activeTrackerServer?.updated_at` dependency)
+- Mobile E2E: `issue-77` draft-conflict modal no longer fails due to hash navigation drop on slow mobile networks (cache + `activePageServer?.updated_at` dependency)
 - Mobile E2E: `issue-84` orphaned image cleanup typing now targets first paragraph directly to avoid unreliable generic container click
 - Toolbar `pointer-events` bug affecting click-through in certain mobile scroll positions
 - Multiple flaky E2E selectors hardened with behavioral assertions (`getByRole`/`getByText`)

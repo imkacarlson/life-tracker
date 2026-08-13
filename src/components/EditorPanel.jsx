@@ -25,19 +25,19 @@ function EditorPanel({
   onDelete,
   saveStatus,
   onImageUpload,
-  hasTracker,
+  hasEditorTarget,
   editorTransitioning = false,
   message,
   notebookId,
   sectionId,
-  trackerId,
+  pageId,
   restorePageId = null,
   onNavigateHash,
-  allTrackers,
-  trackerSourcePage = null,
-  loadTrackerContent = null,
-  onSetTrackerPage = null,
-  trackerPageSaving = false,
+  allPages,
+  dailySourcePage = null,
+  loadPageContentById = null,
+  onSetDailySourcePage = null,
+  dailySourceSaving = false,
   userId,
   titleReadOnly = false,
   showDelete = true,
@@ -55,7 +55,7 @@ function EditorPanel({
   const zoomHintRef = useRef(null)
 
   const highlightColor = useEditorUIStore((state) => state.highlightColor)
-  const resetOnTrackerChange = useEditorUIStore((state) => state.resetOnTrackerChange)
+  const resetOnPageChange = useEditorUIStore((state) => state.resetOnPageChange)
 
   const isTouchOnly = useMemo(() => isTouchOnlyDevice(), [])
   const { zoomLevel, resetZoom, showHint, dismissHint, gestureRecent, isZoomSupported } =
@@ -71,9 +71,9 @@ function EditorPanel({
   useScrollRestoration({
     containerRef: editorPanelRef,
     editor,
-    // Use the committed session id. The live tracker id changes before content swaps.
-    pageId: restorePageId ?? trackerId,
-    ready: hasTracker && !editorLocked,
+    // Use the committed session id. The live page id changes before content swaps.
+    pageId: restorePageId ?? pageId,
+    ready: hasEditorTarget && !editorLocked,
     skip: deepLinkActive,
     zoomLevel,
     isTouchOnly,
@@ -88,9 +88,9 @@ function EditorPanel({
 
   const { aiInsertModalProps } = useAiInsert({
     editor,
-    hasTracker,
+    hasEditorTarget,
     title,
-    trackerId,
+    pageId,
     editorPanelRef,
     toolbarRef,
   })
@@ -99,10 +99,10 @@ function EditorPanel({
     editor,
     notebookId,
     sectionId,
-    trackerId,
-    allTrackers,
-    trackerSourcePage,
-    loadTrackerContent,
+    pageId,
+    allPages,
+    dailySourcePage,
+    loadPageContentById,
     userId,
   })
 
@@ -112,20 +112,20 @@ function EditorPanel({
   )
   const {
     toolbarDeepLinkHash,
-    isCurrentPageTracker,
-    handleSetTrackerFromToolbar,
+    isCurrentDailySourcePage,
+    handleSetDailySourceFromToolbar,
     contextMenuProps,
   } = useEditorContextMenu({
     editor,
     editorLocked,
     isTouchOnly,
-    hasTracker,
+    hasEditorTarget,
     notebookId,
     sectionId,
-    trackerId,
-    trackerSourcePage,
-    trackerPageSaving,
-    onSetTrackerPage,
+    pageId,
+    dailySourcePage,
+    dailySourceSaving,
+    onSetDailySourcePage,
     onAddCustomWord,
   })
 
@@ -147,13 +147,13 @@ function EditorPanel({
 
   // Reset page-local UI and pre-focus without Tiptap restoring an old selection.
   useLayoutEffect(() => {
-    resetOnTrackerChange()
+    resetOnPageChange()
     if (!editor || editorLocked) return
     const view = getMountedEditorView(editor)
     if (!view) return
     if (isTouchOnly && !view.hasFocus()) return
     view.dom.focus({ preventScroll: true })
-  }, [trackerId, editor, editorLocked, resetOnTrackerChange, isTouchOnly])
+  }, [pageId, editor, editorLocked, resetOnPageChange, isTouchOnly])
 
   useEffect(() => {
     if (!editor) return
@@ -163,22 +163,22 @@ function EditorPanel({
   }, [editor, onNavigateHash])
 
   const hasHeaderActions = Boolean(headerActions) || showDelete
-  const controlsDisabled = !hasTracker || editorLocked
-  const committedPageId = restorePageId ?? trackerId ?? ''
+  const controlsDisabled = !hasEditorTarget || editorLocked
+  const committedPageId = restorePageId ?? pageId ?? ''
 
   return (
     <section
       className="editor-panel"
       ref={editorPanelRef}
       data-editor-page-id={committedPageId}
-      data-editor-ready={hasTracker && !editorLocked ? 'true' : 'false'}
+      data-editor-ready={hasEditorTarget && !editorLocked ? 'true' : 'false'}
     >
       <EditorHeader
         title={title}
         onTitleChange={onTitleChange}
         onDelete={onDelete}
         saveStatus={saveStatus}
-        hasTracker={hasTracker}
+        hasEditorTarget={hasEditorTarget}
         editorTransitioning={editorTransitioning}
         message={message}
         titleReadOnly={titleReadOnly}
@@ -192,7 +192,7 @@ function EditorPanel({
       <Toolbar
         editor={editor}
         controlsDisabled={controlsDisabled}
-        hasTracker={hasTracker}
+        hasEditorTarget={hasEditorTarget}
         isTouchOnly={isTouchOnly}
         toolbarRef={toolbarRef}
         editorPanelRef={editorPanelRef}
@@ -202,10 +202,10 @@ function EditorPanel({
         showAiInsert={showAiInsert}
         title={title}
         toolbarDeepLinkHash={toolbarDeepLinkHash}
-        isCurrentPageTracker={isCurrentPageTracker}
-        trackerPageSaving={trackerPageSaving}
-        onSetTrackerPage={onSetTrackerPage}
-        handleSetTrackerFromToolbar={handleSetTrackerFromToolbar}
+        isCurrentDailySourcePage={isCurrentDailySourcePage}
+        dailySourceSaving={dailySourceSaving}
+        onSetDailySourcePage={onSetDailySourcePage}
+        handleSetDailySourceFromToolbar={handleSetDailySourceFromToolbar}
         contextMenuItems={contextMenuItems}
       />
 
@@ -213,12 +213,12 @@ function EditorPanel({
         {...aiInsertModalProps}
       />
 
-      {editorLocked && hasTracker ? (
+      {editorLocked && hasEditorTarget ? (
         <EditorSkeleton />
       ) : (
         <EditorShell
           ref={editorShellRef}
-          hasTracker={hasTracker}
+          hasEditorTarget={hasEditorTarget}
           editor={editor}
           emptyState={emptyState}
         />

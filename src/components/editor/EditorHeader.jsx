@@ -3,7 +3,7 @@ function EditorHeader({
   onTitleChange,
   onDelete,
   saveStatus,
-  hasTracker,
+  hasEditorTarget,
   editorTransitioning,
   message,
   titleReadOnly,
@@ -40,7 +40,7 @@ function EditorHeader({
       </div>
       <div className="status-row">
         <span className="subtle">
-          {editorTransitioning ? 'Loading...' : hasTracker ? saveStatus : 'No tracker selected'}
+          {editorTransitioning ? 'Loading...' : hasEditorTarget ? saveStatus : 'No tracker selected'}
         </span>
         {message && <span className="message-inline">{message}</span>}
       </div>

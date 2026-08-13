@@ -6,15 +6,15 @@ import {
   removeSectionPage,
   setSectionPagesLoaded,
   setSectionPagesLoading,
-  setSectionTrackerPage,
+  setSectionDailySourcePage,
   updateSectionPage,
   upsertSectionPage,
 } from '../sectionPages'
 
 const makePages = () => [
-  { id: 'p1', title: 'Alpha', section_id: 's1', sort_order: 2, is_tracker_page: false },
-  { id: 'p2', title: 'Beta',  section_id: 's1', sort_order: 1, is_tracker_page: false },
-  { id: 'p3', title: 'Gamma', section_id: 's2', sort_order: 1, is_tracker_page: true },
+  { id: 'p1', title: 'Alpha', section_id: 's1', sort_order: 2, isDailySource: false },
+  { id: 'p2', title: 'Beta',  section_id: 's1', sort_order: 1, isDailySource: false },
+  { id: 'p3', title: 'Gamma', section_id: 's2', sort_order: 1, isDailySource: true },
 ]
 
 describe('getSectionPages', () => {
@@ -85,9 +85,9 @@ describe('getSectionPages', () => {
     cache = upsertSectionPage(cache, 's1', makePages()[1])
     expect(getSectionPages(cache, 's1').map((page) => page.id)).toEqual(['p2', 'p1'])
 
-    cache = setSectionTrackerPage(cache, 's1', 'p1')
-    expect(getSectionPages(cache, 's1').find((page) => page.id === 'p1').is_tracker_page).toBe(true)
-    expect(getSectionPages(cache, 's1').find((page) => page.id === 'p2').is_tracker_page).toBe(false)
+    cache = setSectionDailySourcePage(cache, 's1', 'p1')
+    expect(getSectionPages(cache, 's1').find((page) => page.id === 'p1').isDailySource).toBe(true)
+    expect(getSectionPages(cache, 's1').find((page) => page.id === 'p2').isDailySource).toBe(false)
 
     cache = removeSectionPage(cache, 's1', 'p1')
     expect(getSectionPages(cache, 's1').map((page) => page.id)).toEqual(['p2'])

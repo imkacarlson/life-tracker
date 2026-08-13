@@ -33,13 +33,13 @@ export const useNavigation = ({
   sectionsLoading,
   loadSectionPagesMeta,
   editorReady = true,
-  flushSaveForTracker,
+  flushSaveForPage,
   setDeepLinkFocusGuard,
   setMessage,
 }) => {
   const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
   const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
-  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
+  const activePageId = useNavigationSelectionStore((state) => state.activePageId)
   const selectTarget = useNavigationSelectionStore((state) => state.selectTarget)
   const navIntentRef = useRef(null)
   const ignoreHashChangeRef = useRef(null)
@@ -174,14 +174,14 @@ export const useNavigation = ({
       const normalized = normalizeNavigationTarget(target)
       // Same-page click with no block anchor: nothing to do (Notesnook noteAlreadyOpened pattern)
       if (
-        targetMatchesSelection(normalized, { activeNotebookId, activeSectionId, activeTrackerId }) &&
+        targetMatchesSelection(normalized, { activeNotebookId, activeSectionId, activePageId }) &&
         !normalized.blockId
       ) {
         return
       }
       queueResolvedTarget(normalized, { hashMode: 'push' })
     },
-    [queueResolvedTarget, setDeepLinkFocusGuard, activeNotebookId, activeSectionId, activeTrackerId],
+    [queueResolvedTarget, setDeepLinkFocusGuard, activeNotebookId, activeSectionId, activePageId],
   )
 
   const handleInternalHashNavigate = useCallback((href) => {
@@ -292,13 +292,13 @@ export const useNavigation = ({
     const selectionMatchesTarget =
       activeNotebookId === pendingTarget.notebookId &&
       activeSectionId === pendingTarget.sectionId &&
-      activeTrackerId === pendingTarget.pageId
+      activePageId === pendingTarget.pageId
 
     if (!selectionMatchesTarget) {
       // Flush pending work before the complete hierarchy changes, then commit
       // notebook, section, and page together in one store update.
-      if (activeTrackerId && activeTrackerId !== pendingTarget.pageId) {
-        flushSaveForTracker?.(activeTrackerId)
+      if (activePageId && activePageId !== pendingTarget.pageId) {
+        flushSaveForPage?.(activePageId)
       }
       selectTarget(pendingTarget)
       return
@@ -324,11 +324,11 @@ export const useNavigation = ({
     sectionPageCache,
     activeNotebookId,
     activeSectionId,
-    activeTrackerId,
+    activePageId,
     sectionsLoading,
     editorReady,
     selectTarget,
-    flushSaveForTracker,
+    flushSaveForPage,
     clearPendingTarget,
     clearPendingTargetAfterDeepLinkScroll,
     pickNavFallback,
@@ -342,15 +342,15 @@ export const useNavigation = ({
     if (pendingTarget) return
 
     const blockInfo = hashBlockRef.current
-    if (blockInfo && blockInfo.pageId !== activeTrackerId) {
+    if (blockInfo && blockInfo.pageId !== activePageId) {
       hashBlockRef.current = null
     }
     const blockId =
-      blockInfo && blockInfo.pageId === activeTrackerId ? blockInfo.blockId : null
+      blockInfo && blockInfo.pageId === activePageId ? blockInfo.blockId : null
     const hash = buildHash({
-      pageId: activeTrackerId,
-      sectionId: !activeTrackerId ? activeSectionId : undefined,
-      notebookId: !activeTrackerId && !activeSectionId ? activeNotebookId : undefined,
+      pageId: activePageId,
+      sectionId: !activePageId ? activeSectionId : undefined,
+      notebookId: !activePageId && !activeSectionId ? activeNotebookId : undefined,
       blockId,
     })
     if (!hash) return
@@ -360,12 +360,12 @@ export const useNavigation = ({
       ignoreHashChangeRef.current = hash
     }
     updateHash(hash, mode)
-    if (blockId && activeTrackerId) {
+    if (blockId && activePageId) {
       requestAnimationFrame(() => {
         scrollToBlock(blockId)
       })
     }
-  }, [activeNotebookId, activeSectionId, activeTrackerId, initialNavReady, pendingTarget])
+  }, [activeNotebookId, activeSectionId, activePageId, initialNavReady, pendingTarget])
 
   useEffect(() => {
     if (!session || !initialNavReady || pendingTarget) return
@@ -386,19 +386,19 @@ export const useNavigation = ({
       activeSectionId &&
       savedSelection?.sectionId === activeSectionId &&
       savedSelection.pageId &&
-      !activeTrackerId &&
+      !activePageId &&
       (!activeSectionLoaded || activeSectionEntry.pages.length > 0)
     ) {
       return
     }
     if (activeNotebookId && sectionsLoading) return
     if (activeSectionId && !activeSectionLoaded) return
-    saveSelection(activeNotebookId, activeSectionId, activeTrackerId)
+    saveSelection(activeNotebookId, activeSectionId, activePageId)
     if (savedSelectionRef) {
       savedSelectionRef.current = {
         notebookId: activeNotebookId,
         sectionId: activeSectionId,
-        pageId: activeTrackerId,
+        pageId: activePageId,
       }
     }
   }, [
@@ -408,7 +408,7 @@ export const useNavigation = ({
     savedSelectionRef,
     activeNotebookId,
     activeSectionId,
-    activeTrackerId,
+    activePageId,
     sectionsLoading,
     sectionPageCache,
     sections.length,

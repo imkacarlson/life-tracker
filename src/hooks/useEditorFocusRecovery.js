@@ -20,7 +20,7 @@ import { getMountedEditorView } from '../utils/editorView'
 export function useEditorFocusRecovery({
   editor,
   isLoading,
-  trackerSessionMode,
+  editorSessionMode,
   deepLinkFocusGuard,
   deepLinkFocusGuardRef,
   touchNavigationGuard,
@@ -34,7 +34,7 @@ export function useEditorFocusRecovery({
   // Effect 1: touch guard / deep-link guard → enable/disable editing + focus routing
   useEffect(() => {
     if (!editor || editor.isDestroyed) return
-    if (isLoading || trackerSessionMode === 'settings') return
+    if (isLoading || editorSessionMode === 'settings') return
     const isTouchDevice = isTouchOnlyDevice()
     const wasGuarded =
       previousDeepLinkFocusGuardRef.current || previousTouchNavigationGuardRef.current
@@ -71,7 +71,7 @@ export function useEditorFocusRecovery({
       return
     }
     editor.setEditable(true)
-  }, [editor, isLoading, trackerSessionMode, deepLinkFocusGuard, touchNavigationGuard, pendingEditTapRef])
+  }, [editor, isLoading, editorSessionMode, deepLinkFocusGuard, touchNavigationGuard, pendingEditTapRef])
 
   // Effect 2: desktop deep-link click recovery
   useEffect(() => {
@@ -83,7 +83,7 @@ export function useEditorFocusRecovery({
     const handlePointerDown = (event) => {
       if (event.pointerType === 'touch') return
       if (!pendingDesktopDeepLinkRecoveryRef.current) return
-      if (isLoading || trackerSessionMode === 'settings') return
+      if (isLoading || editorSessionMode === 'settings') return
       if (deepLinkFocusGuard || deepLinkFocusGuardRef.current) return
       const view = getMountedEditorView(editor)
       if (!view) return
@@ -106,7 +106,7 @@ export function useEditorFocusRecovery({
 
     root.addEventListener('pointerdown', handlePointerDown, true)
     return () => root.removeEventListener('pointerdown', handlePointerDown, true)
-  }, [editor, isLoading, trackerSessionMode, deepLinkFocusGuard, deepLinkFocusGuardRef])
+  }, [editor, isLoading, editorSessionMode, deepLinkFocusGuard, deepLinkFocusGuardRef])
 
   // Effect 3: selectionchange → restore focus when it fell back to <body>
   useEffect(() => {

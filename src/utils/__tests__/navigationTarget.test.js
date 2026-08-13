@@ -42,13 +42,13 @@ describe('targetMatchesSelection', () => {
     expect(
       targetMatchesSelection(
         { notebookId: 'nb-1', sectionId: 'sec-1', pageId: 'pg-1' },
-        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activeTrackerId: 'pg-1' },
+        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activePageId: 'pg-1' },
       ),
     ).toBe(true)
     expect(
       targetMatchesSelection(
         { notebookId: 'nb-1', sectionId: 'sec-1' },
-        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activeTrackerId: 'pg-2' },
+        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activePageId: 'pg-2' },
       ),
     ).toBe(true)
   })
@@ -57,7 +57,7 @@ describe('targetMatchesSelection', () => {
     expect(
       targetMatchesSelection(
         { notebookId: 'nb-2', sectionId: 'sec-1', pageId: 'pg-1' },
-        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activeTrackerId: 'pg-1' },
+        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activePageId: 'pg-1' },
       ),
     ).toBe(false)
   })

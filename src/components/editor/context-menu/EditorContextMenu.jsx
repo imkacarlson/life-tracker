@@ -4,10 +4,10 @@ export default function EditorContextMenu({
   contextMenu,
   spellSuggestions,
   deepLinkHash,
-  hasTracker,
-  isCurrentPageTracker,
-  trackerPageSaving,
-  onSetTrackerPage,
+  hasEditorTarget,
+  isCurrentDailySourcePage,
+  dailySourceSaving,
+  onSetDailySourcePage,
   submenuOpen,
   submenuDirection,
   contextMenuItems,
@@ -17,7 +17,7 @@ export default function EditorContextMenu({
   handleAddToDictionary,
   handleIgnoreWord,
   handleCopyLink,
-  handleSetTrackerPageFromMenu,
+  handleSetDailySourceFromMenu,
 }) {
   if (!contextMenu.open) return null
 
@@ -62,13 +62,13 @@ export default function EditorContextMenu({
       </button>
       <button
         type="button"
-        className={`table-context-item ${isCurrentPageTracker || trackerPageSaving ? 'disabled' : ''}`}
-        onClick={handleSetTrackerPageFromMenu}
-        disabled={!hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage}
+        className={`table-context-item ${isCurrentDailySourcePage || dailySourceSaving ? 'disabled' : ''}`}
+        onClick={handleSetDailySourceFromMenu}
+        disabled={!hasEditorTarget || isCurrentDailySourcePage || dailySourceSaving || !onSetDailySourcePage}
       >
-        {isCurrentPageTracker
+        {isCurrentDailySourcePage
           ? 'This page is the tracker page'
-          : trackerPageSaving
+          : dailySourceSaving
             ? 'Setting tracker page...'
             : 'Set this page as tracker'}
       </button>

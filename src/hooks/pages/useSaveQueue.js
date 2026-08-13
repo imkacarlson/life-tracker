@@ -5,31 +5,31 @@ import { deleteImagesFromStorage, findRemovedImagePaths } from '../../utils/imag
 import { clearPageDraft } from '../../utils/localDrafts'
 import { createSaveQueueController } from './saveQueueController'
 
-const persistPage = (trackerId, payload, knownTs) =>
+const persistPage = (pageId, payload, knownTs) =>
   supabase
     .from('pages')
     .update(payload)
-    .eq('id', trackerId)
+    .eq('id', pageId)
     .eq('updated_at', knownTs)
     .select('updated_at')
     .maybeSingle()
 
-const fetchServerPage = async (trackerId) => {
+const fetchServerPage = async (pageId) => {
   const { data } = await supabase
     .from('pages')
     .select('content, updated_at, title')
-    .eq('id', trackerId)
+    .eq('id', pageId)
     .maybeSingle()
   return data ?? null
 }
 
 export function useSaveQueue({
   userId,
-  trackersRef,
-  activeTrackerRef,
+  pagesRef,
+  activePageRef,
   titleDraftRef,
   pageContentCacheRef,
-  setTrackers,
+  setPages,
   setPageContent,
   updateCachedPage,
   getKnownUpdatedAt,
@@ -46,22 +46,22 @@ export function useSaveQueue({
   const pendingTitlesRef = useRef({})
 
   const handleSaved = useCallback(
-    ({ trackerId, payload, outcome }) => {
-      const oldContent = pageContentCacheRef.current[trackerId]?.content ?? null
-      if (pendingTitlesRef.current[trackerId] === payload.title) {
-        delete pendingTitlesRef.current[trackerId]
+    ({ pageId, payload, outcome }) => {
+      const oldContent = pageContentCacheRef.current[pageId]?.content ?? null
+      if (pendingTitlesRef.current[pageId] === payload.title) {
+        delete pendingTitlesRef.current[pageId]
       }
-      setTrackers((previous) =>
-        previous.map((item) => (item.id === trackerId ? { ...item, ...payload } : item)),
+      setPages((previous) =>
+        previous.map((item) => (item.id === pageId ? { ...item, ...payload } : item)),
       )
 
       // Write through so the editor sees its own save without another fetch.
       if (payload.content !== undefined) {
-        setPageContent(trackerId, payload.content, outcome.nextKnownTs)
+        setPageContent(pageId, payload.content, outcome.nextKnownTs)
       }
       if (typeof payload.title === 'string') {
-        const sectionId = trackersRef.current.find((item) => item.id === trackerId)?.section_id
-        updateCachedPage(sectionId, trackerId, { title: payload.title })
+        const sectionId = pagesRef.current.find((item) => item.id === pageId)?.section_id
+        updateCachedPage(sectionId, pageId, { title: payload.title })
       }
 
       // Storage cleanup is best-effort; a failed delete only leaves an orphan
@@ -71,7 +71,7 @@ export function useSaveQueue({
         void deleteImagesFromStorage(removedPaths)
       }
     },
-    [pageContentCacheRef, setPageContent, setTrackers, trackersRef, updateCachedPage],
+    [pageContentCacheRef, setPageContent, setPages, pagesRef, updateCachedPage],
   )
 
   const controller = useMemo(
@@ -83,20 +83,20 @@ export function useSaveQueue({
         getKnownUpdatedAt,
         setKnownUpdatedAt,
         onPendingChange: setHasPendingSaves,
-        onStatusChange: (trackerId, status) => {
-          if (trackerId === activeTrackerRef.current?.id) setSaveStatus(status)
+        onStatusChange: (pageId, status) => {
+          if (pageId === activePageRef.current?.id) setSaveStatus(status)
         },
         onConflict: setDraftConflict,
         onError: setMessage,
         onSaved: handleSaved,
-        onDraftCleared: (trackerId) => {
-          if (trackerId === activeTrackerRef.current?.id) {
+        onDraftCleared: (pageId) => {
+          if (pageId === activePageRef.current?.id) {
             setDraftInvalidation((value) => value + 1)
           }
         },
       }),
     [
-      activeTrackerRef,
+      activePageRef,
       getKnownUpdatedAt,
       handleSaved,
       setDraftConflict,
@@ -115,31 +115,31 @@ export function useSaveQueue({
 
   useEffect(() => () => controller.dispose(), [controller])
 
-  const clearPendingTitle = useCallback((trackerId) => {
-    delete pendingTitlesRef.current[trackerId]
+  const clearPendingTitle = useCallback((pageId) => {
+    delete pendingTitlesRef.current[pageId]
   }, [])
 
   const scheduleSave = useCallback(
-    (nextContent, nextTitle, trackerIdOverride = null) => {
-      const trackerId = trackerIdOverride ?? activeTrackerRef.current?.id
-      if (!trackerId) return
+    (nextContent, nextTitle, pageIdOverride = null) => {
+      const pageId = pageIdOverride ?? activePageRef.current?.id
+      if (!pageId) return
       // Atomic navigation can resolve the active page from the metadata cache
       // before the section's full page list has finished loading. The editor is
       // already safe to use at that point, so let its resolved active page back
       // the save instead of silently dropping an early edit.
-      const tracker =
-        trackersRef.current.find((item) => item.id === trackerId) ??
-        (activeTrackerRef.current?.id === trackerId ? activeTrackerRef.current : null)
-      if (!tracker) return
+      const page =
+        pagesRef.current.find((item) => item.id === pageId) ??
+        (activePageRef.current?.id === pageId ? activePageRef.current : null)
+      if (!page) return
 
       if (typeof nextTitle === 'string') {
-        pendingTitlesRef.current[trackerId] = nextTitle
+        pendingTitlesRef.current[pageId] = nextTitle
       }
 
-      const pendingTitle = pendingTitlesRef.current[trackerId]
+      const pendingTitle = pendingTitlesRef.current[pageId]
       const fallbackTitle =
         pendingTitle ??
-        (trackerId === activeTrackerRef.current?.id ? titleDraftRef.current : tracker.title)
+        (pageId === activePageRef.current?.id ? titleDraftRef.current : page.title)
       const title = (nextTitle ?? fallbackTitle)?.trim() || 'Untitled Tracker'
       const payload = {
         title,
@@ -149,39 +149,39 @@ export function useSaveQueue({
       const payloadKey = JSON.stringify({ title: payload.title, content: payload.content })
 
       controller.schedule({
-        trackerId,
+        pageId,
         payload,
         payloadKey,
       })
     },
-    [activeTrackerRef, controller, titleDraftRef, trackersRef],
+    [activePageRef, controller, titleDraftRef, pagesRef],
   )
 
   const handleTitleChange = useCallback(
     (value, editor) => {
       setTitleDraft(value)
       titleDraftRef.current = value
-      if (!editor || !activeTrackerRef.current) return
+      if (!editor || !activePageRef.current) return
       scheduleSave(editor.getJSON(), value)
     },
-    [activeTrackerRef, scheduleSave, setTitleDraft, titleDraftRef],
+    [activePageRef, scheduleSave, setTitleDraft, titleDraftRef],
   )
 
   const resolveConflictWithServer = useCallback(() => {
     if (!draftConflict) return
-    clearPageDraft(draftConflict.trackerId)
+    clearPageDraft(draftConflict.pageId)
     // Save-time conflicts still have the pre-remote-write cache snapshot.
     if (draftConflict.serverContent !== undefined) {
       setPageContent(
-        draftConflict.trackerId,
+        draftConflict.pageId,
         draftConflict.serverContent,
         draftConflict.serverUpdatedAt,
       )
     }
     if (typeof draftConflict.serverTitle === 'string') {
-      setTrackers((previous) =>
+      setPages((previous) =>
         previous.map((item) =>
-          item.id === draftConflict.trackerId
+          item.id === draftConflict.pageId
             ? {
                 ...item,
                 title: draftConflict.serverTitle,
@@ -191,7 +191,7 @@ export function useSaveQueue({
         ),
       )
     }
-    controller.discardConflict(draftConflict.trackerId)
+    controller.discardConflict(draftConflict.pageId)
     setActiveDraft(null)
     setDraftConflict(null)
     setDraftInvalidation((value) => value + 1)
@@ -203,14 +203,14 @@ export function useSaveQueue({
     setDraftConflict,
     setDraftInvalidation,
     setPageContent,
-    setTrackers,
+    setPages,
   ])
 
   const resolveConflictWithDraft = useCallback(() => {
     if (!draftConflict) return
-    const { trackerId, draftContent, draftTitle } = draftConflict
+    const { pageId, draftContent, draftTitle } = draftConflict
     setDraftConflict(null)
-    scheduleSave(draftContent, draftTitle, trackerId)
+    scheduleSave(draftContent, draftTitle, pageId)
   }, [draftConflict, scheduleSave, setDraftConflict])
 
   return {
@@ -219,10 +219,10 @@ export function useSaveQueue({
     hasPendingSaves,
     scheduleSave,
     handleTitleChange,
-    getHasPendingForTracker: controller.hasPendingForTracker,
+    getHasPendingForPage: controller.hasPendingForPage,
     hasLocalChanges: controller.hasLocalChanges,
     flushAllPendingSaves: controller.flushAll,
-    flushSaveForTracker: controller.flush,
+    flushSaveForPage: controller.flush,
     clearPendingTitle,
     resolveConflictWithServer,
     resolveConflictWithDraft,

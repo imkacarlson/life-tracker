@@ -52,7 +52,7 @@ import { useEditorFocusRecovery } from './useEditorFocusRecovery'
 const isDesktopSpellcheck = !isTouchOnlyDevice()
 
 export const useEditorSetup = ({
-  trackerSession,
+  editorSession,
   sessionKey,
   scheduleSave,
   scheduleSettingsSave,
@@ -64,15 +64,15 @@ export const useEditorSetup = ({
   deepLinkFocusGuardRef,
 }) => {
   const suppressFocusRef = useRef(false)
-  const isLoading = trackerSession.status !== 'ready'
+  const isLoading = editorSession.status !== 'ready'
 
   // Keep a ref to the latest session so handleUpdate always reads the current
-  // trackerId without a stale closure, while the effect only re-subscribes on
+  // pageId without a stale closure, while the effect only re-subscribes on
   // real session-identity changes (sessionKey change).
-  const trackerSessionRef = useRef(trackerSession)
+  const editorSessionRef = useRef(editorSession)
   useEffect(() => {
-    trackerSessionRef.current = trackerSession
-  }, [trackerSession])
+    editorSessionRef.current = editorSession
+  }, [editorSession])
 
   // Stable handler the Clipboard extension calls when a paste/drop carries an
   // image. Reading the ref inside a callback (not during render) keeps the
@@ -149,7 +149,7 @@ export const useEditorSetup = ({
         // right-click menu reads its storage for suggestions.
         ...(isDesktopSpellcheck ? [Spellcheck] : []),
       ],
-      content: trackerSession.content ?? EMPTY_DOC,
+      content: editorSession.content ?? EMPTY_DOC,
       editorProps: {
         attributes: {
           class: 'editor-content',
@@ -175,7 +175,7 @@ export const useEditorSetup = ({
   useEditorFocusRecovery({
     editor,
     isLoading,
-    trackerSessionMode: trackerSession.mode,
+    editorSessionMode: editorSession.mode,
     deepLinkFocusGuard,
     deepLinkFocusGuardRef,
     touchNavigationGuard,
@@ -187,15 +187,15 @@ export const useEditorSetup = ({
   useEffect(() => {
     if (!editor) return
     const handleUpdate = () => {
-      const session = trackerSessionRef.current
+      const session = editorSessionRef.current
       if (session.mode === 'template') {
         scheduleSettingsSave(editor.getJSON())
         return
       }
       if (session.status !== 'ready') return
-      const targetTrackerId = session.trackerId
-      if (!targetTrackerId) return
-      scheduleSave(editor.getJSON(), undefined, targetTrackerId)
+      const targetPageId = session.pageId
+      if (!targetPageId) return
+      scheduleSave(editor.getJSON(), undefined, targetPageId)
     }
     editor.on('update', handleUpdate)
     return () => editor.off('update', handleUpdate)

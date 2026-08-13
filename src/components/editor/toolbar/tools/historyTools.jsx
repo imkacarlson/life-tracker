@@ -33,9 +33,9 @@ export function RedoTool({ editor }) {
 // --- Export / Copy --------------------------------------------------------
 
 export function ExportTool({ editor }) {
-  const { hasTracker, title } = useToolbarContext()
+  const { hasEditorTarget, title } = useToolbarContext()
   const handleExport = () => {
-    if (!editor || !hasTracker) return
+    if (!editor || !hasEditorTarget) return
     const rawTitle = title?.trim() || 'Untitled'
     const safeTitle = rawTitle.replace(/[\\/:*?"<>|]+/g, '').trim() || 'Untitled'
     const doc = editor.getJSON()
@@ -58,11 +58,11 @@ export function ExportTool({ editor }) {
 }
 
 export function CopyTool({ editor }) {
-  const { hasTracker, title } = useToolbarContext()
+  const { hasEditorTarget, title } = useToolbarContext()
   const copyLabel = useEditorUIStore((s) => s.copyLabel)
   const setCopyLabel = useEditorUIStore((s) => s.setCopyLabel)
   const handleCopy = async () => {
-    if (!editor || !hasTracker) return
+    if (!editor || !hasEditorTarget) return
     const rawTitle = title?.trim() || 'Untitled'
     const doc = editor.getJSON()
     const text = serializeDocForExport(doc, rawTitle)

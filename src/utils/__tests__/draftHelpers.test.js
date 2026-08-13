@@ -31,7 +31,7 @@ describe('detectConflict', () => {
     const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
     const result = detectConflict('page-1', server, d)
     expect(result).not.toBeNull()
-    expect(result.trackerId).toBe('page-1')
+    expect(result.pageId).toBe('page-1')
     expect(result.serverUpdatedAt).toBe('2026-03-25T12:00:00.000Z')
     expect(result.draftTs).toBe(d.ts)
     expect(result.serverContent).toBe(server.content)
@@ -51,7 +51,7 @@ describe('detectConflict', () => {
     expect(detectConflict('page-1', server, d)).toBeNull()
   })
 
-  it('returns null when trackerId is null', () => {
+  it('returns null when pageId is null', () => {
     const server = serverRow('2026-03-25T12:00:00.000Z')
     const d = draft(1000)
     expect(detectConflict(null, server, d)).toBeNull()
@@ -75,7 +75,7 @@ describe('detectConflict', () => {
     const d = draft(new Date('2026-03-25T11:00:00.000Z').getTime())
     const result = detectConflict('page-1', server, d)
     expect(result).not.toBeNull()
-    expect(result.trackerId).toBe('page-1')
+    expect(result.pageId).toBe('page-1')
   })
 
   it('returns null when updated_at is null (NaN guard)', () => {
@@ -128,7 +128,7 @@ describe('detectConflict', () => {
     }
     const result = detectConflict('page-1', server, d)
     expect(result).not.toBeNull()
-    expect(result.trackerId).toBe('page-1')
+    expect(result.pageId).toBe('page-1')
   })
 
   it('returns null when draft.content is missing', () => {

@@ -25,7 +25,7 @@ export const targetMatchesSelection = (target, selection) => {
   if (!target) return false
   if (target.notebookId && selection.activeNotebookId !== target.notebookId) return false
   if (target.sectionId && selection.activeSectionId !== target.sectionId) return false
-  if (target.pageId && selection.activeTrackerId !== target.pageId) return false
+  if (target.pageId && selection.activePageId !== target.pageId) return false
   return Boolean(target.notebookId || target.sectionId || target.pageId)
 }
 

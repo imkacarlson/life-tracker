@@ -4,20 +4,21 @@ import { readPageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { getSectionPages } from '../utils/sectionPages'
+import { toClientPage } from '../utils/pageModel'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
-import { usePageCrud } from './trackers/usePageCrud'
-import { useSaveQueue } from './trackers/useSaveQueue'
+import { usePageCrud } from './pages/usePageCrud'
+import { useSaveQueue } from './pages/useSaveQueue'
 import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
 
-export const useTrackers = (userId, getPostDeleteTarget = null) => {
-  const [trackers, setTrackers] = useState([])
-  const [loadedTrackerSectionId, setLoadedTrackerSectionId] = useState(null)
+export const usePages = (userId, getPostDeleteTarget = null) => {
+  const [pages, setPages] = useState([])
+  const [loadedPagesSectionId, setLoadedPagesSectionId] = useState(null)
   const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
-  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
+  const activePageId = useNavigationSelectionStore((state) => state.activePageId)
   const selectSection = useNavigationSelectionStore((state) => state.selectSection)
-  const selectTracker = useNavigationSelectionStore((state) => state.selectTracker)
+  const selectPage = useNavigationSelectionStore((state) => state.selectPage)
   const [dataLoading, setDataLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
@@ -28,9 +29,9 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
   const [reconnectKey, setReconnectKey] = useState(0)
 
   const titleDraftRef = useRef(titleDraft)
-  const activeTrackerRef = useRef(null)
+  const activePageRef = useRef(null)
   const draftConflictRef = useRef(null)
-  const trackersRef = useRef(trackers)
+  const pagesRef = useRef(pages)
   const loadRequestIdRef = useRef(0)
   const {
     sectionPageCache,
@@ -39,7 +40,7 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
     upsertCachedPage,
     updateCachedPage,
     removeCachedPage,
-    markCachedTrackerPage,
+    markCachedDailySourcePage,
   } = useSectionPageCache(userId)
 
   const {
@@ -61,20 +62,20 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
     hasPendingSaves,
     scheduleSave,
     handleTitleChange,
-    getHasPendingForTracker,
+    getHasPendingForPage,
     hasLocalChanges,
     flushAllPendingSaves,
-    flushSaveForTracker,
+    flushSaveForPage,
     clearPendingTitle,
     resolveConflictWithServer,
     resolveConflictWithDraft,
   } = useSaveQueue({
     userId,
-    trackersRef,
-    activeTrackerRef,
+    pagesRef,
+    activePageRef,
     titleDraftRef,
     pageContentCacheRef,
-    setTrackers,
+    setPages,
     setPageContent,
     updateCachedPage,
     getKnownUpdatedAt,
@@ -92,12 +93,12 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
     (payload) => {
       const row = payload?.new
       if (!row?.id) return
-      const trackerId = row.id
+      const pageId = row.id
       const incomingTs = row.updated_at
       // Ignore echoes of our own write (we already advanced the token to this value).
-      if (incomingTs && getKnownUpdatedAt(trackerId) === incomingTs) return
+      if (incomingTs && getKnownUpdatedAt(pageId) === incomingTs) return
 
-      const isDirty = hasLocalChanges(trackerId)
+      const isDirty = hasLocalChanges(pageId)
 
       if (isDirty) {
         // Keep the old version token. The pending save must compare against the
@@ -108,26 +109,26 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
 
       // Clean editor: swap server content in and advance the token in one step.
       if (row.content !== undefined) {
-        setPageContent(trackerId, row.content, incomingTs)
+        setPageContent(pageId, row.content, incomingTs)
       } else if (incomingTs) {
-        setKnownUpdatedAt(trackerId, incomingTs)
+        setKnownUpdatedAt(pageId, incomingTs)
       }
       if (typeof row.title === 'string') {
-        setTrackers((prev) =>
-          prev.map((item) => (item.id === trackerId ? { ...item, title: row.title, updated_at: incomingTs } : item)),
+        setPages((prev) =>
+          prev.map((item) => (item.id === pageId ? { ...item, title: row.title, updated_at: incomingTs } : item)),
         )
       }
     },
     [getKnownUpdatedAt, hasLocalChanges, setKnownUpdatedAt, setPageContent],
   )
-  usePageRealtime(activeTrackerId, handleRemotePageChange, reconnectKey)
+  usePageRealtime(activePageId, handleRemotePageChange, reconnectKey)
 
   // Keep the active page id in a ref so the stable resume handler can read it
   // without being recreated on every page switch.
-  const activeTrackerIdRef = useRef(activeTrackerId)
+  const activePageIdRef = useRef(activePageId)
   useEffect(() => {
-    activeTrackerIdRef.current = activeTrackerId
-  }, [activeTrackerId])
+    activePageIdRef.current = activePageId
+  }, [activePageId])
 
   // Called when the app returns to the foreground (see useResumeRefresh). The
   // realtime socket may have died while backgrounded, so resubscribe; then pull
@@ -137,7 +138,7 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
   // the editor is dirty).
   const handleResume = useCallback(async () => {
     setReconnectKey((key) => key + 1)
-    const pageId = activeTrackerIdRef.current
+    const pageId = activePageIdRef.current
     if (!pageId) return
     const { data, error } = await runSupabaseQueryWithRetry(() =>
       supabase.from('pages').select('id, content, updated_at, title').eq('id', pageId).single(),
@@ -150,40 +151,40 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
     () => getSectionPages(sectionPageCache, activeSectionId),
     [sectionPageCache, activeSectionId],
   )
-  const activeTrackerServer = useMemo(() => {
-    const trackerFromLoadedSection = trackers.find((tracker) => tracker.id === activeTrackerId) ?? null
-    if (trackerFromLoadedSection) return trackerFromLoadedSection
-    return cachedActiveSectionPages.find((tracker) => tracker.id === activeTrackerId) ?? null
-  }, [activeTrackerId, cachedActiveSectionPages, trackers])
-  const activeTracker = useMemo(() => {
-    if (!activeTrackerServer) return null
-    const contentEntry = pageContentCache[activeTrackerId]
+  const activePageServer = useMemo(() => {
+    const pageFromLoadedSection = pages.find((page) => page.id === activePageId) ?? null
+    if (pageFromLoadedSection) return pageFromLoadedSection
+    return cachedActiveSectionPages.find((page) => page.id === activePageId) ?? null
+  }, [activePageId, cachedActiveSectionPages, pages])
+  const activePage = useMemo(() => {
+    if (!activePageServer) return null
+    const contentEntry = pageContentCache[activePageId]
     const contentLoaded = contentEntry?.status === PAGE_CONTENT_STATUS.LOADED
     // undefined signals "content not yet fetched from cache" — keeps the editor
     // in loading state until the single-row content fetch completes.
     const serverContent = contentLoaded ? (contentEntry.content ?? null) : undefined
 
     // While a conflict is pending, show server content (modal blocks interaction).
-    if (draftConflict?.trackerId === activeTrackerId) {
-      return { ...activeTrackerServer, content: serverContent }
+    if (draftConflict?.pageId === activePageId) {
+      return { ...activePageServer, content: serverContent }
     }
     if (!activeDraft) {
-      return { ...activeTrackerServer, content: serverContent }
+      return { ...activePageServer, content: serverContent }
     }
     return {
-      ...activeTrackerServer,
-      title: typeof activeDraft.title === 'string' ? activeDraft.title : activeTrackerServer.title,
+      ...activePageServer,
+      title: typeof activeDraft.title === 'string' ? activeDraft.title : activePageServer.title,
       content: contentLoaded ? (activeDraft.content ?? serverContent) : undefined,
     }
-  }, [activeDraft, activeTrackerServer, draftConflict, activeTrackerId, pageContentCache])
+  }, [activeDraft, activePageServer, draftConflict, activePageId, pageContentCache])
 
   useEffect(() => {
     titleDraftRef.current = titleDraft
   }, [titleDraft])
 
   useEffect(() => {
-    activeTrackerRef.current = activeTracker
-  }, [activeTracker])
+    activePageRef.current = activePage
+  }, [activePage])
 
   useEffect(() => {
     draftConflictRef.current = draftConflict
@@ -192,11 +193,11 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
   // Trigger a single-row content fetch when the active page changes and content
   // isn't already cached (Notesnook openSession pattern).
   useEffect(() => {
-    if (!activeTrackerId) return
-    const entry = pageContentCacheRef.current[activeTrackerId]
+    if (!activePageId) return
+    const entry = pageContentCacheRef.current[activePageId]
     if (entry?.status === PAGE_CONTENT_STATUS.LOADED || entry?.status === PAGE_CONTENT_STATUS.LOADING) return
-    loadPageContent(activeTrackerId)
-  }, [activeTrackerId, loadPageContent])
+    loadPageContent(activePageId)
+  }, [activePageId, loadPageContent])
 
   // Read the draft and detect conflicts in a single effect so both values are
   // always computed from the same draft snapshot.  Two separate effects caused a
@@ -204,50 +205,50 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
   // setActiveDraft(null) which only took effect next render, while the conflict
   // effect ran with the stale activeDraft and briefly set a conflict.
   useEffect(() => {
-    if (!activeTrackerId) {
+    if (!activePageId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- page changes synchronize the local-draft snapshot
       setActiveDraft(null)
       setDraftConflict(null)
       return
     }
-    const draft = readPageDraft(activeTrackerId)
+    const draft = readPageDraft(activePageId)
     // Conflict detection requires the server content — only run once the cache has loaded.
-    const contentEntry = pageContentCacheRef.current[activeTrackerId]
+    const contentEntry = pageContentCacheRef.current[activePageId]
     const serverContentLoaded = contentEntry?.status === PAGE_CONTENT_STATUS.LOADED
     const serverRowForConflict = serverContentLoaded
-      ? { ...activeTrackerServer, content: contentEntry.content ?? null }
+      ? { ...activePageServer, content: contentEntry.content ?? null }
       : null
-    const conflict = detectConflict(activeTrackerId, serverRowForConflict, draft)
+    const conflict = detectConflict(activePageId, serverRowForConflict, draft)
     // Do not classify or clear a draft until both content and the OCC version
     // have arrived. The content request can beat the section metadata request
     // on slower clients; treating that partial row as conflict-free can erase
     // a real conflict before updated_at is available.
     const serverVersionLoaded = Boolean(serverRowForConflict?.updated_at)
     if (draft && !conflict && serverVersionLoaded) {
-      clearPageDraft(activeTrackerId)
+      clearPageDraft(activePageId)
       setActiveDraft(null)
     } else {
       setActiveDraft(draft)
     }
     setDraftConflict(conflict)
-  }, [activeTrackerId, activeTrackerServer, pageContentCache, draftInvalidation])
+  }, [activePageId, activePageServer, pageContentCache, draftInvalidation])
 
   useEffect(() => {
-    trackersRef.current = trackers
-  }, [trackers])
+    pagesRef.current = pages
+  }, [pages])
 
   useEffect(() => {
     if (userId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset user-scoped state on sign-out
-    setTrackers([])
-    setLoadedTrackerSectionId(null)
+    setPages([])
+    setLoadedPagesSectionId(null)
     setDataLoading(false)
     setMessage('')
     setTitleDraft('')
     setActiveDraft(null)
   }, [userId])
 
-  const loadTrackers = useCallback(
+  const loadPages = useCallback(
     async (sectionId) => {
       if (!userId || !sectionId) return
       const requestId = ++loadRequestIdRef.current
@@ -270,56 +271,56 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
         return
       }
 
-      const nextTrackers = data ?? []
-      nextTrackers.forEach((page) => {
+      const nextPages = (data ?? []).map(toClientPage)
+      nextPages.forEach((page) => {
         if (page?.id && page?.updated_at) setKnownUpdatedAt(page.id, page.updated_at)
       })
-      setTrackers(nextTrackers)
-      setLoadedTrackerSectionId(sectionId)
-      seedSectionPages(sectionId, nextTrackers)
+      setPages(nextPages)
+      setLoadedPagesSectionId(sectionId)
+      seedSectionPages(sectionId, nextPages)
       const selection = useNavigationSelectionStore.getState()
       if (
         selection.activeSectionId === sectionId &&
-        !nextTrackers.some((item) => item.id === selection.activeTrackerId)
+        !nextPages.some((item) => item.id === selection.activePageId)
       ) {
-        const firstTrackerId = nextTrackers[0]?.id ?? null
-        if (firstTrackerId) {
-          selectTracker(selection.activeNotebookId, sectionId, firstTrackerId)
+        const firstPageId = nextPages[0]?.id ?? null
+        if (firstPageId) {
+          selectPage(selection.activeNotebookId, sectionId, firstPageId)
         } else {
           selectSection(selection.activeNotebookId, sectionId)
         }
       }
       setDataLoading(false)
     },
-    [seedSectionPages, selectSection, selectTracker, setKnownUpdatedAt, userId],
+    [seedSectionPages, selectSection, selectPage, setKnownUpdatedAt, userId],
   )
 
   useEffect(() => {
     if (!activeSectionId) {
       loadRequestIdRef.current += 1
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the section snapshot when there is no active section
-      setTrackers([])
-      setLoadedTrackerSectionId(null)
+      setPages([])
+      setLoadedPagesSectionId(null)
       setDataLoading(false)
       return
     }
-    setTrackers([])
-    setLoadedTrackerSectionId(null)
-    loadTrackers(activeSectionId)
-  }, [activeSectionId, loadTrackers])
+    setPages([])
+    setLoadedPagesSectionId(null)
+    loadPages(activeSectionId)
+  }, [activeSectionId, loadPages])
 
   useEffect(() => {
-    if (activeTracker) {
+    if (activePage) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronize the editable title when the selected page changes
-      setTitleDraft(activeTracker.title)
+      setTitleDraft(activePage.title)
     } else {
       setTitleDraft('')
     }
-    if (!activeTrackerId) {
+    if (!activePageId) {
       setSaveStatus('Saved')
       return
     }
-    if (getHasPendingForTracker(activeTrackerId)) {
+    if (getHasPendingForPage(activePageId)) {
       setSaveStatus('Saving...')
       return
     }
@@ -328,36 +329,36 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
       return
     }
     setSaveStatus('Saved')
-  }, [activeDraft, activeTrackerId, activeTracker, getHasPendingForTracker, setSaveStatus])
+  }, [activeDraft, activePageId, activePage, getHasPendingForPage, setSaveStatus])
 
   const {
-    trackerPageSaving,
-    createTracker,
-    createTrackerWithContent,
+    dailySourceSaving,
+    createPage,
+    createPageWithContent,
     reorderSectionPages,
-    setTrackerPage,
-    deleteTracker,
+    setDailySourcePage,
+    deletePage,
   } = usePageCrud({
     userId,
-    trackers,
-    trackersRef,
-    activeTrackerRef,
+    pages,
+    pagesRef,
+    activePageRef,
     pageContentCacheRef,
-    setTrackers,
+    setPages,
     setMessage,
     setPageContent,
     seedSectionPages,
     upsertCachedPage,
     removeCachedPage,
-    markCachedTrackerPage,
-    loadTrackers,
+    markCachedDailySourcePage,
+    loadPages,
     getPostDeleteTarget,
     clearPendingTitle,
   })
 
-  const sectionTrackerPage = trackers.find((item) => item.is_tracker_page) ?? null
+  const sectionDailySourcePage = pages.find((item) => item.isDailySource) ?? null
 
-  const loadTrackerContent = useCallback(
+  const loadPageContentById = useCallback(
     async (pageId) => {
       if (!pageId) return null
       const entry = pageContentCacheRef.current[pageId]
@@ -370,37 +371,37 @@ export const useTrackers = (userId, getPostDeleteTarget = null) => {
   )
 
   return {
-    trackers,
+    pages,
     sectionPageCache,
     loadSectionPagesMeta,
-    loadedTrackerSectionId,
-    activeTrackerId,
-    activeTracker,
+    loadedPagesSectionId,
+    activePageId,
+    activePage,
     titleDraft,
     setTitleDraft,
     saveStatus,
     setSaveStatus,
     hasPendingSaves,
     dataLoading,
-    trackerPageSaving,
+    dailySourceSaving,
     message,
     setMessage,
     scheduleSave,
     handleTitleChange,
-    createTracker,
-    createTrackerWithContent,
+    createPage,
+    createPageWithContent,
     reorderSectionPages,
-    setTrackerPage,
-    deleteTracker,
-    activeTrackerRef,
+    setDailySourcePage,
+    deletePage,
+    activePageRef,
     draftConflictRef,
-    sectionTrackerPage,
-    loadTrackerContent,
+    sectionDailySourcePage,
+    loadPageContentById,
     draftConflict,
     resolveConflictWithServer,
     resolveConflictWithDraft,
     flushAllPendingSaves,
-    flushSaveForTracker,
+    flushSaveForPage,
     handleResume,
   }
 }

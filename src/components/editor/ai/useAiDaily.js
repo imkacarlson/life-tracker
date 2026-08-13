@@ -11,10 +11,10 @@ export function useAiDaily({
   editor,
   notebookId,
   sectionId,
-  trackerId,
-  allTrackers,
-  trackerSourcePage,
-  loadTrackerContent,
+  pageId,
+  allPages,
+  dailySourcePage,
+  loadPageContentById,
   userId,
 }) {
   const loadDailyTemplateNodes = async () => {
@@ -46,29 +46,29 @@ export function useAiDaily({
       const today = selectedDate.toLocaleDateString('en-CA')
       const dayOfWeek = selectedDate.toLocaleDateString('en-US', { weekday: 'long' })
 
-      const sourceTrackerPage =
-        trackerSourcePage ?? (allTrackers || []).find((page) => page.is_tracker_page) ?? null
-      if (!sourceTrackerPage) {
+      const sourcePage =
+        dailySourcePage ?? (allPages || []).find((page) => page.isDailySource) ?? null
+      if (!sourcePage) {
         alert('Set a tracker page first (Pages sidebar > Set tracker).')
         return
       }
 
-      let trackerContent = null
-      if (sourceTrackerPage.id === trackerId) {
-        trackerContent = editor.getJSON()
-      } else if (loadTrackerContent) {
-        trackerContent = await loadTrackerContent(sourceTrackerPage.id)
+      let sourceContent = null
+      if (sourcePage.id === pageId) {
+        sourceContent = editor.getJSON()
+      } else if (loadPageContentById) {
+        sourceContent = await loadPageContentById(sourcePage.id)
       }
 
-      if (!trackerContent || typeof trackerContent !== 'object') {
+      if (!sourceContent || typeof sourceContent !== 'object') {
         throw new Error('Tracker page content could not be loaded.')
       }
 
-      const trackerPagesForModel = [
+      const sourcePagesForModel = [
         {
-          title: sourceTrackerPage.title,
-          pageId: sourceTrackerPage.id,
-          content: trackerContent,
+          title: sourcePage.title,
+          pageId: sourcePage.id,
+          content: sourceContent,
         },
       ]
 
@@ -79,7 +79,7 @@ export function useAiDaily({
       }
 
       const { data, error } = await supabase.functions.invoke('generate-daily', {
-        body: { provider, model, trackerPages: trackerPagesForModel, today, dayOfWeek },
+        body: { provider, model, trackerPages: sourcePagesForModel, today, dayOfWeek },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -111,7 +111,7 @@ export function useAiDaily({
         warning: data?.warning,
         notebookId,
         sectionId,
-        sourcePageId: sourceTrackerPage.id,
+        sourcePageId: sourcePage.id,
       })
       if (!editor.state.selection.empty) {
         editor.commands.setTextSelection(editor.state.selection.to)

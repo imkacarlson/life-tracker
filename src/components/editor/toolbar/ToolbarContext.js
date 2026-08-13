@@ -6,7 +6,7 @@ import { createContext, useContext } from 'react'
  *
  * Shape:
  *   isTouchOnly:                bool — mobile / touch device flag
- *   hasTracker:                 bool — disables tools that need a doc
+ *   hasEditorTarget:                 bool — disables tools that need a doc
  *   controlsDisabled:           bool — broader disabled state
  *   editorPanelRef:             ref  — editor scroll container (for find scroll)
  *   title:                      str  — used for export filename + copy header
@@ -15,10 +15,10 @@ import { createContext, useContext } from 'react'
  *   showAiDaily:                bool — gates AI group visibility
  *   showAiInsert:               bool — gates the AI Insert button
  *   toolbarDeepLinkHash:        str  — for the More menu's copy-link
- *   isCurrentPageTracker:       bool — More menu label state
- *   trackerPageSaving:          bool — More menu label state
- *   onSetTrackerPage:           fn   — More menu enable predicate
- *   handleSetTrackerFromToolbar fn   — More menu action
+ *   isCurrentDailySourcePage:       bool — More menu label state
+ *   dailySourceSaving:          bool — More menu label state
+ *   onSetDailySourcePage:           fn   — More menu enable predicate
+ *   handleSetDailySourceFromToolbar fn   — More menu action
  *   contextMenuItems:           arr  — extra in-table items for More menu
  *   openFind:                   fn   — provided by useFindBar
  */

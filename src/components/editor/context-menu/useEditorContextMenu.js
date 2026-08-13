@@ -30,13 +30,13 @@ export function useEditorContextMenu({
   editor,
   editorLocked,
   isTouchOnly,
-  hasTracker,
+  hasEditorTarget,
   notebookId,
   sectionId,
-  trackerId,
-  trackerSourcePage,
-  trackerPageSaving,
-  onSetTrackerPage,
+  pageId,
+  dailySourcePage,
+  dailySourceSaving,
+  onSetDailySourcePage,
   onAddCustomWord,
 }) {
   const menuRef = useRef(null)
@@ -179,21 +179,21 @@ export function useEditorContextMenu({
   }, [contextMenu.open, aiInsertLoading, closeContextMenu, setAiInsertOpen])
 
   const deepLinkHash = useMemo(() => {
-    if (!contextMenu.blockId || !trackerId || !notebookId || !sectionId) return null
+    if (!contextMenu.blockId || !pageId || !notebookId || !sectionId) return null
     return buildHash({
       notebookId,
       sectionId,
-      pageId: trackerId,
+      pageId: pageId,
       blockId: contextMenu.blockId,
     })
-  }, [contextMenu.blockId, trackerId, notebookId, sectionId])
+  }, [contextMenu.blockId, pageId, notebookId, sectionId])
 
   const toolbarDeepLinkHash = useMemo(() => {
-    if (!currentBlockId || !trackerId || !notebookId || !sectionId) return null
-    return buildHash({ notebookId, sectionId, pageId: trackerId, blockId: currentBlockId })
-  }, [currentBlockId, trackerId, notebookId, sectionId])
+    if (!currentBlockId || !pageId || !notebookId || !sectionId) return null
+    return buildHash({ notebookId, sectionId, pageId: pageId, blockId: currentBlockId })
+  }, [currentBlockId, pageId, notebookId, sectionId])
 
-  const isCurrentPageTracker = Boolean(trackerId && trackerSourcePage?.id === trackerId)
+  const isCurrentDailySourcePage = Boolean(pageId && dailySourcePage?.id === pageId)
 
   const handleCopyLink = async () => {
     if (!deepLinkHash) return
@@ -255,15 +255,15 @@ export function useEditorContextMenu({
     closeContextMenu()
   }
 
-  const handleSetTrackerPageFromMenu = async () => {
-    if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
-    await onSetTrackerPage(trackerId)
+  const handleSetDailySourceFromMenu = async () => {
+    if (!pageId || !onSetDailySourcePage || isCurrentDailySourcePage || dailySourceSaving) return
+    await onSetDailySourcePage(pageId)
     closeContextMenu()
   }
 
-  const handleSetTrackerFromToolbar = async () => {
-    if (!trackerId || !onSetTrackerPage || isCurrentPageTracker || trackerPageSaving) return
-    await onSetTrackerPage(trackerId)
+  const handleSetDailySourceFromToolbar = async () => {
+    if (!pageId || !onSetDailySourcePage || isCurrentDailySourcePage || dailySourceSaving) return
+    await onSetDailySourcePage(pageId)
   }
 
   useEffect(() => {
@@ -287,18 +287,18 @@ export function useEditorContextMenu({
 
   return {
     toolbarDeepLinkHash,
-    isCurrentPageTracker,
-    handleSetTrackerFromToolbar,
+    isCurrentDailySourcePage,
+    handleSetDailySourceFromToolbar,
     contextMenuProps: {
       menuRef,
       submenuRef,
       contextMenu,
       spellSuggestions,
       deepLinkHash,
-      hasTracker,
-      isCurrentPageTracker,
-      trackerPageSaving,
-      onSetTrackerPage,
+      hasEditorTarget,
+      isCurrentDailySourcePage,
+      dailySourceSaving,
+      onSetDailySourcePage,
       submenuOpen,
       submenuDirection,
       setSubmenuOpen,
@@ -307,7 +307,7 @@ export function useEditorContextMenu({
       handleAddToDictionary,
       handleIgnoreWord,
       handleCopyLink,
-      handleSetTrackerPageFromMenu,
+      handleSetDailySourceFromMenu,
     },
   }
 }

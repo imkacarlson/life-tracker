@@ -94,8 +94,8 @@ export const useEditorUIStore = create((set, get) => ({
   copyLabel: 'Copy',
   setCopyLabel: (v) => set({ copyLabel: v }),
 
-  // Reset on page/tracker change
-  resetOnTrackerChange: () => set({
+  // Reset when the active page changes.
+  resetOnPageChange: () => set({
     findOpen: false,
     findQuery: '',
     findStatus: { query: '', matches: [], index: -1 },

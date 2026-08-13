@@ -5,6 +5,7 @@ import { collectAllImagePaths, deleteImagesFromStorage } from '../../utils/image
 import { clearPageDraft } from '../../utils/localDrafts'
 import { clearNavHierarchyCache } from '../../utils/resolveNavHierarchy'
 import { insertPageAfter, reindexSortOrder } from '../../utils/sidebarReorder'
+import { toClientPage } from '../../utils/pageModel'
 import { useNavigationSelectionStore } from '../../stores/navigationSelectionStore'
 
 const getNextSortOrder = (pages) => {
@@ -29,32 +30,32 @@ const insertPage = ({ session, sectionId, title, content, sortOrder }) =>
 
 export function usePageCrud({
   userId,
-  trackers,
-  trackersRef,
-  activeTrackerRef,
+  pages,
+  pagesRef,
+  activePageRef,
   pageContentCacheRef,
-  setTrackers,
+  setPages,
   setMessage,
   setPageContent,
   seedSectionPages,
   upsertCachedPage,
   removeCachedPage,
-  markCachedTrackerPage,
-  loadTrackers,
+  markCachedDailySourcePage,
+  loadPages,
   getPostDeleteTarget,
   clearPendingTitle,
 }) {
   const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
   const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
-  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
-  const selectTracker = useNavigationSelectionStore((state) => state.selectTracker)
+  const activePageId = useNavigationSelectionStore((state) => state.activePageId)
+  const selectPage = useNavigationSelectionStore((state) => state.selectPage)
   const selectSection = useNavigationSelectionStore((state) => state.selectSection)
-  const [trackerPageSaving, setTrackerPageSaving] = useState(false)
+  const [dailySourceSaving, setDailySourceSaving] = useState(false)
 
   useEffect(() => {
     if (userId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset mutation status on sign-out
-    setTrackerPageSaving(false)
+    setDailySourceSaving(false)
   }, [userId])
 
   // Reordering can target any expanded section, not only the active one.
@@ -64,7 +65,7 @@ export function usePageCrud({
       const reordered = reindexSortOrder(nextPages)
       seedSectionPages(sectionId, reordered)
       if (sectionId === activeSectionId) {
-        setTrackers(reordered)
+        setPages(reordered)
       }
 
       const updates = reordered.map((item) =>
@@ -79,17 +80,17 @@ export function usePageCrud({
 
       seedSectionPages(sectionId, reordered)
       if (sectionId === activeSectionId) {
-        setTrackers(reordered)
+        setPages(reordered)
       }
     },
-    [activeSectionId, seedSectionPages, setMessage, setTrackers, userId],
+    [activeSectionId, seedSectionPages, setMessage, setPages, userId],
   )
 
-  const createTracker = async (session, sectionId) => {
+  const createPage = async (session, sectionId) => {
     if (!session || !sectionId) return
     setMessage('')
     const title = 'Untitled'
-    const provisionalSortOrder = getNextSortOrder(trackers)
+    const provisionalSortOrder = getNextSortOrder(pages)
     const { data, error } = await insertPage({
       session, sectionId, title, content: EMPTY_DOC, sortOrder: provisionalSortOrder,
     })
@@ -99,19 +100,19 @@ export function usePageCrud({
       return
     }
 
-    const created = { ...data, sort_order: provisionalSortOrder }
+    const created = { ...toClientPage(data), sort_order: provisionalSortOrder }
     // New pages appear immediately after the selected page, then use the same
     // persisted reorder path as drag-and-drop.
-    const desiredOrder = insertPageAfter(trackers, created, activeTrackerId)
+    const desiredOrder = insertPageAfter(pages, created, activePageId)
     await reorderSectionPages(sectionId, desiredOrder)
     setPageContent(data.id, EMPTY_DOC, data.updated_at)
-    selectTracker(activeNotebookId, sectionId, data.id)
+    selectPage(activeNotebookId, sectionId, data.id)
   }
 
-  const createTrackerWithContent = async (session, sectionId, pageTitle, content) => {
+  const createPageWithContent = async (session, sectionId, pageTitle, content) => {
     if (!session || !sectionId) return null
     setMessage('')
-    const nextSortOrder = getNextSortOrder(trackers)
+    const nextSortOrder = getNextSortOrder(pages)
     const { data, error } = await insertPage({
       session, sectionId, title: pageTitle, content, sortOrder: nextSortOrder,
     })
@@ -121,30 +122,30 @@ export function usePageCrud({
       return null
     }
 
-    const created = { ...data, sort_order: nextSortOrder }
-    setTrackers((previous) => [...previous, created])
+    const created = { ...toClientPage(data), sort_order: nextSortOrder }
+    setPages((previous) => [...previous, created])
     upsertCachedPage(sectionId, created)
     setPageContent(data.id, content, data.updated_at)
-    selectTracker(activeNotebookId, sectionId, data.id)
-    return data
+    selectPage(activeNotebookId, sectionId, data.id)
+    return created
   }
 
-  const setTrackerPage = useCallback(
+  const setDailySourcePage = useCallback(
     async (pageId) => {
       if (!userId || !activeSectionId || !pageId) return
-      const currentTrackers = trackersRef.current
-      const target = currentTrackers.find((item) => item.id === pageId)
-      if (!target || target.is_tracker_page) return
+      const currentPages = pagesRef.current
+      const target = currentPages.find((item) => item.id === pageId)
+      if (!target || target.isDailySource) return
 
       setMessage('')
-      setTrackerPageSaving(true)
-      setTrackers((previous) =>
+      setDailySourceSaving(true)
+      setPages((previous) =>
         previous.map((item) => ({
           ...item,
-          is_tracker_page: item.id === pageId,
+          isDailySource: item.id === pageId,
         })),
       )
-      markCachedTrackerPage(activeSectionId, pageId)
+      markCachedDailySourcePage(activeSectionId, pageId)
 
       const { error: clearError } = await supabase
         .from('pages')
@@ -154,10 +155,10 @@ export function usePageCrud({
         .eq('is_tracker_page', true)
 
       if (clearError) {
-        setTrackers(currentTrackers)
+        setPages(currentPages)
         setMessage(clearError.message)
-        seedSectionPages(activeSectionId, currentTrackers)
-        setTrackerPageSaving(false)
+        seedSectionPages(activeSectionId, currentPages)
+        setDailySourceSaving(false)
         return
       }
 
@@ -172,43 +173,43 @@ export function usePageCrud({
         .eq('user_id', userId)
 
       if (setError) {
-        setTrackers(currentTrackers)
+        setPages(currentPages)
         setMessage(setError.message)
-        await loadTrackers(activeSectionId)
-        setTrackerPageSaving(false)
+        await loadPages(activeSectionId)
+        setDailySourceSaving(false)
         return
       }
 
-      setTrackerPageSaving(false)
+      setDailySourceSaving(false)
     },
     [
       activeSectionId,
-      loadTrackers,
-      markCachedTrackerPage,
+      loadPages,
+      markCachedDailySourcePage,
       seedSectionPages,
       setMessage,
-      setTrackers,
-      trackersRef,
+      setPages,
+      pagesRef,
       userId,
     ],
   )
 
-  const deleteTracker = async (trackerToDelete = null) => {
-    const tracker =
-      trackerToDelete != null &&
-      typeof trackerToDelete === 'object' &&
-      typeof trackerToDelete.id === 'string' &&
-      typeof trackerToDelete.title === 'string' &&
-      !('nativeEvent' in trackerToDelete)
-        ? trackerToDelete
-        : activeTrackerRef.current
-    if (!tracker) return
-    const confirmDelete = window.confirm(`Delete "${tracker.title}"? This cannot be undone.`)
+  const deletePage = async (pageToDelete = null) => {
+    const page =
+      pageToDelete != null &&
+      typeof pageToDelete === 'object' &&
+      typeof pageToDelete.id === 'string' &&
+      typeof pageToDelete.title === 'string' &&
+      !('nativeEvent' in pageToDelete)
+        ? pageToDelete
+        : activePageRef.current
+    if (!page) return
+    const confirmDelete = window.confirm(`Delete "${page.title}"? This cannot be undone.`)
     if (!confirmDelete) return
 
-    const trackerContent = pageContentCacheRef.current[tracker.id]?.content ?? null
-    const imagePaths = collectAllImagePaths([{ ...tracker, content: trackerContent }])
-    const { error } = await supabase.from('pages').delete().eq('id', tracker.id)
+    const pageContent = pageContentCacheRef.current[page.id]?.content ?? null
+    const imagePaths = collectAllImagePaths([{ ...page, content: pageContent }])
+    const { error } = await supabase.from('pages').delete().eq('id', page.id)
 
     if (error) {
       setMessage(error.message)
@@ -220,20 +221,20 @@ export function usePageCrud({
     }
 
     clearNavHierarchyCache()
-    const deletedIndex = trackers.findIndex((item) => item.id === tracker.id)
-    const nextTrackers = trackers.filter((item) => item.id !== tracker.id)
-    setTrackers(nextTrackers)
-    removeCachedPage(tracker.section_id ?? activeSectionId, tracker.id)
-    clearPendingTitle(tracker.id)
-    clearPageDraft(tracker.id)
+    const deletedIndex = pages.findIndex((item) => item.id === page.id)
+    const nextPages = pages.filter((item) => item.id !== page.id)
+    setPages(nextPages)
+    removeCachedPage(page.section_id ?? activeSectionId, page.id)
+    clearPendingTitle(page.id)
+    clearPageDraft(page.id)
     const selection = useNavigationSelectionStore.getState()
-    if (selection.activeTrackerId === tracker.id) {
-      const nextTrackerId =
-        getPostDeleteTarget?.(nextTrackers, tracker.id, deletedIndex) ??
-        nextTrackers[0]?.id ??
+    if (selection.activePageId === page.id) {
+      const nextPageId =
+        getPostDeleteTarget?.(nextPages, page.id, deletedIndex) ??
+        nextPages[0]?.id ??
         null
-      if (nextTrackerId) {
-        selectTracker(selection.activeNotebookId, selection.activeSectionId, nextTrackerId)
+      if (nextPageId) {
+        selectPage(selection.activeNotebookId, selection.activeSectionId, nextPageId)
       } else {
         selectSection(selection.activeNotebookId, selection.activeSectionId)
       }
@@ -241,11 +242,11 @@ export function usePageCrud({
   }
 
   return {
-    trackerPageSaving,
-    createTracker,
-    createTrackerWithContent,
+    dailySourceSaving,
+    createPage,
+    createPageWithContent,
     reorderSectionPages,
-    setTrackerPage,
-    deleteTracker,
+    setDailySourcePage,
+    deletePage,
   }
 }

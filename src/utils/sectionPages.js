@@ -1,3 +1,5 @@
+import { toClientPage } from './pageModel'
+
 export const SECTION_PAGE_STATUS = {
   IDLE: 'idle',
   LOADING: 'loading',
@@ -6,12 +8,13 @@ export const SECTION_PAGE_STATUS = {
 }
 
 export function toSectionPageMeta(page) {
+  const clientPage = toClientPage(page)
   return {
-    id: page.id,
-    title: page.title,
-    section_id: page.section_id,
-    sort_order: page.sort_order ?? null,
-    is_tracker_page: Boolean(page.is_tracker_page),
+    id: clientPage.id,
+    title: clientPage.title,
+    section_id: clientPage.section_id,
+    sort_order: clientPage.sort_order ?? null,
+    isDailySource: clientPage.isDailySource,
   }
 }
 
@@ -111,12 +114,12 @@ export function removeSectionPage(sectionPageCache, sectionId, pageId) {
   )
 }
 
-export function setSectionTrackerPage(sectionPageCache, sectionId, pageId) {
+export function setSectionDailySourcePage(sectionPageCache, sectionId, pageId) {
   const current = getSectionPageEntry(sectionPageCache, sectionId)
   if (current.status !== SECTION_PAGE_STATUS.LOADED) return sectionPageCache
   const pages = current.pages.map((page) => ({
     ...page,
-    is_tracker_page: page.id === pageId,
+    isDailySource: page.id === pageId,
   }))
   return setSectionPagesLoaded(sectionPageCache, sectionId, pages)
 }

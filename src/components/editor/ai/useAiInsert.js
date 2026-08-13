@@ -14,9 +14,9 @@ import {
 
 export function useAiInsert({
   editor,
-  hasTracker,
+  hasEditorTarget,
   title,
-  trackerId,
+  pageId,
   editorPanelRef,
   toolbarRef,
 }) {
@@ -50,7 +50,7 @@ export function useAiInsert({
   }
 
   const handleAiInsertSubmit = async () => {
-    if (!editor || !hasTracker || aiInsertLoading) return
+    if (!editor || !hasEditorTarget || aiInsertLoading) return
     const pastedText = aiInsertText.trim()
     if (!pastedText) {
       alert('Paste content before using AI Insert.')
@@ -76,7 +76,7 @@ export function useAiInsert({
           pastedText,
           pageTitle: title?.trim() || 'Untitled',
           pageText,
-          pageId: trackerId,
+          pageId,
         },
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -135,7 +135,7 @@ export function useAiInsert({
       open: aiInsertOpen,
       loading: aiInsertLoading,
       text: aiInsertText,
-      hasTracker,
+      hasEditorTarget,
       onTextChange: setAiInsertText,
       onClose: () => setAiInsertOpen(false),
       onSubmit: handleAiInsertSubmit,

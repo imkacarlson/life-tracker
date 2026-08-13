@@ -19,19 +19,19 @@ import { isKeyboardShown } from '../../../utils/keyboardShown'
  * The two ProseMirror reaches (editor.storage.findInDoc and
  * findInDocPluginKey.getState) are load-bearing; preserve their semantics.
  */
-export function useFindBar({ editor, hasTracker, controlsDisabled, findInputRef }) {
+export function useFindBar({ editor, hasEditorTarget, controlsDisabled, findInputRef }) {
   const setFindOpen = useEditorUIStore((s) => s.setFindOpen)
   const setFindQuery = useEditorUIStore((s) => s.setFindQuery)
   const setFindStatus = useEditorUIStore((s) => s.setFindStatus)
 
   const openFind = useCallback(() => {
-    if (!editor || !hasTracker) return
+    if (!editor || !hasEditorTarget) return
     setFindOpen(true)
     requestAnimationFrame(() => {
       findInputRef.current?.focus()
       findInputRef.current?.select()
     })
-  }, [editor, hasTracker, setFindOpen, findInputRef])
+  }, [editor, hasEditorTarget, setFindOpen, findInputRef])
 
   const closeFind = useCallback(() => {
     setFindOpen(false)
