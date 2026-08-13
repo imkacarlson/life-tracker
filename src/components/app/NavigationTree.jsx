@@ -15,6 +15,7 @@ function NavigationTree({
   className = '',
   notebooks,
   sections,
+  sectionsLoaded = false,
   sectionPageCache = {},
   activeNotebookId,
   activeSectionId,
@@ -124,14 +125,18 @@ function NavigationTree({
   }, [notebooks])
 
   useEffect(() => {
+    // During boot, `sections` is temporarily empty while its query is in
+    // flight. Pruning then would erase valid expansion state before the full
+    // section set arrives, which is especially visible on slower mobile loads.
+    if (!sectionsLoaded) return
     const validIds = new Set(sections.map((s) => s.id))
     setExpandedSections((prev) => {
       const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
       const next = [...prevSet].filter((id) => validIds.has(id))
       return next.length === prevSet.size ? prev : next
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune only when section set changes
-  }, [sections])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune when section data becomes ready or changes
+  }, [sections, sectionsLoaded])
 
   const toggleNotebook = (id) => {
     setExpandedNotebooks((prev) => {

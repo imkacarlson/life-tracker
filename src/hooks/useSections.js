@@ -17,6 +17,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
   const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
   const selectSection = useNavigationSelectionStore((state) => state.selectSection)
   const [sectionsLoading, setSectionsLoading] = useState(false)
+  const [successfullyLoadedUserId, setSuccessfullyLoadedUserId] = useState(null)
   const [loadedUserId, setLoadedUserId] = useState(null)
   const [message, setMessage] = useState('')
   const loadRequestIdRef = useRef(0)
@@ -25,6 +26,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
     if (!userId) return
     const requestId = ++loadRequestIdRef.current
     setSectionsLoading(true)
+    setSuccessfullyLoadedUserId(null)
     setMessage('')
     const { data, error } = await runSupabaseQueryWithRetry(() =>
       supabase
@@ -45,6 +47,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
 
     setSections(data ?? [])
     setLoadedUserId(userId)
+    setSuccessfullyLoadedUserId(userId)
     setSectionsLoading(false)
   }, [userId])
 
@@ -55,6 +58,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset section state when the userId prop clears (logout)
       setSections([])
       setSectionsLoading(false)
+      setSuccessfullyLoadedUserId(null)
       setLoadedUserId(null)
       setMessage('')
       return
@@ -393,6 +397,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
   return {
     sections,
     sectionsLoading,
+    sectionsLoaded: Boolean(userId) && successfullyLoadedUserId === userId,
     activeSectionId,
     activeSection,
     message,

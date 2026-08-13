@@ -153,6 +153,7 @@ function App() {
   const {
     sections,
     sectionsLoading,
+    sectionsLoaded,
     activeSectionId,
     message: sectionMessage,
     setMessage: setSectionMessage,
@@ -678,6 +679,7 @@ function App() {
     className: `${isSidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`,
     notebooks,
     sections,
+    sectionsLoaded,
     sectionPageCache,
     activeNotebookId,
     activeSectionId,
