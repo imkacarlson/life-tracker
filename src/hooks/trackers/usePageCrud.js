@@ -5,6 +5,7 @@ import { collectAllImagePaths, deleteImagesFromStorage } from '../../utils/image
 import { clearPageDraft } from '../../utils/localDrafts'
 import { clearNavHierarchyCache } from '../../utils/resolveNavHierarchy'
 import { insertPageAfter, reindexSortOrder } from '../../utils/sidebarReorder'
+import { useNavigationSelectionStore } from '../../stores/navigationSelectionStore'
 
 const getNextSortOrder = (pages) => {
   const orders = pages
@@ -28,14 +29,11 @@ const insertPage = ({ session, sectionId, title, content, sortOrder }) =>
 
 export function usePageCrud({
   userId,
-  activeSectionId,
-  activeTrackerId,
   trackers,
   trackersRef,
   activeTrackerRef,
   pageContentCacheRef,
   setTrackers,
-  setActiveTrackerId,
   setMessage,
   setPageContent,
   seedSectionPages,
@@ -46,6 +44,11 @@ export function usePageCrud({
   getPostDeleteTarget,
   clearPendingTitle,
 }) {
+  const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
+  const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
+  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
+  const selectTracker = useNavigationSelectionStore((state) => state.selectTracker)
+  const selectSection = useNavigationSelectionStore((state) => state.selectSection)
   const [trackerPageSaving, setTrackerPageSaving] = useState(false)
 
   useEffect(() => {
@@ -102,7 +105,7 @@ export function usePageCrud({
     const desiredOrder = insertPageAfter(trackers, created, activeTrackerId)
     await reorderSectionPages(sectionId, desiredOrder)
     setPageContent(data.id, EMPTY_DOC, data.updated_at)
-    setActiveTrackerId(data.id)
+    selectTracker(activeNotebookId, sectionId, data.id)
   }
 
   const createTrackerWithContent = async (session, sectionId, pageTitle, content) => {
@@ -122,7 +125,7 @@ export function usePageCrud({
     setTrackers((previous) => [...previous, created])
     upsertCachedPage(sectionId, created)
     setPageContent(data.id, content, data.updated_at)
-    setActiveTrackerId(data.id)
+    selectTracker(activeNotebookId, sectionId, data.id)
     return data
   }
 
@@ -223,13 +226,18 @@ export function usePageCrud({
     removeCachedPage(tracker.section_id ?? activeSectionId, tracker.id)
     clearPendingTitle(tracker.id)
     clearPageDraft(tracker.id)
-    setActiveTrackerId((previous) =>
-      previous === tracker.id
-        ? getPostDeleteTarget?.(nextTrackers, tracker.id, deletedIndex) ??
-          nextTrackers[0]?.id ??
-          null
-        : previous,
-    )
+    const selection = useNavigationSelectionStore.getState()
+    if (selection.activeTrackerId === tracker.id) {
+      const nextTrackerId =
+        getPostDeleteTarget?.(nextTrackers, tracker.id, deletedIndex) ??
+        nextTrackers[0]?.id ??
+        null
+      if (nextTrackerId) {
+        selectTracker(selection.activeNotebookId, selection.activeSectionId, nextTrackerId)
+      } else {
+        selectSection(selection.activeNotebookId, selection.activeSectionId)
+      }
+    }
   }
 
   return {

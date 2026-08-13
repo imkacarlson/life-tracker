@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  getNavigationApplyStep,
+  getNavigationTargetStatus,
   isWeakerDescendantTarget,
   normalizeNavigationTarget,
   targetMatchesSelection,
@@ -38,7 +38,7 @@ describe('isWeakerDescendantTarget', () => {
 })
 
 describe('targetMatchesSelection', () => {
-  it('matches at the most specific target level', () => {
+  it('matches every hierarchy level supplied by the target', () => {
     expect(
       targetMatchesSelection(
         { notebookId: 'nb-1', sectionId: 'sec-1', pageId: 'pg-1' },
@@ -51,6 +51,15 @@ describe('targetMatchesSelection', () => {
         { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activeTrackerId: 'pg-2' },
       ),
     ).toBe(true)
+  })
+
+  it('detects hierarchy changes even when the page id is unchanged', () => {
+    expect(
+      targetMatchesSelection(
+        { notebookId: 'nb-2', sectionId: 'sec-1', pageId: 'pg-1' },
+        { activeNotebookId: 'nb-1', activeSectionId: 'sec-1', activeTrackerId: 'pg-1' },
+      ),
+    ).toBe(false)
   })
 })
 
@@ -65,86 +74,94 @@ const loadedSectionPageCache = {
   'sec-2': { status: 'loaded', pages: [{ id: 'pg-2', section_id: 'sec-2' }], error: null },
 }
 
-describe('getNavigationApplyStep', () => {
-  it('applies navigation in notebook, section, then page order', () => {
-    const target = { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' }
-
-    expect(getNavigationApplyStep({ target, notebooks, sections, sectionPageCache: loadedSectionPageCache, activeNotebookId: 'nb-1' }))
-      .toEqual({ type: 'notebook', id: 'nb-2' })
-
-    expect(getNavigationApplyStep({
-      target,
-      notebooks,
-      sections,
-      sectionPageCache: loadedSectionPageCache,
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-1',
-    })).toEqual({ type: 'section', id: 'sec-2' })
-
-    expect(getNavigationApplyStep({
-      target,
-      notebooks,
-      sections,
-      sectionPageCache: loadedSectionPageCache,
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-2',
-      activeTrackerId: 'pg-1',
-    })).toEqual({ type: 'page', id: 'pg-2' })
+describe('getNavigationTargetStatus', () => {
+  it('waits for notebooks before deciding whether the target exists', () => {
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-1' },
+      notebooks: [],
+      notebooksLoading: true,
+    })).toEqual({ type: 'wait' })
   })
 
-  it('waits when the target section pages are not yet in the cache (idle)', () => {
-    expect(getNavigationApplyStep({
-      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' },
+  it('marks a missing notebook after notebook loading completes', () => {
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-missing' },
+      notebooks,
+    })).toEqual({ type: 'missing' })
+  })
+
+  it('waits for sections before validating a section target', () => {
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-2', sectionId: 'sec-2' },
+      notebooks,
+      sections: [],
+      sectionsLoading: true,
+    })).toEqual({ type: 'wait' })
+  })
+
+  it('validates notebook-only and section-only targets as complete units', () => {
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-1' },
+      notebooks,
+    })).toEqual({ type: 'ready' })
+
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-2', sectionId: 'sec-2' },
+      notebooks,
+      sections,
+    })).toEqual({ type: 'ready' })
+  })
+
+  it('rejects a section that does not belong to the target notebook', () => {
+    expect(getNavigationTargetStatus({
+      target: { notebookId: 'nb-1', sectionId: 'sec-2' },
+      notebooks,
+      sections,
+    })).toEqual({ type: 'missing' })
+  })
+
+  it('waits when target page metadata is not loaded yet', () => {
+    const target = { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' }
+
+    expect(getNavigationTargetStatus({
+      target,
       notebooks,
       sections,
       sectionPageCache: {},
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-2',
     })).toEqual({ type: 'wait' })
-  })
 
-  it('waits when the target section pages are still loading', () => {
-    expect(getNavigationApplyStep({
-      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' },
+    expect(getNavigationTargetStatus({
+      target,
       notebooks,
       sections,
       sectionPageCache: { 'sec-2': { status: 'loading', pages: [], error: null } },
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-2',
     })).toEqual({ type: 'wait' })
   })
 
-  it('treats a page as missing when the section is loaded but the page is not in it', () => {
-    expect(getNavigationApplyStep({
-      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-missing' },
-      notebooks,
-      sections,
-      sectionPageCache: loadedSectionPageCache,
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-2',
-    })).toEqual({ type: 'missing' })
-  })
+  it('marks failed or absent page metadata as missing', () => {
+    const target = { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' }
 
-  it('treats a page as missing when the section cache is in error state', () => {
-    expect(getNavigationApplyStep({
-      target: { notebookId: 'nb-2', sectionId: 'sec-2', pageId: 'pg-2' },
+    expect(getNavigationTargetStatus({
+      target,
       notebooks,
       sections,
       sectionPageCache: { 'sec-2': { status: 'error', pages: [], error: 'network error' } },
-      activeNotebookId: 'nb-2',
-      activeSectionId: 'sec-2',
+    })).toEqual({ type: 'missing' })
+
+    expect(getNavigationTargetStatus({
+      target: { ...target, pageId: 'pg-missing' },
+      notebooks,
+      sections,
+      sectionPageCache: loadedSectionPageCache,
     })).toEqual({ type: 'missing' })
   })
 
-  it('returns done when the target page is already active', () => {
-    expect(getNavigationApplyStep({
+  it('returns ready only after the complete page hierarchy is available', () => {
+    expect(getNavigationTargetStatus({
       target: { notebookId: 'nb-1', sectionId: 'sec-1', pageId: 'pg-1' },
       notebooks,
       sections,
       sectionPageCache: loadedSectionPageCache,
-      activeNotebookId: 'nb-1',
-      activeSectionId: 'sec-1',
-      activeTrackerId: 'pg-1',
-    })).toEqual({ type: 'done' })
+    })).toEqual({ type: 'ready' })
   })
 })

@@ -8,12 +8,16 @@ import {
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
+import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
 import { remapCopiedContents } from './sections/remapCopiedContent'
 
-export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null) => {
+export const useSections = (userId, getPostDeleteTarget = null) => {
   const [sections, setSections] = useState([])
-  const [activeSectionId, setActiveSectionId] = useState(null)
+  const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
+  const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
+  const selectSection = useNavigationSelectionStore((state) => state.selectSection)
   const [sectionsLoading, setSectionsLoading] = useState(false)
+  const [loadedUserId, setLoadedUserId] = useState(null)
   const [message, setMessage] = useState('')
   const loadRequestIdRef = useRef(0)
 
@@ -34,11 +38,13 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
 
     if (error) {
       setMessage(error.message)
+      setLoadedUserId(userId)
       setSectionsLoading(false)
       return
     }
 
     setSections(data ?? [])
+    setLoadedUserId(userId)
     setSectionsLoading(false)
   }, [userId])
 
@@ -48,27 +54,30 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
       loadRequestIdRef.current += 1
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset section state when the userId prop clears (logout)
       setSections([])
-      setActiveSectionId(null)
       setSectionsLoading(false)
+      setLoadedUserId(null)
       setMessage('')
       return
     }
     void loadSections()
   }, [userId, loadSections])
 
-  // When the active notebook changes, pick the right section from already-loaded data
+  // Once sections are loaded, fill in a missing/invalid descendant for the
+  // selected notebook. Complete deep-link selections survive loading unchanged.
   useEffect(() => {
-    if (!activeNotebookId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset active section when the activeNotebookId prop clears
-      setActiveSectionId(null)
-      return
-    }
+    if (!userId || loadedUserId !== userId || sectionsLoading || !activeNotebookId) return
     const notebookSections = sections.filter((s) => s.notebook_id === activeNotebookId)
-    setActiveSectionId((prev) => {
-      if (prev && notebookSections.some((s) => s.id === prev)) return prev
-      return notebookSections[0]?.id ?? null
-    })
-  }, [activeNotebookId, sections])
+    if (activeSectionId && notebookSections.some((s) => s.id === activeSectionId)) return
+    selectSection(activeNotebookId, notebookSections[0]?.id ?? null)
+  }, [
+    activeNotebookId,
+    activeSectionId,
+    loadedUserId,
+    sections,
+    sectionsLoading,
+    selectSection,
+    userId,
+  ])
 
   const createSection = async (session, notebookId) => {
     if (!session || !notebookId) return
@@ -92,7 +101,7 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     }
 
     setSections((prev) => [...prev, data])
-    setActiveSectionId(data.id)
+    selectSection(notebookId, data.id)
   }
 
   const renameSection = async (section) => {
@@ -150,19 +159,21 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     }
 
     clearNavHierarchyCache()
-    const notebookSectionsBefore = sections.filter((s) => s.notebook_id === activeNotebookId)
+    const selection = useNavigationSelectionStore.getState()
+    const notebookSectionsBefore = sections.filter((s) => s.notebook_id === selection.activeNotebookId)
     const deletedIndex = notebookSectionsBefore.findIndex((s) => s.id === section.id)
     const nextSections = sections.filter((item) => item.id !== section.id)
     setSections(nextSections)
-    const notebookSections = nextSections.filter((s) => s.notebook_id === activeNotebookId)
+    const notebookSections = nextSections.filter((s) => s.notebook_id === selection.activeNotebookId)
     // Land on the most-recent previous section (else the adjacent sibling).
-    setActiveSectionId((prev) =>
-      prev === section.id
-        ? getPostDeleteTarget?.(notebookSections, section.id, deletedIndex) ??
+    if (selection.activeSectionId === section.id) {
+      selectSection(
+        selection.activeNotebookId,
+        getPostDeleteTarget?.(notebookSections, section.id, deletedIndex) ??
           notebookSections[0]?.id ??
-          null
-        : prev,
-    )
+          null,
+      )
+    }
   }
 
   const moveSection = async (section, destNotebookId) => {
@@ -383,7 +394,6 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     sections,
     sectionsLoading,
     activeSectionId,
-    setActiveSectionId,
     activeSection,
     message,
     setMessage,

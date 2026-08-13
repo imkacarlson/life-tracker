@@ -74,4 +74,25 @@ test.describe('navigation target flow', () => {
     await expect(page.locator('.ProseMirror')).toContainText('B page content', { timeout: 10000 })
     await expect(page).toHaveURL(new RegExp(`#pg=${pageB.id}`))
   })
+
+  test('moving the active section keeps its page selected under the destination notebook', async ({
+    page,
+  }) => {
+    await waitForApp(page, `#nb=${notebookA.id}&sec=${sectionA2.id}&pg=${pageA2.id}`)
+    await ensureNavigationVisible(page)
+
+    const activeSectionNode = page.locator('.tree-node-section', { hasText: sectionA2.title }).first()
+    await clickNavigationItem(page, activeSectionNode, { button: 'right' })
+    await page.getByRole('button', { name: 'Move to…' }).click()
+    await page.locator('.copy-move-select').selectOption(notebookB.id)
+    await page.getByRole('button', { name: 'Move', exact: true }).click()
+
+    await expect(page.locator('.editor-panel')).toHaveAttribute('data-editor-page-id', pageA2.id)
+    await expect(page.locator('.editor-panel')).toHaveAttribute('data-editor-ready', 'true')
+    await expect(page.locator('.tree-node-notebook', { hasText: notebookB.title })).toHaveClass(/active/)
+    await expect(page.locator('.tree-node-section', { hasText: sectionA2.title })).toHaveClass(/active/)
+    await expect(page.locator('.title-input')).toHaveValue(pageA2.title)
+    await expect(page.locator('.ProseMirror')).toContainText('A two content')
+    await expect(page).toHaveURL(new RegExp(`#pg=${pageA2.id}`))
+  })
 })

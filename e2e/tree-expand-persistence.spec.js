@@ -51,16 +51,18 @@ test.describe('tree expand state persistence', () => {
     await expect(page.locator('.tree-node-notebook').filter({ hasText: 'Persist A' })).toBeVisible()
     await expect(page.locator('.tree-node-notebook').filter({ hasText: 'Persist B' })).toBeVisible()
 
-    // Expand notebook B by clicking on it
-    await page.locator('.tree-node-notebook').filter({ hasText: 'Persist B' }).click()
+    // Expand notebook B without changing the active selection.
+    const notebookBNode = page.locator('.tree-node-notebook').filter({ hasText: 'Persist B' })
+    await notebookBNode.locator('.tree-chevron').click()
     // Section B should become visible
     await expect(page.locator('.tree-node-section').filter({ hasText: 'Persist B One' })).toBeVisible({ timeout: 2000 })
 
     // Also expand section A2 to confirm multi-section persistence
     const sectionA2Node = page.locator('.tree-node-section').filter({ hasText: 'Persist A Two' })
-    if (await sectionA2Node.isVisible().catch(() => false)) {
-      await sectionA2Node.click()
-    }
+    await expect(sectionA2Node).toBeVisible()
+    await sectionA2Node.scrollIntoViewIfNeeded()
+    await sectionA2Node.locator('.tree-chevron').click()
+    await expect(sectionA2Node).toHaveAttribute('aria-expanded', 'true')
 
     // Reload the page
     await page.reload()
@@ -68,6 +70,10 @@ test.describe('tree expand state persistence', () => {
 
     // After reload, notebook B should still be expanded and section B visible
     await expect(page.locator('.tree-node-section').filter({ hasText: 'Persist B One' })).toBeVisible({ timeout: 5000 })
+    await expect(page.locator('.tree-node-section').filter({ hasText: 'Persist A Two' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
   })
 
   test('active page section is auto-expanded even after reload', async ({ page }) => {

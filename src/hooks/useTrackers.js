@@ -9,11 +9,15 @@ import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
 import { usePageRealtime } from './sync/usePageRealtime'
 import { usePageCrud } from './trackers/usePageCrud'
 import { useSaveQueue } from './trackers/useSaveQueue'
+import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
 
-export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null) => {
+export const useTrackers = (userId, getPostDeleteTarget = null) => {
   const [trackers, setTrackers] = useState([])
   const [loadedTrackerSectionId, setLoadedTrackerSectionId] = useState(null)
-  const [activeTrackerId, setActiveTrackerId] = useState(null)
+  const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
+  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
+  const selectSection = useNavigationSelectionStore((state) => state.selectSection)
+  const selectTracker = useNavigationSelectionStore((state) => state.selectTracker)
   const [dataLoading, setDataLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [titleDraft, setTitleDraft] = useState('')
@@ -214,10 +218,12 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
       ? { ...activeTrackerServer, content: contentEntry.content ?? null }
       : null
     const conflict = detectConflict(activeTrackerId, serverRowForConflict, draft)
-    // If the draft exists but content matches the server (stale draft left over from a
-    // previous session whose save succeeded), clear it silently so the status doesn't
-    // stick on "Unsaved (local)" and localStorage doesn't leak orphan entries.
-    if (draft && !conflict && serverRowForConflict) {
+    // Do not classify or clear a draft until both content and the OCC version
+    // have arrived. The content request can beat the section metadata request
+    // on slower clients; treating that partial row as conflict-free can erase
+    // a real conflict before updated_at is available.
+    const serverVersionLoaded = Boolean(serverRowForConflict?.updated_at)
+    if (draft && !conflict && serverVersionLoaded) {
       clearPageDraft(activeTrackerId)
       setActiveDraft(null)
     } else {
@@ -235,7 +241,6 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset user-scoped state on sign-out
     setTrackers([])
     setLoadedTrackerSectionId(null)
-    setActiveTrackerId(null)
     setDataLoading(false)
     setMessage('')
     setTitleDraft('')
@@ -272,13 +277,21 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
       setTrackers(nextTrackers)
       setLoadedTrackerSectionId(sectionId)
       seedSectionPages(sectionId, nextTrackers)
-      setActiveTrackerId((prev) => {
-        if (prev && nextTrackers.some((item) => item.id === prev)) return prev
-        return nextTrackers[0]?.id ?? null
-      })
+      const selection = useNavigationSelectionStore.getState()
+      if (
+        selection.activeSectionId === sectionId &&
+        !nextTrackers.some((item) => item.id === selection.activeTrackerId)
+      ) {
+        const firstTrackerId = nextTrackers[0]?.id ?? null
+        if (firstTrackerId) {
+          selectTracker(selection.activeNotebookId, sectionId, firstTrackerId)
+        } else {
+          selectSection(selection.activeNotebookId, sectionId)
+        }
+      }
       setDataLoading(false)
     },
-    [seedSectionPages, setKnownUpdatedAt, userId],
+    [seedSectionPages, selectSection, selectTracker, setKnownUpdatedAt, userId],
   )
 
   useEffect(() => {
@@ -287,13 +300,11 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the section snapshot when there is no active section
       setTrackers([])
       setLoadedTrackerSectionId(null)
-      setActiveTrackerId(null)
       setDataLoading(false)
       return
     }
     setTrackers([])
     setLoadedTrackerSectionId(null)
-    setActiveTrackerId(null)
     loadTrackers(activeSectionId)
   }, [activeSectionId, loadTrackers])
 
@@ -328,14 +339,11 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
     deleteTracker,
   } = usePageCrud({
     userId,
-    activeSectionId,
-    activeTrackerId,
     trackers,
     trackersRef,
     activeTrackerRef,
     pageContentCacheRef,
     setTrackers,
-    setActiveTrackerId,
     setMessage,
     setPageContent,
     seedSectionPages,
@@ -367,7 +375,6 @@ export const useTrackers = (userId, activeSectionId, getPostDeleteTarget = null)
     loadSectionPagesMeta,
     loadedTrackerSectionId,
     activeTrackerId,
-    setActiveTrackerId,
     activeTracker,
     titleDraft,
     setTitleDraft,

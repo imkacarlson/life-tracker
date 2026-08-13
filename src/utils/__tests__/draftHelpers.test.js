@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { detectConflict } from '../draftHelpers'
+import { detectConflict, draftMatchesServerContent } from '../draftHelpers'
+
+describe('draftMatchesServerContent', () => {
+  const content = { type: 'doc', content: [{ type: 'paragraph' }] }
+
+  it('matches only when both content snapshots exist and are identical', () => {
+    expect(draftMatchesServerContent({ content }, { content })).toBe(true)
+    expect(draftMatchesServerContent({ content }, { content: { type: 'doc' } })).toBe(false)
+    expect(draftMatchesServerContent({ content }, null)).toBe(false)
+    expect(draftMatchesServerContent({ title: 'metadata only' }, { content })).toBe(false)
+  })
+})
 
 describe('detectConflict', () => {
   // Server and draft with DIFFERENT content (the conflict-worthy case).

@@ -123,7 +123,13 @@ export function useSaveQueue({
     (nextContent, nextTitle, trackerIdOverride = null) => {
       const trackerId = trackerIdOverride ?? activeTrackerRef.current?.id
       if (!trackerId) return
-      const tracker = trackersRef.current.find((item) => item.id === trackerId)
+      // Atomic navigation can resolve the active page from the metadata cache
+      // before the section's full page list has finished loading. The editor is
+      // already safe to use at that point, so let its resolved active page back
+      // the save instead of silently dropping an early edit.
+      const tracker =
+        trackersRef.current.find((item) => item.id === trackerId) ??
+        (activeTrackerRef.current?.id === trackerId ? activeTrackerRef.current : null)
       if (!tracker) return
 
       if (typeof nextTitle === 'string') {

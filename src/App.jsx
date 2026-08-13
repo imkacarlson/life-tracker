@@ -21,7 +21,7 @@ import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from './utils/sectionPages'
-import { readStoredSelection } from './utils/storage'
+import { useNavigationSelectionStore } from './stores/navigationSelectionStore'
 import AuthForm from './components/AuthForm'
 import WelcomeScreen from './components/WelcomeScreen'
 import Workspace from './components/app/Workspace'
@@ -34,8 +34,6 @@ function App() {
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
   const missingEnv = !supabaseUrl || !supabaseAnonKey
 
-  const savedSelectionRef = useRef(readStoredSelection())
-  const pendingNavRef = useRef(null)
   const pendingEditTapRef = useRef(null)
   const touchNavigationGuardRef = useRef(false)
   const deepLinkFocusGuardRef = useRef(false)
@@ -57,10 +55,7 @@ function App() {
     handleSidebarResizeKeyDown,
   } = useSidebarLayout()
 
-  const getPendingNav = useCallback(() => pendingNavRef.current, [])
-  const setPendingNav = useCallback((value) => {
-    pendingNavRef.current = value
-  }, [])
+  const clearSelection = useNavigationSelectionStore((state) => state.clearSelection)
   const setDeepLinkFocusGuardValue = useCallback((value) => {
     deepLinkFocusGuardRef.current = value
     setDeepLinkFocusGuard(value)
@@ -140,7 +135,6 @@ function App() {
     notebooks,
     notebooksLoading,
     activeNotebookId,
-    setActiveNotebookId,
     activeNotebook,
     isRecipesNotebook,
     message: notebookMessage,
@@ -160,7 +154,6 @@ function App() {
     sections,
     sectionsLoading,
     activeSectionId,
-    setActiveSectionId,
     message: sectionMessage,
     setMessage: setSectionMessage,
     createSection,
@@ -169,14 +162,13 @@ function App() {
     moveSection,
     copySection,
     reorderSections,
-  } = useSections(userId, activeNotebookId, getPostDeleteSectionTarget)
+  } = useSections(userId, getPostDeleteSectionTarget)
 
   const {
     trackers,
     sectionPageCache,
     loadSectionPagesMeta,
     activeTrackerId,
-    setActiveTrackerId,
     activeTracker,
     sectionTrackerPage,
     loadTrackerContent,
@@ -200,7 +192,7 @@ function App() {
     flushAllPendingSaves,
     flushSaveForTracker,
     handleResume,
-  } = useTrackers(userId, activeSectionId, getPostDeletePageTarget)
+  } = useTrackers(userId, getPostDeletePageTarget)
 
   const { session: trackerSession, sessionKey, bumpSessionNonce } = useTrackerSession({
     activeTrackerId,
@@ -227,8 +219,6 @@ function App() {
   )
 
   const {
-    navIntentRef,
-    hashBlockRef,
     pendingTarget,
     selectNavigationTarget,
     handleInternalHashNavigate,
@@ -236,20 +226,13 @@ function App() {
   } = useNavigation({
     session,
     notebooks,
+    notebooksLoading,
     sections,
     sectionPageCache,
     sectionsLoading,
+    loadSectionPagesMeta,
     editorReady: trackerSession.status === 'ready',
-    activeNotebookId,
-    activeSectionId,
-    activeTrackerId,
-    setActiveNotebookId,
-    setActiveSectionId,
-    setActiveTrackerId,
     flushSaveForTracker,
-    getPendingNav,
-    setPendingNav,
-    savedSelectionRef,
     setDeepLinkFocusGuard: setDeepLinkFocusGuardValue,
     setMessage,
   })
@@ -333,12 +316,17 @@ function App() {
     if (!destId) return
     setCopyMoveModal({ open: false, action: null, section: null, destId: '' })
     if (action === 'move') {
+      const target =
+        section.id === activeSectionId
+          ? {
+              notebookId: destId,
+              sectionId: section.id,
+              pageId: activeTrackerId,
+            }
+          : { notebookId: destId }
       const moved = await moveSection(section, destId)
       if (moved) {
-        navIntentRef.current = 'push'
-        hashBlockRef.current = null
-        pendingNavRef.current = null
-        setActiveNotebookId(destId)
+        selectNavigationTarget(target)
       }
     } else {
       await copySection(section, destId, session)
@@ -496,13 +484,10 @@ function App() {
     await signOut()
     clearNavHierarchyCache()
     setMessage('')
-    setActiveNotebookId(null)
-    setActiveSectionId(null)
-    setActiveTrackerId(null)
+    clearSelection()
     setSettingsMode(null)
     setTouchNavigationGuardValue(false)
     setDeepLinkFocusGuardValue(false)
-    pendingNavRef.current = null
   }
 
   const handleNotebookSelect = (nextNotebookId) => {

@@ -164,9 +164,15 @@ function EditorPanel({
 
   const hasHeaderActions = Boolean(headerActions) || showDelete
   const controlsDisabled = !hasTracker || editorLocked
+  const committedPageId = restorePageId ?? trackerId ?? ''
 
   return (
-    <section className="editor-panel" ref={editorPanelRef}>
+    <section
+      className="editor-panel"
+      ref={editorPanelRef}
+      data-editor-page-id={committedPageId}
+      data-editor-ready={hasTracker && !editorLocked ? 'true' : 'false'}
+    >
       <EditorHeader
         title={title}
         onTitleChange={onTitleChange}

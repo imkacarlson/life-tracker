@@ -7,14 +7,15 @@ import {
   clearDeepLinkHighlight,
 } from '../utils/navigationHelpers'
 import { resolveNavHierarchy } from '../utils/resolveNavHierarchy'
-import { saveSelection } from '../utils/storage'
+import { readStoredSelection, saveSelection } from '../utils/storage'
 import {
-  getNavigationApplyStep,
+  getNavigationTargetStatus,
   isWeakerDescendantTarget,
   normalizeNavigationTarget,
   targetMatchesSelection,
 } from '../utils/navigationTarget'
 import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../utils/sectionPages'
+import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
 
 const sameNavigationTarget = (a, b) =>
   Boolean(a && b) &&
@@ -26,29 +27,28 @@ const sameNavigationTarget = (a, b) =>
 export const useNavigation = ({
   session,
   notebooks,
+  notebooksLoading,
   sections,
   sectionPageCache,
   sectionsLoading,
+  loadSectionPagesMeta,
   editorReady = true,
-  activeNotebookId,
-  activeSectionId,
-  activeTrackerId,
-  setActiveNotebookId,
-  setActiveSectionId,
-  setActiveTrackerId,
   flushSaveForTracker,
-  getPendingNav,
-  setPendingNav,
-  savedSelectionRef,
   setDeepLinkFocusGuard,
   setMessage,
 }) => {
+  const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
+  const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
+  const activeTrackerId = useNavigationSelectionStore((state) => state.activeTrackerId)
+  const selectTarget = useNavigationSelectionStore((state) => state.selectTarget)
   const navIntentRef = useRef(null)
   const ignoreHashChangeRef = useRef(null)
   const hashBlockRef = useRef(null)
   const navigateToHashRef = useRef(null)
   const navVersionRef = useRef(0)
   const clearDeepLinkTargetTimerRef = useRef(null)
+  const pendingTargetRef = useRef(null)
+  const savedSelectionRef = useRef(readStoredSelection())
   const [initialNavReady, setInitialNavReady] = useState(false)
   const [pendingTarget, setPendingTarget] = useState(null)
 
@@ -57,9 +57,9 @@ export const useNavigation = ({
       clearTimeout(clearDeepLinkTargetTimerRef.current)
       clearDeepLinkTargetTimerRef.current = null
     }
+    pendingTargetRef.current = null
     setPendingTarget(null)
-    setPendingNav(null)
-  }, [setPendingNav])
+  }, [])
 
   const clearPendingTargetAfterDeepLinkScroll = useCallback((target) => {
     if (clearDeepLinkTargetTimerRef.current) {
@@ -67,13 +67,11 @@ export const useNavigation = ({
     }
     clearDeepLinkTargetTimerRef.current = setTimeout(() => {
       clearDeepLinkTargetTimerRef.current = null
-      setPendingTarget((current) => {
-        if (!sameNavigationTarget(current, target)) return current
-        setPendingNav(null)
-        return null
-      })
+      if (!sameNavigationTarget(pendingTargetRef.current, target)) return
+      pendingTargetRef.current = null
+      setPendingTarget(null)
     }, 500)
-  }, [setPendingNav])
+  }, [])
 
   const setPendingTargetSafely = useCallback(
     (nextValue) => {
@@ -82,14 +80,15 @@ export const useNavigation = ({
         return
       }
       const normalized = normalizeNavigationTarget(nextValue)
-      const pending = getPendingNav()
+      const pending = pendingTargetRef.current
       if (isWeakerDescendantTarget(pending, normalized)) {
-        return
+        return false
       }
+      pendingTargetRef.current = normalized
       setPendingTarget(normalized)
-      setPendingNav(normalized)
+      return true
     },
-    [clearPendingTarget, getPendingNav, setPendingNav],
+    [clearPendingTarget],
   )
 
   // When a hash/deep link resolves to a deleted/missing item, fall back to the
@@ -123,6 +122,7 @@ export const useNavigation = ({
     (target, { hashMode = null } = {}) => {
       if (!target?.notebookId) return
       const normalized = normalizeNavigationTarget(target)
+      if (!setPendingTargetSafely(normalized)) return
       if (hashMode) navIntentRef.current = hashMode
       if (normalized.pageId && normalized.blockId) {
         hashBlockRef.current = { pageId: normalized.pageId, blockId: normalized.blockId }
@@ -130,9 +130,11 @@ export const useNavigation = ({
         hashBlockRef.current = null
         clearDeepLinkHighlight()
       }
-      setPendingTargetSafely(normalized)
+      if (normalized.pageId && normalized.sectionId) {
+        void loadSectionPagesMeta?.(normalized.sectionId)
+      }
     },
-    [setPendingTargetSafely],
+    [loadSectionPagesMeta, setPendingTargetSafely],
   )
 
   const navigateToHash = useCallback(
@@ -264,20 +266,18 @@ export const useNavigation = ({
   useEffect(() => {
     if (!session || !pendingTarget) return
 
-    const step = getNavigationApplyStep({
+    const status = getNavigationTargetStatus({
       target: pendingTarget,
       notebooks,
+      notebooksLoading,
       sections,
       sectionPageCache,
-      activeNotebookId,
-      activeSectionId,
-      activeTrackerId,
       sectionsLoading,
     })
 
-    if (step.type === 'wait') return
+    if (status.type === 'wait') return
 
-    if (step.type === 'missing') {
+    if (status.type === 'missing') {
       const fallback = pickNavFallback(pendingTarget)
       // eslint-disable-next-line react-hooks/set-state-in-effect -- transition nav state when the resolved target is missing
       clearPendingTarget()
@@ -289,21 +289,18 @@ export const useNavigation = ({
       return
     }
 
-    if (step.type === 'notebook') {
-      setActiveNotebookId(step.id)
-      return
-    }
+    const selectionMatchesTarget =
+      activeNotebookId === pendingTarget.notebookId &&
+      activeSectionId === pendingTarget.sectionId &&
+      activeTrackerId === pendingTarget.pageId
 
-    if (step.type === 'section') {
-      setActiveSectionId(step.id)
-      return
-    }
-
-    if (step.type === 'page') {
-      // Flush any pending saves for the page we're leaving before activating the new one
-      // (Docmost saveTitle / Notesnook saveSessionContentIfNotSaved pattern).
-      flushSaveForTracker?.(activeTrackerId)
-      setActiveTrackerId(step.id)
+    if (!selectionMatchesTarget) {
+      // Flush pending work before the complete hierarchy changes, then commit
+      // notebook, section, and page together in one store update.
+      if (activeTrackerId && activeTrackerId !== pendingTarget.pageId) {
+        flushSaveForTracker?.(activeTrackerId)
+      }
+      selectTarget(pendingTarget)
       return
     }
 
@@ -322,6 +319,7 @@ export const useNavigation = ({
     session,
     pendingTarget,
     notebooks,
+    notebooksLoading,
     sections,
     sectionPageCache,
     activeNotebookId,
@@ -329,9 +327,7 @@ export const useNavigation = ({
     activeTrackerId,
     sectionsLoading,
     editorReady,
-    setActiveNotebookId,
-    setActiveSectionId,
-    setActiveTrackerId,
+    selectTarget,
     flushSaveForTracker,
     clearPendingTarget,
     clearPendingTargetAfterDeepLinkScroll,
@@ -432,11 +428,7 @@ export const useNavigation = ({
   }, [navigateToHash])
 
   return {
-    navIntentRef,
-    hashBlockRef,
-    initialNavReady,
     pendingTarget,
-    isNavigating: Boolean(pendingTarget),
     selectNavigationTarget,
     handleInternalHashNavigate,
     clearBlockAnchorIfPresent,
