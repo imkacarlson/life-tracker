@@ -3,11 +3,11 @@ import { useToolbarContext } from '../ToolbarContext'
 
 /** Thin ToolButton wrapper that injects ctx-driven defaults. */
 export function Btn({ disabled, ...rest }) {
-  const { isTouchOnly, hasTracker } = useToolbarContext()
+  const { isTouchOnly, hasEditorTarget } = useToolbarContext()
   return (
     <ToolButton
       isTouchOnly={isTouchOnly}
-      disabled={disabled ?? !hasTracker}
+      disabled={disabled ?? !hasEditorTarget}
       {...rest}
     />
   )

@@ -39,10 +39,10 @@ function ContextualEmpty({ emptyState }) {
   )
 }
 
-const EditorShell = forwardRef(function EditorShell({ hasTracker, editor, emptyState }, ref) {
+const EditorShell = forwardRef(function EditorShell({ hasEditorTarget, editor, emptyState }, ref) {
   return (
     <div className="editor-shell" ref={ref}>
-      {hasTracker ? (
+      {hasEditorTarget ? (
         <EditorContent editor={editor} />
       ) : (
         <ContextualEmpty emptyState={emptyState} />

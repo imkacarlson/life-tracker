@@ -4,7 +4,7 @@ import {
   computeSessionMode,
   computeSessionStatusSync,
   computeSessionKey,
-} from '../utils/trackerSessionHelpers'
+} from '../utils/editorSessionHelpers'
 
 /**
  * Manages the editor session lifecycle using Notesnook's pattern:
@@ -16,9 +16,9 @@ import {
  *   sessionKey changes on every page switch or forced refresh
  *   bumpSessionNonce() forces a remount without changing the page (e.g. conflict resolution)
  */
-export function useTrackerSession({
-  activeTrackerId,
-  activeTracker,
+export function useEditorSession({
+  activePageId,
+  activePage,
   dataLoading,
   settingsMode,
   settingsContentVersion,
@@ -28,36 +28,36 @@ export function useTrackerSession({
   const [nonce, setNonce] = useState(0)
   const [session, setSession] = useState({
     id: 'idle',
-    trackerId: null,
+    pageId: null,
     mode: 'idle',
     title: '',
     content: null,
     status: 'idle',
   })
 
-  // Prevent re-hydrating the same session on every autosave (activeTracker changes
+  // Prevent re-hydrating the same session on every autosave (activePage changes
   // frequently as content is saved back). Only re-hydrate when session identity changes.
   const lastHydratedSessionKeyRef = useRef(null)
   // Cancel stale in-flight hydration when session changes before hydration completes.
   const hydrationRequestIdRef = useRef(0)
   // Track page switches so we always re-hydrate when returning to a previously visited
   // page whose content is already in the cache (same key, but content changed since last visit).
-  const lastActiveTrackerIdRef = useRef(activeTrackerId)
+  const lastActivePageIdRef = useRef(activePageId)
 
   const bumpSessionNonce = useCallback(() => {
     setNonce((n) => n + 1)
   }, [])
 
   useEffect(() => {
-    const mode = computeSessionMode(settingsMode, activeTrackerId)
-    const syncStatus = computeSessionStatusSync(mode, activeTracker)
-    const sessionKey = computeSessionKey(mode, activeTrackerId, nonce, activeTracker, settingsContentVersion)
+    const mode = computeSessionMode(settingsMode, activePageId)
+    const syncStatus = computeSessionStatusSync(mode, activePage)
+    const sessionKey = computeSessionKey(mode, activePageId, nonce, activePage, settingsContentVersion)
 
     // When switching to a different page, clear the hydration guard so we always
     // re-hydrate — even if the content is already in the cache and the session key
     // happens to be the same as a previous visit (e.g., same nonce, cache hit).
-    if (lastActiveTrackerIdRef.current !== activeTrackerId) {
-      lastActiveTrackerIdRef.current = activeTrackerId
+    if (lastActivePageIdRef.current !== activePageId) {
+      lastActivePageIdRef.current = activePageId
       lastHydratedSessionKeyRef.current = null
     }
 
@@ -66,7 +66,7 @@ export function useTrackerSession({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset session state when sync transitions to idle
       setSession({
         id: sessionKey,
-        trackerId: null,
+        pageId: null,
         mode,
         title: '',
         content: null,
@@ -81,7 +81,7 @@ export function useTrackerSession({
           ? prev
           : {
               id: sessionKey,
-              trackerId: activeTrackerId,
+              pageId: activePageId,
               mode,
               title: '',
               content: null,
@@ -103,7 +103,7 @@ export function useTrackerSession({
       if (mode === 'template') {
         rawContent = normalizeContent(templateContentRef?.current)
       } else {
-        rawContent = normalizeContent(activeTracker?.content)
+        rawContent = normalizeContent(activePage?.content)
       }
 
       const hydratedContent = await hydrateContentWithSignedUrls(rawContent)
@@ -113,9 +113,9 @@ export function useTrackerSession({
       lastHydratedSessionKeyRef.current = sessionKey
       setSession({
         id: sessionKey,
-        trackerId: mode === 'tracker' ? activeTrackerId : null,
+        pageId: mode === 'page' ? activePageId : null,
         mode,
-        title: activeTracker?.title ?? '',
+        title: activePage?.title ?? '',
         content: hydratedContent,
         status: 'ready',
       })
@@ -127,8 +127,8 @@ export function useTrackerSession({
       cancelled = true
     }
   }, [
-    activeTrackerId,
-    activeTracker,
+    activePageId,
+    activePage,
     dataLoading,
     settingsMode,
     settingsContentVersion,

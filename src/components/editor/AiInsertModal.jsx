@@ -1,4 +1,4 @@
-function AiInsertModal({ inputRef, open, loading, text, hasTracker, onTextChange, onClose, onSubmit }) {
+function AiInsertModal({ inputRef, open, loading, text, hasEditorTarget, onTextChange, onClose, onSubmit }) {
   if (!open) return null
 
   return (
@@ -35,7 +35,7 @@ function AiInsertModal({ inputRef, open, loading, text, hasTracker, onTextChange
           <button
             type="button"
             onClick={onSubmit}
-            disabled={loading || !text.trim() || !hasTracker}
+            disabled={loading || !text.trim() || !hasEditorTarget}
           >
             {loading ? 'Inserting...' : 'Insert into page'}
           </button>

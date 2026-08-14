@@ -23,48 +23,36 @@ export const isWeakerDescendantTarget = (current, next) => {
 
 export const targetMatchesSelection = (target, selection) => {
   if (!target) return false
-  if (target.pageId) return selection.activeTrackerId === target.pageId
-  if (target.sectionId) return selection.activeSectionId === target.sectionId
-  if (target.notebookId) return selection.activeNotebookId === target.notebookId
-  return false
+  if (target.notebookId && selection.activeNotebookId !== target.notebookId) return false
+  if (target.sectionId && selection.activeSectionId !== target.sectionId) return false
+  if (target.pageId && selection.activePageId !== target.pageId) return false
+  return Boolean(target.notebookId || target.sectionId || target.pageId)
 }
 
-export const getNavigationApplyStep = ({
+export const getNavigationTargetStatus = ({
   target,
   notebooks = [],
+  notebooksLoading = false,
   sections = [],
   sectionPageCache = {},
-  activeNotebookId = null,
-  activeSectionId = null,
-  activeTrackerId = null,
   sectionsLoading = false,
 }) => {
-  if (!target?.notebookId) return { type: 'done' }
+  if (!target?.notebookId) return { type: 'missing' }
 
   if (!notebooks.some((item) => item.id === target.notebookId)) {
-    return notebooks.length > 0 ? { type: 'missing' } : { type: 'wait' }
+    return notebooksLoading ? { type: 'wait' } : { type: 'missing' }
   }
 
-  if (activeNotebookId !== target.notebookId) {
-    return { type: 'notebook', id: target.notebookId }
-  }
-
-  if (!target.sectionId) return { type: 'done' }
+  if (!target.sectionId) return { type: 'ready' }
 
   if (!sections.some((item) => item.id === target.sectionId && item.notebook_id === target.notebookId)) {
-    if (sections.length === 0) return { type: 'wait' }
     return sectionsLoading ? { type: 'wait' } : { type: 'missing' }
   }
 
-  if (activeSectionId !== target.sectionId) {
-    return { type: 'section', id: target.sectionId }
-  }
+  if (!target.pageId) return { type: 'ready' }
 
-  if (!target.pageId) return { type: 'done' }
-
-  // Use sectionPageCache for the page existence check — it's populated for all
-  // expanded sections and seeded by loadTrackers, so it's always up-to-date once
-  // the section is active. No need to wait for loadedTrackerSectionId.
+  // Page metadata can be loaded independently of the active section, allowing
+  // the complete hierarchy to be validated before selection changes.
   const sectionEntry = sectionPageCache[target.sectionId]
   if (!sectionEntry || sectionEntry.status === 'idle' || sectionEntry.status === 'loading') {
     return { type: 'wait' }
@@ -77,9 +65,5 @@ export const getNavigationApplyStep = ({
     return { type: 'missing' }
   }
 
-  if (activeTrackerId !== target.pageId) {
-    return { type: 'page', id: target.pageId }
-  }
-
-  return { type: 'done' }
+  return { type: 'ready' }
 }

@@ -43,11 +43,11 @@ export function TaskListTool({ editor }) {
 }
 
 export function OutdentTool({ editor }) {
-  const { hasTracker } = useToolbarContext()
+  const { hasEditorTarget } = useToolbarContext()
   const { handleOutdent } = useIndentOutdent(editor)
   return (
     <Btn
-      disabled={!hasTracker || !isInAnyList(editor)}
+      disabled={!hasEditorTarget || !isInAnyList(editor)}
       onActivate={handleOutdent}
       title="Outdent"
       ariaLabel="Outdent list item"
@@ -59,11 +59,11 @@ export function OutdentTool({ editor }) {
 }
 
 export function IndentTool({ editor }) {
-  const { hasTracker } = useToolbarContext()
+  const { hasEditorTarget } = useToolbarContext()
   const { handleIndent } = useIndentOutdent(editor)
   return (
     <Btn
-      disabled={!hasTracker || !isInAnyList(editor)}
+      disabled={!hasEditorTarget || !isInAnyList(editor)}
       onActivate={handleIndent}
       title="Indent"
       ariaLabel="Indent list item"

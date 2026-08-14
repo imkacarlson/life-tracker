@@ -1,4 +1,3 @@
-/* global process */
 import { test as setup } from '@playwright/test'
 import { config } from 'dotenv'
 import path from 'path'
@@ -61,13 +60,13 @@ setup('authenticate test user', async ({ page }) => {
   const notebook = await createNotebook(client, userId, 'E2E Baseline Notebook', -9999)
   const section = await createSection(client, userId, notebook.id, 'E2E Baseline Section', 0)
   await waitForSectionVisibility(client, section.id)
-  const tracker = await createPage(client, userId, section.id, 'E2E Baseline Page', BASELINE_DOC, 0)
+  const baselinePage = await createPage(client, userId, section.id, 'E2E Baseline Page', BASELINE_DOC, 0)
   const baselineSelection = {
     notebookId: notebook.id,
     sectionId: section.id,
-    pageId: tracker.id,
+    pageId: baselinePage.id,
   }
-  const baselineHash = `#nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
+  const baselineHash = `#nb=${notebook.id}&sec=${section.id}&pg=${baselinePage.id}`
 
   await page.goto('/')
   await page.getByLabel('Email').fill(email)

@@ -164,8 +164,8 @@ export function ShadingTool({ editor }) {
   // The remembered/persisted color drives the swatch and the main-button apply.
   // The active (pressed) affordance should reflect the *current* cell's actual
   // background instead, so the button isn't permanently "pressed" once a color
-  // is remembered. This stays fresh because the toolbar re-renders on every
-  // selection update.
+  // is remembered. The toolbar editor-state selector tracks this value across
+  // selection changes.
   const currentCellShading =
     editor?.getAttributes('tableHeader')?.backgroundColor ||
     editor?.getAttributes('tableCell')?.backgroundColor ||

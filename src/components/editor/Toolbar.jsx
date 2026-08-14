@@ -7,13 +7,14 @@ import ToolButton from './ToolButton'
 import { ToolbarContext } from './toolbar/ToolbarContext'
 import ToolbarGroup from './toolbar/ToolbarGroup'
 import { CORE_GROUPS, EXTRA_GROUPS } from './toolbar/toolRegistry'
+import { selectToolbarEditorState } from './toolbar/toolbarEditorState'
 import { useFindBar } from './toolbar/useFindBar'
 import { useAiSearch } from './toolbar/useAiSearch'
 
 function Toolbar({
   editor,
   controlsDisabled,
-  hasTracker,
+  hasEditorTarget,
   isTouchOnly,
   toolbarRef,
   editorPanelRef,
@@ -23,18 +24,17 @@ function Toolbar({
   showAiInsert,
   title,
   toolbarDeepLinkHash,
-  isCurrentPageTracker,
-  trackerPageSaving,
-  onSetTrackerPage,
-  handleSetTrackerFromToolbar,
+  isCurrentDailySourcePage,
+  dailySourceSaving,
+  onSetDailySourcePage,
+  handleSetDailySourceFromToolbar,
   contextMenuItems,
 }) {
-  // Toolbar buttons derive their active state from ProseMirror. Subscribe to
-  // transactions so marks set on an empty block (stored marks) immediately
-  // update the button instead of waiting for an unrelated React render.
+  // Keep button affordances fresh without re-rendering every tool for ordinary
+  // typing transactions that leave the visible toolbar state unchanged.
   useEditorState({
     editor,
-    selector: ({ transactionNumber }) => transactionNumber,
+    selector: selectToolbarEditorState,
   })
 
   const toolbarExpanded = useEditorUIStore((s) => s.toolbarExpanded)
@@ -49,7 +49,7 @@ function Toolbar({
   const findInputRef = useRef(null)
 
   const { openFind, closeFind, handleFindQueryChange, handleFindNext, handleFindPrev } =
-    useFindBar({ editor, hasTracker, controlsDisabled, findInputRef })
+    useFindBar({ editor, hasEditorTarget, controlsDisabled, findInputRef })
 
   const { scheduleAiSearch, cancelAiSearch } = useAiSearch({ editor })
 
@@ -88,7 +88,7 @@ function Toolbar({
   }, [cancelAiSearch, closeFind])
 
   useEffect(() => {
-    if (!hasTracker || controlsDisabled) return undefined
+    if (!hasEditorTarget || controlsDisabled) return undefined
     const handleKeyDown = (event) => {
       if (event.key?.toLowerCase() !== 'f') return
       if (!event.ctrlKey && !event.metaKey) return
@@ -97,7 +97,7 @@ function Toolbar({
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [controlsDisabled, hasTracker, openFind])
+  }, [controlsDisabled, hasEditorTarget, openFind])
 
   // Mobile cursor visibility when the toolbar lifts.
   useKeepCursorVisible({ enabled: isTouchOnly, editor, toolbarExpanded, toolbarRef, editorPanelRef })
@@ -125,7 +125,7 @@ function Toolbar({
   const ctxValue = useMemo(
     () => ({
       isTouchOnly,
-      hasTracker,
+      hasEditorTarget,
       controlsDisabled,
       editorPanelRef,
       title,
@@ -134,18 +134,18 @@ function Toolbar({
       showAiDaily,
       showAiInsert,
       toolbarDeepLinkHash,
-      isCurrentPageTracker,
-      trackerPageSaving,
-      onSetTrackerPage,
-      handleSetTrackerFromToolbar,
+      isCurrentDailySourcePage,
+      dailySourceSaving,
+      onSetDailySourcePage,
+      handleSetDailySourceFromToolbar,
       contextMenuItems,
       openFind,
     }),
     [
-      isTouchOnly, hasTracker, controlsDisabled, editorPanelRef, title,
+      isTouchOnly, hasEditorTarget, controlsDisabled, editorPanelRef, title,
       onImageUpload, onAiDailyGenerate, showAiDaily, showAiInsert,
-      toolbarDeepLinkHash, isCurrentPageTracker, trackerPageSaving,
-      onSetTrackerPage, handleSetTrackerFromToolbar, contextMenuItems,
+      toolbarDeepLinkHash, isCurrentDailySourcePage, dailySourceSaving,
+      onSetDailySourcePage, handleSetDailySourceFromToolbar, contextMenuItems,
       openFind,
     ],
   )
@@ -180,7 +180,7 @@ function Toolbar({
           ))}
         </div>
 
-        {findOpen && hasTracker && (
+        {findOpen && hasEditorTarget && (
           <FindBar
             inputRef={findInputRef}
             findQuery={findQuery}

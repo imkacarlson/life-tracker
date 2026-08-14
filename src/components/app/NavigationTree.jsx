@@ -15,10 +15,11 @@ function NavigationTree({
   className = '',
   notebooks,
   sections,
+  sectionsLoaded = false,
   sectionPageCache = {},
   activeNotebookId,
   activeSectionId,
-  activeTrackerId,
+  activePageId,
   userId,
   loading,
   compactBadges = false,
@@ -109,7 +110,7 @@ function NavigationTree({
       clearTimeout(timer)
       if (rafId) cancelAnimationFrame(rafId)
     }
-  }, [activeNotebookId, activeSectionId, activeTrackerId, activeItem, isMobileViewport, mobileSidebarOpen])
+  }, [activeNotebookId, activeSectionId, activePageId, activeItem, isMobileViewport, mobileSidebarOpen])
 
   // Prune persisted expansion state when notebooks/sections are deleted so stale
   // ids don't accumulate in localStorage.
@@ -124,14 +125,18 @@ function NavigationTree({
   }, [notebooks])
 
   useEffect(() => {
+    // During boot, `sections` is temporarily empty while its query is in
+    // flight. Pruning then would erase valid expansion state before the full
+    // section set arrives, which is especially visible on slower mobile loads.
+    if (!sectionsLoaded) return
     const validIds = new Set(sections.map((s) => s.id))
     setExpandedSections((prev) => {
       const prevSet = prev instanceof Set ? prev : new Set(Array.isArray(prev) ? prev : [])
       const next = [...prevSet].filter((id) => validIds.has(id))
       return next.length === prevSet.size ? prev : next
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune only when section set changes
-  }, [sections])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setter is stable; prune when section data becomes ready or changes
+  }, [sections, sectionsLoaded])
 
   const toggleNotebook = (id) => {
     setExpandedNotebooks((prev) => {
@@ -439,19 +444,19 @@ function NavigationTree({
                                         <p className="subtle tree-empty">No pages yet.</p>
                                       ) : (
                                         <SortableContext
-                                          items={sectionPages.map((tracker) => tracker.id)}
+                                          items={sectionPages.map((page) => page.id)}
                                           strategy={verticalListSortingStrategy}
                                         >
-                                          {sectionPages.map((tracker) => (
+                                          {sectionPages.map((page) => (
                                             <SortableTreeRow
-                                              key={tracker.id}
-                                              id={tracker.id}
+                                              key={page.id}
+                                              id={page.id}
                                               className="tree-page-row"
-                                              data={{ type: 'page', parentId: section.id, label: tracker.title }}
-                                              handleLabel={`Reorder page ${tracker.title}`}
+                                              data={{ type: 'page', parentId: section.id, label: page.title }}
+                                              handleLabel={`Reorder page ${page.title}`}
                                               onKeyboardMove={(direction) =>
                                                 onKeyboardMove(
-                                                  tracker.id,
+                                                  page.id,
                                                   { type: 'page', parentId: section.id },
                                                   direction,
                                                 )
@@ -460,23 +465,23 @@ function NavigationTree({
                                               <button
                                                 type="button"
                                                 role="treeitem"
-                                                aria-current={tracker.id === activeTrackerId ? 'page' : undefined}
+                                                aria-current={page.id === activePageId ? 'page' : undefined}
                                                 className={`tree-node tree-node-page ${
-                                                  tracker.id === activeTrackerId ? 'active' : ''
+                                                  page.id === activePageId ? 'active' : ''
                                                 }`}
                                                 onClick={() => onSelectPage?.({
                                                   notebookId: section.notebook_id,
                                                   sectionId: section.id,
-                                                  pageId: tracker.id,
+                                                  pageId: page.id,
                                                 })}
-                                                onContextMenu={handleOpenContextMenu('page', tracker)}
-                                                onTouchStart={handleTouchStart('page', tracker)}
+                                                onContextMenu={handleOpenContextMenu('page', page)}
+                                                onTouchStart={handleTouchStart('page', page)}
                                                 onTouchEnd={cancelLongPress}
                                                 onTouchMove={cancelLongPress}
                                               >
                                                 <span className="tree-page-marker" aria-hidden="true" />
-                                                <span className="tree-label sidebar-title">{tracker.title}</span>
-                                                {tracker.is_tracker_page ? (
+                                                <span className="tree-label sidebar-title">{page.title}</span>
+                                                {page.isDailySource ? (
                                                   <span
                                                     className={`tracker-page-badge ${compactBadges ? 'compact' : ''}`}
                                                     title="Tracker page for AI Daily"

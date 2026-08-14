@@ -4,22 +4,26 @@
  * Returns a conflict descriptor object if the server's updated_at is newer
  * than the draft's timestamp, or null if there is no conflict.
  *
- * Extracted from the useTrackers useEffect so it can be unit-tested without
+ * Extracted from the usePages useEffect so it can be unit-tested without
  * React or Supabase.
  */
-export const detectConflict = (trackerId, serverRow, draft) => {
-  if (!trackerId) return null
+export const draftMatchesServerContent = (serverRow, draft) =>
+  Boolean(serverRow?.content && draft?.content) &&
+  JSON.stringify(serverRow.content) === JSON.stringify(draft.content)
+
+export const detectConflict = (pageId, serverRow, draft) => {
+  if (!pageId) return null
   if (!serverRow || !draft || !draft.ts || !draft.content) return null
 
   // Same content means the draft is stale (save succeeded but draft wasn't cleaned up).
   // Not a real conflict — the data is identical.
-  if (JSON.stringify(serverRow.content) === JSON.stringify(draft.content)) return null
+  if (draftMatchesServerContent(serverRow, draft)) return null
 
   const serverTime = new Date(serverRow.updated_at).getTime()
   if (isNaN(serverTime)) return null
   if (serverTime > draft.ts) {
     return {
-      trackerId,
+      pageId,
       draftTs: draft.ts,
       serverUpdatedAt: serverRow.updated_at,
       draftContent: draft.content,

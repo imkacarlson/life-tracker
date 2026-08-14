@@ -7,7 +7,7 @@ import { useOutsideClick } from '../useOutsideClick'
 import { Btn } from './ToolButton'
 
 export function AiDailyTool() {
-  const { hasTracker, onAiDailyGenerate } = useToolbarContext()
+  const { hasEditorTarget, onAiDailyGenerate } = useToolbarContext()
   const aiLoading = useEditorUIStore((s) => s.aiLoading)
   const aiInsertLoading = useEditorUIStore((s) => s.aiInsertLoading)
   const aiDailyDate = useEditorUIStore((s) => s.aiDailyDate)
@@ -31,7 +31,7 @@ export function AiDailyTool() {
     if (!isNaN(parsed.getTime())) setAiDailyDate(parsed)
   }
 
-  const disabled = !hasTracker || aiLoading || aiInsertLoading
+  const disabled = !hasEditorTarget || aiLoading || aiInsertLoading
 
   return (
     <div className="ai-daily-control" ref={wrapRef}>
@@ -69,14 +69,14 @@ export function AiDailyTool() {
 }
 
 export function AiInsertTool() {
-  const { hasTracker, showAiInsert } = useToolbarContext()
+  const { hasEditorTarget, showAiInsert } = useToolbarContext()
   const aiLoading = useEditorUIStore((s) => s.aiLoading)
   const aiInsertLoading = useEditorUIStore((s) => s.aiInsertLoading)
   const setAiInsertOpen = useEditorUIStore((s) => s.setAiInsertOpen)
   if (!showAiInsert) return null
   return (
     <Btn
-      disabled={!hasTracker || aiLoading || aiInsertLoading}
+      disabled={!hasEditorTarget || aiLoading || aiInsertLoading}
       className="toolbar-btn-ai"
       onActivate={() => setAiInsertOpen(true)}
       title={aiInsertLoading ? 'Inserting...' : 'AI Insert'}

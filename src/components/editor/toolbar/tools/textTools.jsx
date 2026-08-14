@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { useEditorState } from '@tiptap/react'
 import {
   BoldIcon, ItalicIcon, UnderlineIcon, StrikethroughIcon,
   HighlightIcon,
@@ -16,6 +17,7 @@ import {
   syncSelectionFromDom,
 } from '../../../../utils/smartMark'
 import { HIGHLIGHT_COLORS, TEXT_COLORS } from '../toolConstants'
+import { isTextColorActive } from '../toolbarEditorState'
 import { Btn } from './ToolButton'
 
 // --- Inline marks ---------------------------------------------------------
@@ -197,6 +199,10 @@ export function HighlightTool({ editor }) {
 export function TextColorTool({ editor }) {
   const textColor = useEditorUIStore((s) => s.textColor)
   const setTextColor = useEditorUIStore((s) => s.setTextColor)
+  const textColorActive = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => isTextColorActive(currentEditor, textColor),
+  })
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
   const pickerRef = useRef(null)
@@ -228,7 +234,7 @@ export function TextColorTool({ editor }) {
   return (
     <div className="text-color-control" ref={wrapRef}>
       <Btn
-        active={editor?.isActive('textStyle', { color: textColor })}
+        active={textColorActive}
         onActivate={apply}
         title="Text color"
         ariaLabel="Text color"

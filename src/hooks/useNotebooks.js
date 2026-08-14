@@ -7,10 +7,13 @@ import {
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
+import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
 
 export const useNotebooks = (userId, getPostDeleteTarget = null) => {
   const [notebooks, setNotebooks] = useState([])
-  const [activeNotebookId, setActiveNotebookId] = useState(null)
+  const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
+  const selectNotebook = useNavigationSelectionStore((state) => state.selectNotebook)
+  const clearSelection = useNavigationSelectionStore((state) => state.clearSelection)
   const [message, setMessage] = useState('')
   // True until the initial fetch has resolved at least once. The boot splash
   // stays up while this is true so a returning user goes splash -> editor
@@ -43,18 +46,18 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
     setNotebooks(data ?? [])
     setLoadedUserId(userId)
     setNotebooksLoading(false)
-    setActiveNotebookId((prev) => {
-      if (prev && data?.some((item) => item.id === prev)) return prev
-      return data?.[0]?.id ?? null
-    })
-  }, [userId])
+    const currentNotebookId = useNavigationSelectionStore.getState().activeNotebookId
+    if (!currentNotebookId || !data?.some((item) => item.id === currentNotebookId)) {
+      selectNotebook(data?.[0]?.id ?? null)
+    }
+  }, [selectNotebook, userId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!userId) {
         loadRequestIdRef.current += 1
         setNotebooks([])
-        setActiveNotebookId(null)
+        clearSelection()
         setMessage('')
         setLoadedUserId(null)
         setNotebooksLoading(false)
@@ -64,9 +67,9 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
       void loadNotebooks()
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [userId, loadNotebooks])
+  }, [userId, loadNotebooks, clearSelection])
 
-  const createNotebook = async (session, { type = 'tracker', title: overrideTitle } = {}) => {
+  const createNotebook = useCallback(async (session, { type = 'tracker', title: overrideTitle } = {}) => {
     if (!session) return null
     const title = overrideTitle ?? window.prompt('Notebook name', 'My Notebook')
     if (!title) return null
@@ -86,9 +89,9 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
     }
 
     setNotebooks((prev) => [...prev, data])
-    setActiveNotebookId(data.id)
+    selectNotebook(data.id)
     return data
-  }
+  }, [selectNotebook])
 
   const renameNotebook = async (notebook) => {
     if (!notebook) return
@@ -165,9 +168,9 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
     const deletedIndex = notebooks.findIndex((item) => item.id === notebook.id)
     const nextNotebooks = notebooks.filter((item) => item.id !== notebook.id)
     setNotebooks(nextNotebooks)
-    if (notebook.id === activeNotebookId) {
+    if (notebook.id === useNavigationSelectionStore.getState().activeNotebookId) {
       // Land on the most-recent previous notebook (else the adjacent sibling).
-      setActiveNotebookId(
+      selectNotebook(
         getPostDeleteTarget?.(nextNotebooks, notebook.id, deletedIndex) ??
           nextNotebooks[0]?.id ??
           null,
@@ -221,13 +224,12 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
         .insert({ title: 'General', user_id: session.user.id, notebook_id: nb.id, sort_order: 0 })
       if (sectionError) console.error('Failed to create default Recipes section:', sectionError.message)
     })()
-  }, [userId, notebooks])  
+  }, [userId, notebooks, createNotebook])
 
   return {
     notebooks,
     notebooksLoading: Boolean(userId) && (notebooksLoading || loadedUserId !== userId),
     activeNotebookId,
-    setActiveNotebookId,
     activeNotebook,
     message,
     setMessage,

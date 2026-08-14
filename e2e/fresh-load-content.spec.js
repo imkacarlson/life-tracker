@@ -1,9 +1,9 @@
 /**
  * Regression tests for the blank-on-load bug (session-keyed editor loading).
  *
- * Root cause: the old useLayoutEffect fired when activeTrackerId was set but
- * activeTracker was still null, hitting the equality short-circuit and
- * unlocking a blank editor. Fixed by useTrackerSession: the editor only mounts
+ * Root cause: the old useLayoutEffect fired when activePageId was set but
+ * activePage was still null, hitting the equality short-circuit and
+ * unlocking a blank editor. Fixed by useEditorSession: the editor only mounts
  * after content is fully hydrated (status === 'ready').
  */
 import { test, expect } from './fixtures'
@@ -12,13 +12,13 @@ import { clickNavigationItem, createNotebook, createPage, createSection, getSupa
 const PAGE_TEXT = 'FreshLoadRegressionMarker-' + Date.now()
 
 test.describe('fresh page load always shows content', () => {
-  let notebook, section, tracker
+  let notebook, section, testPage
 
   test.beforeAll(async () => {
     const { client, userId } = await getSupabase()
     notebook = await createNotebook(client, userId, `Fresh Load Notebook ${Date.now()}`, -99999)
     section = await createSection(client, userId, notebook.id, 'Fresh Load Section', 0)
-    tracker = await createPage(
+    testPage = await createPage(
       client,
       userId,
       section.id,
@@ -34,7 +34,7 @@ test.describe('fresh page load always shows content', () => {
   test('cold page load via hash URL shows editor content without navigating away', async ({
     page,
   }) => {
-    const hash = `nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
+    const hash = `nb=${notebook.id}&sec=${section.id}&pg=${testPage.id}`
     await page.goto(`/#${hash}`)
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 
@@ -93,7 +93,7 @@ test.describe('fresh page load always shows content', () => {
       requestAnimationFrame(inspectPaintedFrame)
     })
 
-    const hash = `nb=${notebook.id}&sec=${section.id}&pg=${tracker.id}`
+    const hash = `nb=${notebook.id}&sec=${section.id}&pg=${testPage.id}`
     await page.goto(`/#${hash}`)
     await page.waitForSelector('.app:not(.app-auth)', { timeout: 15000 })
 

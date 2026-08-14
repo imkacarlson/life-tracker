@@ -26,12 +26,12 @@ export function FindTool() {
 export function MoreTool() {
   const ctx = useToolbarContext()
   const {
-    hasTracker,
+    hasEditorTarget,
     toolbarDeepLinkHash,
-    isCurrentPageTracker,
-    trackerPageSaving,
-    onSetTrackerPage,
-    handleSetTrackerFromToolbar,
+    isCurrentDailySourcePage,
+    dailySourceSaving,
+    onSetDailySourcePage,
+    handleSetDailySourceFromToolbar,
     contextMenuItems,
   } = ctx
   const inTable = useEditorUIStore((s) => s.inTable)
@@ -45,8 +45,8 @@ export function MoreTool() {
     setOpen(false)
   }
 
-  const onSetTracker = async () => {
-    await handleSetTrackerFromToolbar()
+  const onSetDailySource = async () => {
+    await handleSetDailySourceFromToolbar()
     setOpen(false)
   }
 
@@ -64,16 +64,16 @@ export function MoreTool() {
           onClose={() => setOpen(false)}
           onCopyLink={onCopyLink}
           copyLinkDisabled={!toolbarDeepLinkHash}
-          onSetTrackerPage={onSetTracker}
-          setTrackerLabel={
-            isCurrentPageTracker
+          onSetDailySourcePage={onSetDailySource}
+          dailySourceLabel={
+            isCurrentDailySourcePage
               ? 'This page is the tracker page'
-              : trackerPageSaving
+              : dailySourceSaving
               ? 'Setting tracker page...'
               : 'Set this page as tracker'
           }
-          setTrackerDisabled={
-            !hasTracker || isCurrentPageTracker || trackerPageSaving || !onSetTrackerPage
+          dailySourceDisabled={
+            !hasEditorTarget || isCurrentDailySourcePage || dailySourceSaving || !onSetDailySourcePage
           }
           inTable={inTable}
           contextMenuItems={contextMenuItems}

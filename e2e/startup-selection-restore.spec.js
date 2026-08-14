@@ -10,7 +10,7 @@ test.describe('startup selection restore', () => {
       preserveForSuite: false,
     })
     const section = await createSection(client, userId, notebook.id, 'Saved Selection Section', 9999)
-    const tracker = await createPage(
+    const savedPage = await createPage(
       client,
       userId,
       section.id,
@@ -29,7 +29,7 @@ test.describe('startup selection restore', () => {
     }, {
       notebookId: notebook.id,
       sectionId: section.id,
-      pageId: tracker.id,
+      pageId: savedPage.id,
     })
 
     await page.goto('/')

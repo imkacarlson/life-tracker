@@ -1,4 +1,3 @@
-/* global process */
 // Shared test helpers for self-contained E2E seed data.
 // Each test creates its own notebooks/sections/pages in beforeAll
 // and the isolateSupabaseData fixture in fixtures.js handles cleanup.
@@ -417,29 +416,6 @@ const waitForWorkspaceReady = async (page) => {
   await page.waitForSelector(NOTEBOOK_NODE_SELECTOR, { timeout: 30000 })
 }
 
-const isTreeItemActive = async (locator) => {
-  try {
-    return await locator.evaluate((el) =>
-      el.classList.contains('active') || el.getAttribute('aria-current') === 'page',
-    )
-  } catch {
-    return false
-  }
-}
-
-const clickTreeItemByTitle = async (page, selector, title, options) => {
-  const locator = page.locator(selector, { hasText: title }).first()
-  if (!(await locator.count())) return false
-
-  if (await isTreeItemActive(locator)) {
-    await expect(locator).toBeVisible({ timeout: 10000 })
-    return true
-  }
-
-  await clickNavigationItem(page, locator, options)
-  return true
-}
-
 const navigateViaHashChange = async (page, hash) => {
   if (!hash || hash === '/') return
   const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
@@ -451,8 +427,18 @@ const navigateViaHashChange = async (page, hash) => {
 
 const waitForExpectedEditor = async (
   page,
-  { expectedPageTitle = null, expectedText = null, timeout = 10000 } = {},
+  {
+    expectedPageId = null,
+    expectedPageTitle = null,
+    expectedText = null,
+    timeout = 10000,
+  } = {},
 ) => {
+  const editorPanel = page.locator('.editor-panel')
+  if (expectedPageId) {
+    await expect(editorPanel).toHaveAttribute('data-editor-page-id', expectedPageId, { timeout })
+  }
+  await expect(editorPanel).toHaveAttribute('data-editor-ready', 'true', { timeout })
   await page.waitForSelector(EDITOR_SELECTOR, { timeout })
   if (expectedPageTitle) {
     await expect(page.locator('.title-input')).toHaveValue(expectedPageTitle, { timeout })
@@ -482,10 +468,7 @@ const closeMobileNavigationDrawerIfOpen = async (page) => {
 
 const waitForExpectedEditorReady = async (page, options) => {
   await waitForExpectedEditor(page, options)
-  // The fallback navigation path may open the mobile drawer and then discover
-  // that the requested page is already active. In that case no tree-item click
-  // runs to close the drawer, leaving it over the editor and blocking scroll or
-  // toolbar interactions in the test that follows.
+  // Tests start editor interactions with the mobile drawer out of the way.
   await closeMobileNavigationDrawerIfOpen(page)
 }
 
@@ -522,6 +505,7 @@ const waitForExpectedNavigationTarget = async (page, treeTitles) => {
  *  a no-op) by clearing the hash first.
  */
 export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor = true } = {}) => {
+  let expectedPageId = null
   let expectedPageTitle = null
   let treeTitles = null
   let navigationHash = hash
@@ -529,6 +513,7 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
     const hashStr = hash.startsWith('/#') ? hash.slice(2) : hash.startsWith('#') ? hash.slice(1) : hash
     const params = new URLSearchParams(hashStr)
     const pageId = params.get('pg')
+    expectedPageId = pageId
     treeTitles = await resolveTreeTitlesFromHash(hash)
     navigationHash = treeTitles?.fullHash ?? hash
     if (pageId) expectedPageTitle = treeTitles?.pageTitle ?? null
@@ -542,51 +527,22 @@ export const waitForApp = async (page, hash = '/', { expectedText, waitForEditor
     await waitForWorkspaceReady(page)
   }
 
+  await loadRootWorkspace()
+  await navigateViaHashChange(page, navigationHash)
+  if (!waitForEditor) {
+    await waitForExpectedNavigationTarget(page, treeTitles)
+    return
+  }
+
   try {
-    await loadRootWorkspace()
-    await navigateViaHashChange(page, navigationHash)
-    if (!waitForEditor) {
-      await waitForExpectedNavigationTarget(page, treeTitles)
-      return
-    }
-    await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText, timeout: 5000 })
+    await waitForExpectedEditorReady(page, { expectedPageId, expectedPageTitle, expectedText })
   } catch (error) {
-    if (!hash || hash === '/') {
-      const fallbackHash = await findFallbackPageHash()
-      if (!fallbackHash) throw error
-      await loadRootWorkspace()
-      await navigateViaHashChange(page, fallbackHash)
-      await waitForExpectedEditorReady(page)
-      return
-    }
-
+    if (hash && hash !== '/') throw error
+    const fallbackHash = await findFallbackPageHash()
+    if (!fallbackHash) throw error
     await loadRootWorkspace()
-    if (!waitForEditor) {
-      await navigateViaHashChange(page, navigationHash)
-      await waitForExpectedNavigationTarget(page, treeTitles)
-      return
-    }
-
-    if (treeTitles) {
-      await loadRootWorkspace()
-      await ensureNavigationVisible(page)
-      if (treeTitles.notebookTitle) {
-        await clickTreeItemByTitle(page, '.tree-node-notebook', treeTitles.notebookTitle)
-      }
-      if (treeTitles.sectionTitle) {
-        await clickTreeItemByTitle(page, '.tree-node-section', treeTitles.sectionTitle)
-      }
-      if (treeTitles.pageTitle) {
-        await clickTreeItemByTitle(page, '.tree-node-page', treeTitles.pageTitle)
-      }
-      // waitForExpectedEditorReady closes any stray mobile nav drawer left open
-      // by this fallback path, so it can't intercept the test's first real tap.
-      await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText })
-      return
-    }
-
-    await navigateViaHashChange(page, navigationHash)
-    await waitForExpectedEditorReady(page, { expectedPageTitle, expectedText })
+    await navigateViaHashChange(page, fallbackHash)
+    await waitForExpectedEditorReady(page)
   }
 }
 

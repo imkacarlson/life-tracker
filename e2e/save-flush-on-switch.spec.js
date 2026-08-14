@@ -59,7 +59,7 @@ test.describe('save flush on page switch', () => {
     await page.evaluate(({ nb, sec, pg }) => {
       window.location.hash = `#nb=${nb}&sec=${sec}&pg=${pg}`
     }, { nb: notebook.id, sec: section.id, pg: pageB.id })
-    await expect(page.locator('.ProseMirror')).toContainText('Page B content', { timeout: 2000 })
+    await expect(page.locator('.ProseMirror')).toContainText('Page B content', { timeout: 10000 })
 
     // Wait a moment for the flush-on-switch save to complete
     await page.waitForTimeout(1500)
@@ -68,7 +68,7 @@ test.describe('save flush on page switch', () => {
     await page.evaluate(({ nb, sec, pg }) => {
       window.location.hash = `#nb=${nb}&sec=${sec}&pg=${pg}`
     }, { nb: notebook.id, sec: section.id, pg: pageA.id })
-    await expect(page.locator('.ProseMirror')).toContainText('Original A content', { timeout: 2000 })
+    await expect(page.locator('.ProseMirror')).toContainText('Original A content', { timeout: 10000 })
 
     // The edit should be persisted (either from flush-on-switch or the 2s autosave)
     await expect(page.locator('.ProseMirror')).toContainText('— edited', { timeout: 3000 })

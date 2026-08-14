@@ -8,7 +8,7 @@ import {
   setSectionPagesError,
   setSectionPagesLoaded,
   setSectionPagesLoading,
-  setSectionTrackerPage,
+  setSectionDailySourcePage,
   updateSectionPage,
   upsertSectionPage,
 } from '../utils/sectionPages'
@@ -94,9 +94,9 @@ export function useSectionPageCache(userId) {
     setSectionPageCache((prev) => removeSectionPage(prev, sectionId, pageId))
   }, [])
 
-  const markCachedTrackerPage = useCallback((sectionId, pageId) => {
+  const markCachedDailySourcePage = useCallback((sectionId, pageId) => {
     if (!sectionId || !pageId) return
-    setSectionPageCache((prev) => setSectionTrackerPage(prev, sectionId, pageId))
+    setSectionPageCache((prev) => setSectionDailySourcePage(prev, sectionId, pageId))
   }, [])
 
   return {
@@ -106,6 +106,6 @@ export function useSectionPageCache(userId) {
     upsertCachedPage,
     updateCachedPage,
     removeCachedPage,
-    markCachedTrackerPage,
+    markCachedDailySourcePage,
   }
 }

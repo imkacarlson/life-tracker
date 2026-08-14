@@ -8,112 +8,17 @@ import {
 import { clearNavHierarchyCache } from '../utils/resolveNavHierarchy'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
 import { reindexSortOrder } from '../utils/sidebarReorder'
+import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
+import { remapCopiedContents } from './sections/remapCopiedContent'
 
-const NODE_TYPES_WITH_IDS = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'taskList', 'table'])
-
-// Regenerate block IDs in Tiptap JSON, returning the remapped content and an old→new ID map.
-// idMaps: { pageIdMap, sectionId: { old, new }, notebookId: { old, new } }
-const remapContentIds = (content, idMaps) => {
-  const blockIdMap = {}
-  const { pageIdMap, sectionId, notebookId } = idMaps
-
-  const walkNodes = (node) => {
-    if (!node) return node
-    const out = { ...node }
-
-    // Regenerate block IDs for navigable node types
-    if (NODE_TYPES_WITH_IDS.has(node.type) && node.attrs?.id) {
-      const newId = crypto.randomUUID()
-      blockIdMap[node.attrs.id] = newId
-      out.attrs = { ...node.attrs, id: newId, created_at: new Date().toISOString() }
-    }
-
-    // Rewrite internal link hrefs in text marks
-    if (node.marks) {
-      out.marks = node.marks.map((mark) => {
-        if (mark.type !== 'link' || !mark.attrs?.href) return mark
-        const href = mark.attrs.href
-        if (!href.startsWith('#pg=') && !href.startsWith('#sec=') && !href.startsWith('#nb=')) return mark
-
-        const params = new URLSearchParams(href.slice(1))
-        let changed = false
-
-        const oldNb = params.get('nb')
-        if (oldNb && notebookId && oldNb === notebookId.old) {
-          params.set('nb', notebookId.new)
-          changed = true
-        }
-
-        const oldSec = params.get('sec')
-        if (oldSec && sectionId && oldSec === sectionId.old) {
-          params.set('sec', sectionId.new)
-          changed = true
-        }
-
-        const oldPageId = params.get('pg')
-        if (oldPageId && pageIdMap[oldPageId]) {
-          params.set('pg', pageIdMap[oldPageId])
-          changed = true
-        }
-
-        const oldBlockId = params.get('block')
-        if (oldBlockId && blockIdMap[oldBlockId]) {
-          params.set('block', blockIdMap[oldBlockId])
-          changed = true
-        }
-
-        if (!changed) return mark
-        return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
-      })
-    }
-
-    if (node.content) {
-      out.content = node.content.map(walkNodes)
-    }
-
-    return out
-  }
-
-  const remapped = walkNodes(content)
-  return { content: remapped, blockIdMap }
-}
-
-// Second pass: rewrite any block references that were encountered before their new ID was generated
-const fixForwardBlockRefs = (content, blockIdMap) => {
-  const walk = (node) => {
-    if (!node) return node
-    const out = { ...node }
-
-    if (node.marks) {
-      out.marks = node.marks.map((mark) => {
-        if (mark.type !== 'link' || !mark.attrs?.href) return mark
-        const href = mark.attrs.href
-        if (!href.startsWith('#')) return mark
-
-        const params = new URLSearchParams(href.slice(1))
-        const blockId = params.get('block')
-        if (blockId && blockIdMap[blockId]) {
-          params.set('block', blockIdMap[blockId])
-          return { ...mark, attrs: { ...mark.attrs, href: `#${params.toString()}` } }
-        }
-        return mark
-      })
-    }
-
-    if (node.content) {
-      out.content = node.content.map(walk)
-    }
-
-    return out
-  }
-
-  return walk(content)
-}
-
-export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null) => {
+export const useSections = (userId, getPostDeleteTarget = null) => {
   const [sections, setSections] = useState([])
-  const [activeSectionId, setActiveSectionId] = useState(null)
+  const activeNotebookId = useNavigationSelectionStore((state) => state.activeNotebookId)
+  const activeSectionId = useNavigationSelectionStore((state) => state.activeSectionId)
+  const selectSection = useNavigationSelectionStore((state) => state.selectSection)
   const [sectionsLoading, setSectionsLoading] = useState(false)
+  const [successfullyLoadedUserId, setSuccessfullyLoadedUserId] = useState(null)
+  const [loadedUserId, setLoadedUserId] = useState(null)
   const [message, setMessage] = useState('')
   const loadRequestIdRef = useRef(0)
 
@@ -121,6 +26,7 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     if (!userId) return
     const requestId = ++loadRequestIdRef.current
     setSectionsLoading(true)
+    setSuccessfullyLoadedUserId(null)
     setMessage('')
     const { data, error } = await runSupabaseQueryWithRetry(() =>
       supabase
@@ -134,11 +40,14 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
 
     if (error) {
       setMessage(error.message)
+      setLoadedUserId(userId)
       setSectionsLoading(false)
       return
     }
 
     setSections(data ?? [])
+    setLoadedUserId(userId)
+    setSuccessfullyLoadedUserId(userId)
     setSectionsLoading(false)
   }, [userId])
 
@@ -148,27 +57,31 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
       loadRequestIdRef.current += 1
       // eslint-disable-next-line react-hooks/set-state-in-effect -- reset section state when the userId prop clears (logout)
       setSections([])
-      setActiveSectionId(null)
       setSectionsLoading(false)
+      setSuccessfullyLoadedUserId(null)
+      setLoadedUserId(null)
       setMessage('')
       return
     }
     void loadSections()
   }, [userId, loadSections])
 
-  // When the active notebook changes, pick the right section from already-loaded data
+  // Once sections are loaded, fill in a missing/invalid descendant for the
+  // selected notebook. Complete deep-link selections survive loading unchanged.
   useEffect(() => {
-    if (!activeNotebookId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset active section when the activeNotebookId prop clears
-      setActiveSectionId(null)
-      return
-    }
+    if (!userId || loadedUserId !== userId || sectionsLoading || !activeNotebookId) return
     const notebookSections = sections.filter((s) => s.notebook_id === activeNotebookId)
-    setActiveSectionId((prev) => {
-      if (prev && notebookSections.some((s) => s.id === prev)) return prev
-      return notebookSections[0]?.id ?? null
-    })
-  }, [activeNotebookId, sections])
+    if (activeSectionId && notebookSections.some((s) => s.id === activeSectionId)) return
+    selectSection(activeNotebookId, notebookSections[0]?.id ?? null)
+  }, [
+    activeNotebookId,
+    activeSectionId,
+    loadedUserId,
+    sections,
+    sectionsLoading,
+    selectSection,
+    userId,
+  ])
 
   const createSection = async (session, notebookId) => {
     if (!session || !notebookId) return
@@ -192,7 +105,7 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     }
 
     setSections((prev) => [...prev, data])
-    setActiveSectionId(data.id)
+    selectSection(notebookId, data.id)
   }
 
   const renameSection = async (section) => {
@@ -250,19 +163,21 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
     }
 
     clearNavHierarchyCache()
-    const notebookSectionsBefore = sections.filter((s) => s.notebook_id === activeNotebookId)
+    const selection = useNavigationSelectionStore.getState()
+    const notebookSectionsBefore = sections.filter((s) => s.notebook_id === selection.activeNotebookId)
     const deletedIndex = notebookSectionsBefore.findIndex((s) => s.id === section.id)
     const nextSections = sections.filter((item) => item.id !== section.id)
     setSections(nextSections)
-    const notebookSections = nextSections.filter((s) => s.notebook_id === activeNotebookId)
+    const notebookSections = nextSections.filter((s) => s.notebook_id === selection.activeNotebookId)
     // Land on the most-recent previous section (else the adjacent sibling).
-    setActiveSectionId((prev) =>
-      prev === section.id
-        ? getPostDeleteTarget?.(notebookSections, section.id, deletedIndex) ??
+    if (selection.activeSectionId === section.id) {
+      selectSection(
+        selection.activeNotebookId,
+        getPostDeleteTarget?.(notebookSections, section.id, deletedIndex) ??
           notebookSections[0]?.id ??
-          null
-        : prev,
-    )
+          null,
+      )
+    }
   }
 
   const moveSection = async (section, destNotebookId) => {
@@ -412,31 +327,22 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
         insertedPages.push(newPage.id)
       }
 
-      // Phase 2: Remap block IDs and internal links in each copied page
-      const allBlockIds = {}
-      const remappedContents = []
-      for (let i = 0; i < sourcePages.length; i++) {
-        if (!sourcePages[i].content) {
-          remappedContents.push(null)
-          continue
-        }
-        const idMaps = {
+      // Phase 2: Regenerate block IDs and rewrite all copied-section links.
+      const remappedContents = remapCopiedContents(
+        sourcePages.map((page) => page.content),
+        {
           pageIdMap,
           sectionId: { old: section.id, new: newSection.id },
           notebookId: { old: activeNotebookId, new: destNotebookId },
-        }
-        const { content: remapped, blockIdMap } = remapContentIds(sourcePages[i].content, idMaps)
-        Object.assign(allBlockIds, blockIdMap)
-        remappedContents.push(remapped)
-      }
+        },
+      )
 
-      // Phase 3: Fix forward block references (links that appeared before their target was remapped)
+      // Phase 3: Persist the transformed contents after every copied page has an ID.
       const updates = remappedContents.map((content, i) => {
         if (!content) return null
-        const fixed = fixForwardBlockRefs(content, allBlockIds)
         return supabase
           .from('pages')
-          .update({ content: fixed })
+          .update({ content })
           .eq('id', insertedPages[i])
       }).filter(Boolean)
 
@@ -491,8 +397,8 @@ export const useSections = (userId, activeNotebookId, getPostDeleteTarget = null
   return {
     sections,
     sectionsLoading,
+    sectionsLoaded: Boolean(userId) && successfullyLoadedUserId === userId,
     activeSectionId,
-    setActiveSectionId,
     activeSection,
     message,
     setMessage,

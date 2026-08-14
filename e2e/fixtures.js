@@ -1,4 +1,3 @@
-/* global process */
 import { test as base, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { config } from 'dotenv'
