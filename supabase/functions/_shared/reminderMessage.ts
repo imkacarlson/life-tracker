@@ -90,6 +90,38 @@ export function buildReminderText(
 }
 
 /**
+ * Confirmation for a snooze.
+ *
+ * Echoing the line back and resolving the wall-clock time is the whole safety
+ * story now that intent can be AI-inferred: if the wrong reminder was targeted
+ * (possible on the "most recent in the last few hours" fallback), the user sees
+ * it in the confirmation instead of discovering it later.
+ */
+export function buildSnoozeConfirmation(opts: {
+  lineText: string | null
+  minutes: number
+  fireAt: number
+  timeZone: string
+}): string {
+  const body = cleanLineText(opts.lineText ?? '', null)
+  const quoted = body ? ` — "${body}"` : ''
+  return (
+    `⏰ Snoozed ${describeLead(opts.minutes)}${quoted} — ` +
+    `I'll ping you ${formatInZone(opts.fireAt, opts.timeZone, ' at ')}.`
+  )
+}
+
+/**
+ * Confirmation for a cross-off. Quotes the line and links straight to it, so an
+ * unintended cross-off is both visible and one tap from being undone.
+ */
+export function buildDoneConfirmation(quoted: string, deepLink: string): string {
+  const line = quoted ? `\n\n"${quoted}"` : ''
+  const link = deepLink ? `\n\n[Open in tracker](${deepLink})` : ''
+  return `✅ Crossed off:${line}${link}`
+}
+
+/**
  * What the bot promises right after the user confirms an addition.
  *
  * Runs the SAME deriveFromSegments the cron sweep uses, over the SAME
