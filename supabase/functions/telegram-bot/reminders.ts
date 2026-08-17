@@ -12,7 +12,15 @@ import {
   type DerivedReminder,
 } from '../_shared/deriveReminders.ts'
 import { resolveTrackerAnchor } from '../_shared/dailyHelpers.ts'
-import { cleanLineText, describeArmedReminders, describeLead } from '../_shared/reminderMessage.ts'
+import {
+  buildDoneConfirmation,
+  buildSnoozeConfirmation,
+  cleanLineText,
+  describeArmedReminders,
+  describeLead,
+} from '../_shared/reminderMessage.ts'
+import type { IntentContext } from '../_shared/reminderIntent.ts'
+import type { ReminderAction } from '../_shared/reminderReply.ts'
 import { buildDeepLink } from '../_shared/deepLink.ts'
 import { strikeBlock, type TiptapNode } from '../_shared/strikeBlock.ts'
 import { formatInZone, localIsoDate } from '../_shared/wallClock.ts'
@@ -240,4 +248,60 @@ export async function scheduleSnooze(
   })
   // 23505 means an identical snooze already exists — same outcome for the user.
   return { ok: !error || error.code === '23505', fireAt }
+}
+
+/**
+ * What the intent classifier needs to read a reply: which line the reminder was
+ * about (so "that one" has a referent), when it went out, and what time it is
+ * now (so "give me an hour" is anchored).
+ */
+export function intentContextFor(
+  reminder: SentReminder,
+  now: Date,
+  timeZone: string,
+): IntentContext {
+  const sentAt = reminder.sent_at ? Date.parse(reminder.sent_at) : NaN
+  return {
+    lineText: reminder.line_text ?? '',
+    sentAt: Number.isFinite(sentAt) ? formatInZone(sentAt, timeZone, ' at ') : 'recently',
+    nowLocal: formatInZone(now, timeZone, ' at '),
+  }
+}
+
+/**
+ * Carry out a "done" or "snooze" on a reminder we sent.
+ *
+ * The confirmation is MANDATORY and echoes what was understood: which line, and
+ * — for a snooze — the resolved wall-clock time. Intent can now be AI-inferred,
+ * so this echo is the safety net. A mis-read reply is visible immediately, and a
+ * cross-off is one tap from being undone.
+ */
+export async function handleReminderAction(
+  supabase: SupabaseLike,
+  userId: string,
+  target: SentReminder,
+  action: NonNullable<ReminderAction>,
+  now: Date,
+  timeZone: string,
+): Promise<string> {
+  if (action.kind === 'snooze') {
+    const { ok, fireAt } = await scheduleSnooze(supabase, userId, target, action.minutes, now)
+    if (!ok) return 'Couldn’t snooze that just now — try again in a moment.'
+    return buildSnoozeConfirmation({
+      lineText: target.line_text,
+      minutes: action.minutes,
+      fireAt,
+      timeZone,
+    })
+  }
+
+  const result = await applyDone(supabase, target, now)
+  if (!result.ok) {
+    if (result.reason === 'not_found') {
+      return 'That line isn’t in your tracker anymore, so there was nothing to cross off.'
+    }
+    return 'Couldn’t update your tracker just now — send that again in a moment.'
+  }
+
+  return buildDoneConfirmation(result.quoted, result.deepLink)
 }

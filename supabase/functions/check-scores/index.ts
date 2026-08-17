@@ -29,6 +29,12 @@ type GameResult = {
 // --- Config ---
 
 const EMAIL_RECIPIENT = 'imkacarlson@gmail.com'
+// PINNED, do not "upgrade". This function needs Google Search grounding (see the
+// tools: [{ google_search: {} }] below) and the free tier does not serve grounding
+// on any 3.x model — every one of them returns 429 RESOURCE_EXHAUSTED the moment
+// the tool is requested, while 2.5-flash returns grounded results normally.
+// Verified against the live API. Plain (ungrounded) 3.x generation is fine on the
+// same key, which is why the reminder-intent classifier can run on 3.5-flash-lite.
 const GEMINI_MODEL = 'gemini-2.5-flash'
 
 // Team seed data — inserted on first run if sport_teams is empty

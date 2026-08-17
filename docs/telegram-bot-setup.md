@@ -30,6 +30,19 @@ supabase secrets set \
 
 `ANTHROPIC_API_KEY`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are already configured.
 
+### Reminder-reply classifier
+
+Replying to a reminder in your own words ("snooze that one", "yeah did that already") is read by a
+small Gemini call. Get a key from [Google AI Studio](https://aistudio.google.com/apikey) and:
+
+```bash
+supabase secrets set GEMINI_API_KEY='<google ai studio key>'
+```
+
+This is deliberately a **separate** key from `GEMINI_SCORES_API_KEY` (used by `check-scores`), so the
+two features hit their own rate limits and fail independently. Without it the bot still handles bare
+`done` / `snooze <duration>` replies via the keyword parser — it just can't read the chattier ones.
+
 ### `/blog` command secrets (GRC blog drafter)
 
 The `/blog` command formats a pasted race recap into WordPress block markup and creates a **draft**

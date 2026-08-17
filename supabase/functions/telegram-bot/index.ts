@@ -18,14 +18,14 @@ import {
   purgeExpiredJobs,
 } from './capture.ts'
 import {
-  applyDone,
   describeArmedForItems,
   findTargetReminder,
+  handleReminderAction,
+  intentContextFor,
   listUpcomingReminders,
-  scheduleSnooze,
 } from './reminders.ts'
 import { parseReminderReply } from '../_shared/reminderReply.ts'
-import { describeLead } from '../_shared/reminderMessage.ts'
+import { classifyReminderIntent } from './geminiIntent.ts'
 import {
   closeActiveSessions,
   loadRecentTurns,
@@ -60,6 +60,9 @@ const THINK_USAGE =
   '/think plan out my marathon build\n\n' +
   'I stay in deep-thinking mode until you send /new.'
 const TYPING_INTERVAL_MS = 4000 // re-send "typing…" before Telegram's ~5s expiry
+// Above this, a message is prose, not a reply to a reminder — don't pay for a
+// classification of it. "snooze that one" is 15 characters.
+const MAX_INTENT_CHARS = 200
 
 // --- Secrets / config ---
 // verify_jwt = false is deliberate: Telegram cannot send a Supabase JWT. Auth is
@@ -128,38 +131,6 @@ bot.command('reminders', async (ctx) => {
 })
 
 /**
- * Carry out a "done" or "snooze" on a reminder we sent.
- *
- * The confirmation is MANDATORY and quotes the line back with a link: an
- * accidental cross-off is then visible, and one tap from being undone.
- */
-async function handleReminderAction(
-  userId: string,
-  target: Awaited<ReturnType<typeof findTargetReminder>>,
-  action: NonNullable<ReturnType<typeof parseReminderReply>>,
-  now: Date,
-): Promise<string> {
-  if (!target) return 'I couldn’t tell which reminder you meant.'
-
-  if (action.kind === 'snooze') {
-    const { ok } = await scheduleSnooze(supabase, userId, target, action.minutes, now)
-    if (!ok) return 'Couldn’t snooze that just now — try again in a moment.'
-    return `⏰ Snoozed ${describeLead(action.minutes)} — I’ll ping you again then.`
-  }
-
-  const result = await applyDone(supabase, target, now)
-  if (!result.ok) {
-    if (result.reason === 'not_found') {
-      return 'That line isn’t in your tracker anymore, so there was nothing to cross off.'
-    }
-    return 'Couldn’t update your tracker just now — send that again in a moment.'
-  }
-
-  const quoted = result.quoted ? `\n\n"${result.quoted}"` : ''
-  return `✅ Crossed off:${quoted}\n\n[Open in tracker](${result.deepLink})`
-}
-
-/**
  * The whole conversational flow: session, dedup, pending-proposal capture, and
  * the agentic tool loop. Shared by the plain text handler and /think so the
  * logic lives in exactly one place.
@@ -197,18 +168,37 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
     if (duplicate) return
 
+    // A pending preview owns bare confirmations ("done" could mean "yes, add it"),
+    // so it's resolved first and reused by the capture block below — same query,
+    // same arguments.
+    const pendingJob = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
+
     // --- Is this message acting on a reminder we sent? ---
-    // Deterministic keyword match, no AI. Runs first so a quote-reply to a
-    // reminder always wins, but only fires on a bare "done"/"snooze" — anything
-    // chattier falls through untouched to the flow below.
-    const reminderAction = parseReminderReply(text)
-    if (reminderAction) {
-      const pendingPreview = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
-      // A pending preview owns bare confirmations ("done" could mean "yes, add it").
-      if (!pendingPreview) {
-        const target = await findTargetReminder(supabase, userId, now, replyToMessageId)
-        if (target) {
-          const reply = await handleReminderAction(userId, target, reminderAction, now)
+    // The deterministic keyword match runs first: free, instant, already
+    // unit-tested, and unchanged. Only when it declines — and the message is
+    // short enough to plausibly be a reply — do we look for a live reminder and
+    // pay for a classification. That gate is what bounds the cost: no model call
+    // unless a reminder is actually in play.
+    // /think is an explicit "answer this" — never let a short one get read as a
+    // cross-off. The keyword path is unchanged there, since it already was.
+    const canClassify = !forceMode && text.trim().length <= MAX_INTENT_CHARS
+    const keywordAction = parseReminderReply(text)
+    if (!pendingJob && (keywordAction || canClassify)) {
+      const target = await findTargetReminder(supabase, userId, now, replyToMessageId)
+      if (target) {
+        const action =
+          keywordAction ??
+          (await classifyReminderIntent(text, intentContextFor(target, now, USER_TIMEZONE)))
+        // null means "just a message" — fall through to the normal flow untouched.
+        if (action) {
+          const reply = await handleReminderAction(
+            supabase,
+            userId,
+            target,
+            action,
+            now,
+            USER_TIMEZONE,
+          )
           await persistAssistantTurn(supabase, sessionId, reply)
           await sendReply(ctx.api, chatId, reply)
           return
@@ -217,7 +207,6 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     }
 
     // --- Capture: is this message responding to a pending proposal? ---
-    const pendingJob = await findPendingJob(supabase, { userId, sessionId, replyToMessageId })
     if (pendingJob) {
       const { decision } = await classifyReply(text, CLASSIFY_MODEL)
 
