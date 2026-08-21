@@ -83,15 +83,22 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
     userId,
   ])
 
-  const createSection = async (session, notebookId) => {
-    if (!session || !notebookId) return
-    const title = window.prompt('Section name', 'New Section')
-    if (!title) return
+  /**
+   * Create a section with a name already in hand.
+   *
+   * Split out of createSection so the Library can make one without a
+   * window.prompt: a suggestion card and the "make your own" modal both arrive
+   * here with a title the user has already typed. Returns the new row, or null,
+   * so a caller can navigate to it.
+   */
+  const createSectionNamed = async (session, notebookId, title) => {
+    const name = String(title ?? '').trim()
+    if (!session || !notebookId || !name) return null
     const color = COLOR_PALETTE[sections.length % COLOR_PALETTE.length]
     const { data, error } = await supabase
       .from('sections')
       .insert({
-        title: title.trim(),
+        title: name,
         user_id: session.user.id,
         notebook_id: notebookId,
         color,
@@ -101,11 +108,19 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
 
     if (error) {
       setMessage(error.message)
-      return
+      return null
     }
 
     setSections((prev) => [...prev, data])
     selectSection(notebookId, data.id)
+    return data
+  }
+
+  const createSection = async (session, notebookId) => {
+    if (!session || !notebookId) return
+    const title = window.prompt('Section name', 'New Section')
+    if (!title) return
+    await createSectionNamed(session, notebookId, title)
   }
 
   const renameSection = async (section) => {
@@ -293,7 +308,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
 
     const { data: sourcePages, error: fetchError } = await supabase
       .from('pages')
-      .select('id, title, content, sort_order, is_tracker_page')
+      .select('id, title, content, sort_order, is_tracker_page, library_role')
       .eq('section_id', section.id)
 
     if (fetchError) {
@@ -313,6 +328,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
             content: page.content,
             sort_order: page.sort_order,
             is_tracker_page: page.is_tracker_page,
+            library_role: page.library_role,
             section_id: newSection.id,
             user_id: session.user.id,
           })
@@ -403,6 +419,7 @@ export const useSections = (userId, getPostDeleteTarget = null) => {
     message,
     setMessage,
     createSection,
+    createSectionNamed,
     renameSection,
     deleteSection,
     moveSection,

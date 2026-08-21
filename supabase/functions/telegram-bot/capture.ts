@@ -1,29 +1,74 @@
-// Capture flow: detect a pending "add to tracker" proposal in scope, classify the
-// user's reply, and — only on a classified confirmation — apply the write in code.
+// Capture flow: detect a pending proposal in scope, classify the user's reply,
+// and — only on a classified confirmation — apply the write in code.
 //
-// Safety property: the AI never writes the tracker. propose_tracker_addition (a
-// read+propose tool) stages a bot_preview_jobs row; the actual `pages` write lives
-// here, gated behind a read-only classification of the user's reply.
+// Safety property: the AI never writes to `pages`. The propose tools
+// (propose_tracker_addition, save_to_library) stage a bot_preview_jobs row; the
+// actual write lives here, gated behind a read-only classification of the user's
+// reply. That property is unchanged by the Library — it uses the same table, the
+// same classification, and the same gate.
 
-import { callClaude } from './anthropic.ts'
+import { callClaude } from '../_shared/anthropic.ts'
 import { buildItems, insertRelativeToBlock } from './insertContent.ts'
 import type { Format, Placement, TiptapNode } from './insertContent.ts'
 import { buildDeepLink } from '../_shared/deepLink.ts'
+import { appendDatedNote, shortDateLabel } from '../_shared/libraryPage.ts'
+import { recordTopicMembership } from './library.ts'
 
 const APP_URL = (Deno.env.get('APP_URL') ?? 'https://life-tracker-mu-sandy.vercel.app').replace(/\/$/, '')
 
 type SupabaseLike = { from: (table: string) => any }
 
 const JOB_COLS =
-  'id, page_id, base_updated_at, proposed_content, inserted_block_ids, placement, preview_message_id, status, session_id'
+  'id, kind, user_id, page_id, base_updated_at, proposed_content, inserted_block_ids, placement, preview_message_id, status, session_id'
+
+/** A tracker addition: the placement is the re-apply recipe against an existing page. */
+export type TrackerPlacement = {
+  targetBlockId: string | null
+  position: Placement
+  format: Format
+  items: string[]
+}
+
+/**
+ * A Library capture. Two modes:
+ *   append  a dated note onto a capture we already have — an ordinary OCC update,
+ *           so page_id / base_updated_at are set and mean what they always mean.
+ *   new     a capture that doesn't exist yet, so there is no target page and the
+ *           placement carries the whole filing recipe instead.
+ */
+export type LibraryPlacement = {
+  mode: 'new' | 'append'
+  sectionId: string | null
+  title: string
+  summary?: string
+  note?: string
+  /** Existing topic pages this capture belongs to, and why, decided at ingest.
+   *  `topicIds` is the pre-reason shape, still read so a job staged before this
+   *  deploy and confirmed after it still gets filed. */
+  topics?: Array<{ id: string; reason: string | null }>
+  topicIds?: string[]
+  source?: {
+    sourceType: string
+    url: string | null
+    canonicalUrl: string | null
+    markdown: string
+    meta: Record<string, unknown>
+    status: string
+    error: string | null
+  }
+}
 
 export type PendingJob = {
   id: string
-  page_id: string
-  base_updated_at: string
+  kind: 'tracker_addition' | 'library_capture'
+  user_id: string
+  // Null only for a brand-new library capture — see the migration's
+  // bot_preview_jobs_target_required constraint.
+  page_id: string | null
+  base_updated_at: string | null
   proposed_content: TiptapNode
   inserted_block_ids: string[]
-  placement: { targetBlockId: string | null; position: Placement; format: Format; items: string[] }
+  placement: TrackerPlacement | LibraryPlacement
   preview_message_id: number | null
   status: string
   session_id: string | null
@@ -139,8 +184,10 @@ export async function classifyReply(userText: string, model: string): Promise<{ 
 }
 
 export type ApplyResult =
-  | { ok: true; deepLink: string; pageTitle: string | null }
-  | { ok: false; reason: 'anchor_missing' | 'conflict' | 'error' }
+  // `sectionId` is what the caller scopes the Library rebuild to, so a capture
+  // only re-renders the section it landed in.
+  | { ok: true; deepLink: string; pageTitle: string | null; pageId: string; sectionId: string | null }
+  | { ok: false; reason: 'anchor_missing' | 'conflict' | 'error' | 'no_section' }
 
 /**
  * Apply a confirmed proposal to the page — a pure code path (no AI).
@@ -154,6 +201,26 @@ export async function applyPendingJob(
   supabase: SupabaseLike,
   job: PendingJob,
   now: Date,
+  timeZone = 'UTC',
+): Promise<ApplyResult> {
+  if (job.kind === 'library_capture') {
+    return await applyLibraryCapture(supabase, job, now, timeZone)
+  }
+  return await applyExistingPageJob(supabase, job, now, timeZone)
+}
+
+/**
+ * Write to a page that already exists, under an OCC guard.
+ *
+ * Shared by a tracker addition and by a Library capture in `append` mode —
+ * appending a dated note to an existing capture IS an ordinary OCC page update,
+ * which is exactly why the two can share one table and one apply path.
+ */
+async function applyExistingPageJob(
+  supabase: SupabaseLike,
+  job: PendingJob,
+  now: Date,
+  timeZone: string,
 ): Promise<ApplyResult> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data: page, error } = await supabase
@@ -169,8 +236,20 @@ export async function applyPendingJob(
     if (page.updated_at === job.base_updated_at) {
       contentToWrite = job.proposed_content
       blockId = job.inserted_block_ids?.[0]
+    } else if (job.kind === 'library_capture') {
+      // The page drifted since the preview. Re-derive from the note instead of
+      // writing a stale document — the summary and source blocks on that page
+      // are not ours to overwrite, and the user's earlier notes certainly aren't.
+      const { note } = job.placement as LibraryPlacement
+      const appended = appendDatedNote(
+        page.content as TiptapNode,
+        String(note ?? ''),
+        shortDateLabel(now, timeZone),
+      )
+      contentToWrite = appended.doc
+      blockId = appended.blockId ?? undefined
     } else {
-      const { targetBlockId, position, format, items } = job.placement ?? ({} as PendingJob['placement'])
+      const { targetBlockId, position, format, items } = (job.placement ?? {}) as TrackerPlacement
       const nodes = buildItems(format, items)
       const result = insertRelativeToBlock(page.content as TiptapNode, targetBlockId ?? null, position, nodes)
       if (!result.insertedBlockIds.length) return { ok: false, reason: 'anchor_missing' }
@@ -201,9 +280,111 @@ export async function applyPendingJob(
       )
       // The page title carries the tracker's month, which anchors any bare M/D
       // in the confirmation's reminder derivation.
-      return { ok: true, deepLink, pageTitle: page.title ?? null }
+      return {
+        ok: true,
+        deepLink,
+        pageTitle: page.title ?? null,
+        pageId: job.page_id as string,
+        sectionId: (page.section_id as string | null) ?? null,
+      }
     }
     // Zero rows matched -> a concurrent write landed; loop to re-read and re-apply.
   }
   return { ok: false, reason: 'conflict' }
+}
+
+/**
+ * Create a brand-new Library capture: one `pages` row plus its immutable
+ * `library_sources` record.
+ *
+ * There is no OCC here because there is nothing to collide with — the page does
+ * not exist yet. `library_role: 'capture'` is what keeps it out of the sidebar
+ * tree (NavigationTree filters on it), so it is reachable only from a topic
+ * page, a section front page, search, or this confirmation's deep link.
+ */
+async function applyLibraryCapture(
+  supabase: SupabaseLike,
+  job: PendingJob,
+  now: Date,
+  timeZone: string,
+): Promise<ApplyResult> {
+  const placement = (job.placement ?? {}) as LibraryPlacement
+
+  // `append` targets a capture we already have, which is an ordinary OCC update.
+  if (placement.mode === 'append' && job.page_id) {
+    return await applyExistingPageJob(supabase, job, now, timeZone)
+  }
+
+  const sectionId = placement.sectionId
+  if (!sectionId) return { ok: false, reason: 'no_section' }
+
+  // Land at the bottom of the section, like a new page created in the app.
+  const { data: last } = await supabase
+    .from('pages')
+    .select('sort_order')
+    .eq('section_id', sectionId)
+    .order('sort_order', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle()
+  const sortOrder = Number.isFinite(last?.sort_order) ? Number(last.sort_order) + 1 : 0
+
+  const { data: page, error } = await supabase
+    .from('pages')
+    .insert({
+      user_id: job.user_id,
+      section_id: sectionId,
+      title: placement.title || 'Untitled',
+      content: job.proposed_content,
+      sort_order: sortOrder,
+      library_role: 'capture',
+    })
+    .select('id')
+    .single()
+  if (error || !page?.id) {
+    console.error('applyLibraryCapture: page insert failed:', error?.code ?? error?.message)
+    return { ok: false, reason: 'error' }
+  }
+
+  const source = placement.source
+  const { error: sourceError } = await supabase.from('library_sources').insert({
+    page_id: page.id,
+    user_id: job.user_id,
+    source_type: source?.sourceType ?? 'note',
+    url: source?.url ?? null,
+    canonical_url: source?.canonicalUrl ?? null,
+    source_text: source?.markdown ?? null,
+    source_meta: source?.meta ?? {},
+    extract_status: source?.status ?? 'none',
+    extract_error: source?.error ?? null,
+    fetched_at: now.toISOString(),
+  })
+  if (sourceError) {
+    // Non-fatal: the capture page is real and readable either way. Losing the
+    // ingest record costs dedup and full-text search on this one item, which is
+    // strictly better than losing the capture.
+    console.error('applyLibraryCapture: source insert failed:', sourceError.code ?? sourceError.message)
+  }
+
+  // File it into whichever existing topics the ingest call picked. Decided once,
+  // at capture time — the weekly rebuild only renders from what is stored here,
+  // it never re-decides.
+  await recordTopicMembership(supabase, {
+    userId: job.user_id,
+    capturePageId: page.id,
+    topics:
+      placement.topics ??
+      (placement.topicIds ?? []).map((id) => ({ id, reason: null })),
+  })
+
+  const { data: section } = await supabase
+    .from('sections')
+    .select('notebook_id')
+    .eq('id', sectionId)
+    .maybeSingle()
+
+  const deepLink = buildDeepLink(
+    { notebookId: section?.notebook_id, sectionId, pageId: page.id },
+    APP_URL,
+  )
+  return { ok: true, deepLink, pageTitle: placement.title ?? null, pageId: page.id, sectionId }
 }

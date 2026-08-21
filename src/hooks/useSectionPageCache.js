@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
+import { mergeReorderedPages } from '../utils/sidebarReorder'
 import {
   SECTION_PAGE_STATUS,
   getSectionPageEntry,
@@ -36,6 +37,25 @@ export function useSectionPageCache(userId) {
     setSectionPageCache((prev) => setSectionPagesLoaded(prev, sectionId, pages ?? []))
   }, [])
 
+  /**
+   * Apply a reorder of the VISIBLE pages without dropping the hidden ones.
+   *
+   * seedSectionPages is a full replace, which is right when the caller has the
+   * whole list. Drag-and-drop does not: it works on the subset the tree renders,
+   * so replacing with it would evict every Library capture from the cache — and
+   * that cache is what usePages resolves an open page against.
+   */
+  const mergeSectionPageOrder = useCallback((sectionId, reordered) => {
+    if (!sectionId) return
+    setSectionPageCache((prev) =>
+      setSectionPagesLoaded(
+        prev,
+        sectionId,
+        mergeReorderedPages(getSectionPageEntry(prev, sectionId).pages, reordered ?? []),
+      ),
+    )
+  }, [])
+
   const markSectionPagesLoading = useCallback((sectionId) => {
     if (!sectionId) return
     setSectionPageCache((prev) => setSectionPagesLoading(prev, sectionId))
@@ -61,7 +81,7 @@ export function useSectionPageCache(userId) {
       const { data, error } = await runSupabaseQueryWithRetry(() =>
         supabase
           .from('pages')
-          .select('id, title, section_id, sort_order, is_tracker_page')
+          .select('id, title, section_id, sort_order, is_tracker_page, library_role')
           .eq('section_id', sectionId)
           .order('sort_order', { ascending: true, nullsLast: true }),
       )
@@ -103,6 +123,7 @@ export function useSectionPageCache(userId) {
     sectionPageCache,
     loadSectionPagesMeta,
     seedSectionPages,
+    mergeSectionPageOrder,
     upsertCachedPage,
     updateCachedPage,
     removeCachedPage,

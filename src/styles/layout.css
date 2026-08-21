@@ -459,6 +459,26 @@
   }
 }
 
+/* Stands in for the drag handle on rows that cannot be reordered, so a hoisted
+   Lately/Activity row lines up with the section rows around it. Never a button:
+   a focusable "Reorder page Lately" control that does nothing is worse than no
+   control at all. */
+.tree-drag-handle-spacer {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.6rem;
+}
+
+/* A hoisted Lately/Activity row sits at section depth but carries a page
+   marker, not a chevron and a colour chip. Without this its label would start
+   ~2rem left of the section labels beside it and the column would read ragged.
+   0.55rem is the row's own padding; 2rem stands in for the chevron + chip +
+   gaps a section row spends before its label. */
+.tree-page-row-hoisted > .tree-node-page {
+  padding-left: calc(0.55rem + 2rem);
+}
+
 /* The original row is dimmed while its DragOverlay ghost follows the pointer. */
 .tree-sortable-row.dragging {
   opacity: 0.4;
@@ -500,7 +520,8 @@
   font-weight: 600;
 }
 
-.tracker-page-badge {
+.tracker-page-badge,
+.catalog-page-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -522,6 +543,32 @@
   padding: 0;
   letter-spacing: 0;
   font-size: 0.62rem;
+}
+
+/* Not the user's page: written and rewritten by the app. Muted rather than
+   accented — TRACKER marks a choice they made, CATALOG marks one they didn't.
+   Never abbreviated: a bare "C" explains nothing, and the default sidebar is
+   280px, already under the 300px compact threshold, so the short form would be
+   the normal case rather than the edge one. */
+.catalog-page-badge {
+  color: var(--text-muted);
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* How many things are saved in a Library section. A deliberate exception to
+   "nothing in the Library is a queue": with captures hidden from the tree it is
+   the only sign a section holds anything. Muted mono, no background, and not
+   actionable — it is context, not a count of things to get through. */
+.tree-section-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .drawer-backdrop {

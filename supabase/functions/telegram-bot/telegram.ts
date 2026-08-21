@@ -14,18 +14,29 @@ const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? ''
  * MarkdownV2. If Telegram rejects the formatting (400 "can't parse entities"),
  * automatically resend that chunk as plain text — so the user always gets the
  * message, unformatted at worst, never an error or a dropped reply.
+ *
+ * Returns the message_id of the LAST chunk sent, or null if that couldn't be
+ * read. A Library capture stores it on library_sources so a later quote-reply
+ * carrying pasted text can attach itself to that capture — the same mechanism
+ * bot_preview_jobs.preview_message_id already uses for proposals. Callers that
+ * don't need it simply ignore the return value.
  */
-export async function sendReply(api: any, chatId: number, text: string): Promise<void> {
+export async function sendReply(api: any, chatId: number, text: string): Promise<number | null> {
   const chunks = splitMessage(text, TG_MAX)
+  let lastMessageId: number | null = null
   for (const chunk of chunks) {
+    let sent: any = null
     try {
       const formatted = telegramifyMarkdown(chunk, 'escape')
-      await api.sendMessage(chatId, formatted, { parse_mode: 'MarkdownV2' })
+      sent = await api.sendMessage(chatId, formatted, { parse_mode: 'MarkdownV2' })
     } catch (_err) {
       // Fallback: plain text, no parse_mode. Guarantees delivery.
-      await api.sendMessage(chatId, chunk)
+      sent = await api.sendMessage(chatId, chunk)
     }
+    const id = sent?.message_id
+    if (typeof id === 'number') lastMessageId = id
   }
+  return lastMessageId
 }
 
 /**
@@ -102,6 +113,7 @@ export async function registerCommands(api: any): Promise<void> {
       { command: 'new', description: 'Start a fresh conversation' },
       { command: 'think', description: 'Deep thinking mode (until /new)' },
       { command: 'reminders', description: "What's armed for the next 14 days" },
+      { command: 'library', description: 'What the Library rebuild last changed' },
       { command: 'blog', description: 'Draft a GRC blog post from a race recap' },
     ])
   } catch (_err) {

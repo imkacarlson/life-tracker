@@ -5,6 +5,10 @@
       "memory": 2048,
       "maxDuration": 30,
       "includeFiles": "{src/styles/**,api/_lib/fonts/**}"
+    },
+    "api/fetch-source.js": {
+      "memory": 2048,
+      "maxDuration": 60
     }
   }
 }

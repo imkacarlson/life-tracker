@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { generateJSON } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core'
@@ -6,8 +6,15 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { supabase } from '../../lib/supabase'
 import { resizeAndEncode } from '../../utils/imageResize'
 import PasteRecipeModal from '../editor/PasteRecipeModal'
+import NewLibraryThingModal from './NewLibraryThingModal'
 import SortableTreeRow from './SortableTreeRow'
-import { SECTION_PAGE_STATUS, getSectionPageEntry } from '../../utils/sectionPages'
+import TreePageRow from './TreePageRow'
+import { buildLibraryTreeShapes } from '../../utils/libraryTree'
+import {
+  SECTION_PAGE_STATUS,
+  getSectionPageEntry,
+  getVisibleSectionPages,
+} from '../../utils/sectionPages'
 import { useLocalStorageState } from '../../hooks/useLocalStorageState'
 import { useSidebarDnd } from '../../hooks/useSidebarDnd'
 
@@ -23,7 +30,7 @@ function NavigationTree({
   userId,
   loading,
   compactBadges = false,
-  isRecipesNotebook = false,
+  activeNotebookType = 'tracker',
   isMobileViewport = false,
   mobileSidebarOpen = false,
   session,
@@ -39,6 +46,7 @@ function NavigationTree({
   onOpenContextMenu,
   onLoadSectionPages,
   onCreateWithContent,
+  onCreateLibraryThing,
 }) {
   const {
     sensors,
@@ -71,6 +79,8 @@ function NavigationTree({
   const expandedSections = expandedSectionsRaw instanceof Set
     ? expandedSectionsRaw
     : new Set(Array.isArray(expandedSectionsRaw) ? expandedSectionsRaw : [])
+  const [newTopicOpen, setNewTopicOpen] = useState(false)
+  const [newTopicBusy, setNewTopicBusy] = useState(false)
   const [pasteRecipeOpen, setPasteRecipeOpen] = useState(false)
   const [pasteRecipeText, setPasteRecipeText] = useState('')
   const [pasteRecipeLoading, setPasteRecipeLoading] = useState(false)
@@ -79,6 +89,46 @@ function NavigationTree({
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
   const treeClassName = ['nav-tree-container', className].filter(Boolean).join(' ')
   const navScrollRef = useRef(null)
+
+  // Where a Library notebook's Lately/Activity rows go, and which of its
+  // sections are real. Derived from cached page metadata, so it is recomputed
+  // whenever that cache changes and never guessed from titles.
+  const libraryTreeShapes = useMemo(
+    () => buildLibraryTreeShapes(notebooks, sections, sectionPageCache),
+    [notebooks, sections, sectionPageCache],
+  )
+
+  // The footer's "+ New topic" needs one of the user's own sections to put a
+  // topic in. The home section is the model's own scaffolding and its row is
+  // suppressed, so a topic created there would be unreachable.
+  const isLibrary = activeNotebookType === 'library'
+  const canCreateTopic =
+    isLibrary &&
+    Boolean(activeSectionId) &&
+    activeSectionId !== libraryTreeShapes[activeNotebookId]?.homeSectionId
+
+  // Load every section's page metadata for an expanded Library, without waiting
+  // for the user to expand each section.
+  //
+  // REQUIRED, not an optimization. Lately and Activity are hoisted OUT of the
+  // section they live in, so nothing would ever expand that section — and
+  // without this they would simply never appear. loadSectionPagesMeta already
+  // no-ops on a loaded or in-flight section, so this is idempotent.
+  useEffect(() => {
+    if (!onLoadSectionPages) return
+    const expanded = expandedNotebooksRaw instanceof Set
+      ? expandedNotebooksRaw
+      : new Set(Array.isArray(expandedNotebooksRaw) ? expandedNotebooksRaw : [])
+    const libraryIds = new Set(
+      notebooks
+        .filter((notebook) => notebook.type === 'library' && expanded.has(notebook.id))
+        .map((notebook) => notebook.id),
+    )
+    if (!libraryIds.size) return
+    for (const section of sections) {
+      if (libraryIds.has(section.notebook_id)) onLoadSectionPages(section.id)
+    }
+  }, [notebooks, sections, expandedNotebooksRaw, onLoadSectionPages])
 
   // Auto-reveal the active item: scroll the highlighted (most specific) row into
   // view inside the tree's own scroll container when the active id changes (deep
@@ -234,6 +284,33 @@ function NavigationTree({
     }
   }, [])
 
+  /**
+   * A Lately/Activity row, hoisted to notebook level.
+   *
+   * Deliberately NOT a SortableTreeRow with `disabled`. That still renders a
+   * focusable "Reorder page Lately" handle — a control that says it does
+   * something and does nothing — and still registers a droppable that other
+   * rows can collide with. A plain wrapper plus a spacer keeps the row aligned
+   * with the section rows beside it and lies about nothing.
+   */
+  const renderHoistedRow = (page, notebook) => (
+    <div key={page.id} className="tree-sortable-row tree-page-row tree-page-row-hoisted">
+      <span className="tree-drag-handle-spacer" aria-hidden="true" />
+      <TreePageRow
+        page={page}
+        sectionId={page.sectionId ?? page.section_id}
+        notebookId={notebook.id}
+        isActive={page.id === activePageId}
+        compactBadges={compactBadges}
+        onSelect={onSelectPage}
+        onContextMenu={handleOpenContextMenu('page', page)}
+        onTouchStart={handleTouchStart('page', page)}
+        onTouchEnd={cancelLongPress}
+        onTouchMove={cancelLongPress}
+      />
+    </div>
+  )
+
   const closePasteRecipeModal = () => {
     setPasteRecipeOpen(false)
     setPasteRecipeText('')
@@ -328,7 +405,12 @@ function NavigationTree({
               {notebooks.map((notebook) => {
                 const notebookActive = notebook.id === activeNotebookId
                 const notebookExpanded = expandedNotebooks.has(notebook.id)
-                const notebookSections = sections.filter((s) => s.notebook_id === notebook.id)
+                // For a Library, the home section is dropped here and its two
+                // pages are rendered as siblings of this list instead.
+                const libraryShape = libraryTreeShapes[notebook.id] ?? null
+                const notebookSections =
+                  libraryShape?.sections ?? sections.filter((s) => s.notebook_id === notebook.id)
+                const hoistedRows = Boolean(libraryShape?.lately || libraryShape?.activity)
 
                 return (
                   <div key={notebook.id} className="tree-branch">
@@ -366,9 +448,10 @@ function NavigationTree({
 
                     {notebookExpanded ? (
                       <div className="tree-children tree-children-sections" role="group">
-                        {notebookSections.length === 0 ? (
+                        {libraryShape?.lately ? renderHoistedRow(libraryShape.lately, notebook) : null}
+                        {notebookSections.length === 0 && !hoistedRows ? (
                           <p className="subtle tree-empty">No sections yet.</p>
-                        ) : (
+                        ) : notebookSections.length === 0 ? null : (
                           <SortableContext
                             items={notebookSections.map((section) => section.id)}
                             strategy={verticalListSortingStrategy}
@@ -377,7 +460,12 @@ function NavigationTree({
                               const sectionActive = section.id === activeSectionId
                               const sectionExpanded = expandedSections.has(section.id)
                               const sectionPageEntry = getSectionPageEntry(sectionPageCache, section.id)
-                              const sectionPages = sectionPageEntry.pages
+                              // Captures, front pages, Lately and Activity are all absent
+                              // as child rows — see HIDDEN_TREE_ROLES. Filtering HERE (not
+                              // in the cache accessor) keeps render, the empty state, and
+                              // the SortableContext id list all reading one list, so a row
+                              // never appears without a handle or the other way round.
+                              const sectionPages = getVisibleSectionPages(sectionPageCache, section.id)
                               const pagesLoading =
                                 (sectionActive && loading && sectionPageEntry.status !== SECTION_PAGE_STATUS.LOADED) ||
                                 sectionPageEntry.status === SECTION_PAGE_STATUS.LOADING
@@ -385,6 +473,16 @@ function NavigationTree({
                               const showEmptyPages =
                                 sectionPageEntry.status === SECTION_PAGE_STATUS.LOADED &&
                                 sectionPages.length === 0
+                              // A DELIBERATE exception to "nothing is a queue".
+                              // With captures hidden from the tree, a Library
+                              // section otherwise gives no sign it holds
+                              // anything at all. Muted, mono, not actionable —
+                              // context, not a badge and not a backlog.
+                              const captureCount = libraryShape
+                                ? sectionPageEntry.pages.filter(
+                                    (page) => page.libraryRole === 'capture',
+                                  ).length
+                                : 0
 
                               return (
                                 <div key={section.id} className="tree-branch">
@@ -426,6 +524,14 @@ function NavigationTree({
                                         aria-hidden="true"
                                       />
                                       <span className="tree-label sidebar-title">{section.title}</span>
+                                      {captureCount > 0 ? (
+                                        <span
+                                          className="tree-section-count"
+                                          aria-label={`${captureCount} saved`}
+                                        >
+                                          {captureCount}
+                                        </span>
+                                      ) : null}
                                     </button>
                                   </SortableTreeRow>
 
@@ -441,7 +547,19 @@ function NavigationTree({
                                           <span />
                                         </div>
                                       ) : showEmptyPages ? (
-                                        <p className="subtle tree-empty">No pages yet.</p>
+                                        // "No pages yet" would contradict the
+                                        // capture count beside the section
+                                        // title. A Library section with nothing
+                                        // but captures in it has no topics —
+                                        // which is a normal resting state, not
+                                        // an empty one.
+                                        <p className="subtle tree-empty">
+                                          {libraryShape
+                                            ? captureCount > 0
+                                              ? 'No topics yet.'
+                                              : 'Nothing saved here yet.'
+                                            : 'No pages yet.'}
+                                        </p>
                                       ) : (
                                         <SortableContext
                                           items={sectionPages.map((page) => page.id)}
@@ -462,35 +580,18 @@ function NavigationTree({
                                                 )
                                               }
                                             >
-                                              <button
-                                                type="button"
-                                                role="treeitem"
-                                                aria-current={page.id === activePageId ? 'page' : undefined}
-                                                className={`tree-node tree-node-page ${
-                                                  page.id === activePageId ? 'active' : ''
-                                                }`}
-                                                onClick={() => onSelectPage?.({
-                                                  notebookId: section.notebook_id,
-                                                  sectionId: section.id,
-                                                  pageId: page.id,
-                                                })}
+                                              <TreePageRow
+                                                page={page}
+                                                sectionId={section.id}
+                                                notebookId={section.notebook_id}
+                                                isActive={page.id === activePageId}
+                                                compactBadges={compactBadges}
+                                                onSelect={onSelectPage}
                                                 onContextMenu={handleOpenContextMenu('page', page)}
                                                 onTouchStart={handleTouchStart('page', page)}
                                                 onTouchEnd={cancelLongPress}
                                                 onTouchMove={cancelLongPress}
-                                              >
-                                                <span className="tree-page-marker" aria-hidden="true" />
-                                                <span className="tree-label sidebar-title">{page.title}</span>
-                                                {page.isDailySource ? (
-                                                  <span
-                                                    className={`tracker-page-badge ${compactBadges ? 'compact' : ''}`}
-                                                    title="Tracker page for AI Daily"
-                                                    aria-label="Tracker page for AI Daily"
-                                                  >
-                                                    {compactBadges ? 'T' : 'TRACKER'}
-                                                  </span>
-                                                ) : null}
-                                              </button>
+                                              />
                                             </SortableTreeRow>
                                           ))}
                                         </SortableContext>
@@ -502,6 +603,9 @@ function NavigationTree({
                             })}
                           </SortableContext>
                         )}
+                        {libraryShape?.activity
+                          ? renderHoistedRow(libraryShape.activity, notebook)
+                          : null}
                       </div>
                     ) : null}
                   </div>
@@ -525,7 +629,7 @@ function NavigationTree({
               + New section
             </button>
           ) : null}
-          {isRecipesNotebook ? (
+          {activeNotebookType === 'recipes' ? (
             <button
               type="button"
               className="ghost tree-footer-button"
@@ -535,16 +639,66 @@ function NavigationTree({
               {pasteRecipeLoading ? 'Pasting…' : 'Paste Recipe'}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="secondary tree-footer-button tree-footer-button-primary"
-            onClick={onCreatePage}
-            disabled={!activeSectionId || loading}
-          >
-            + New page
-          </button>
+          {/* In a Library this is "+ New topic", not "+ New page".
+              The user still never AUTHORS a page here — every page is a capture
+              the bot made or a catalog the app rewrites. But naming a topic is
+              theirs to do (rule 2: topics exist only because the user made one),
+              and a disabled button was the only door left after captures were
+              hidden from the tree. The topic starts empty and gathers.
+
+              It is disabled in the home section, which holds Lately and
+              Activity: a topic has to live inside one of the user's own
+              sections, and the home row is suppressed, so a topic put there
+              would have no way back to it. */}
+          {isLibrary ? (
+            <button
+              type="button"
+              className="secondary tree-footer-button tree-footer-button-primary"
+              onClick={() => setNewTopicOpen(true)}
+              disabled={!canCreateTopic || loading}
+              title={
+                canCreateTopic
+                  ? 'A topic catalogs what you save in this section'
+                  : 'Open one of your sections first — a topic lives inside one'
+              }
+            >
+              + New topic
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="secondary tree-footer-button tree-footer-button-primary"
+              onClick={onCreatePage}
+              disabled={!activeSectionId || loading}
+            >
+              + New page
+            </button>
+          )}
         </div>
       </div>
+
+      {newTopicOpen ? (
+        <NewLibraryThingModal
+          scope="topic"
+          busy={newTopicBusy}
+          onClose={() => {
+            if (!newTopicBusy) setNewTopicOpen(false)
+          }}
+          onSubmit={async (title) => {
+            setNewTopicBusy(true)
+            try {
+              const created = await onCreateLibraryThing?.({
+                scope: 'topic',
+                sectionId: activeSectionId,
+                title,
+              })
+              if (created) setNewTopicOpen(false)
+            } finally {
+              setNewTopicBusy(false)
+            }
+          }}
+        />
+      ) : null}
 
       <PasteRecipeModal
         open={pasteRecipeOpen}

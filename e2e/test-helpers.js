@@ -24,6 +24,24 @@ const protectedSeedRows = {
 
 const clone = (value) => JSON.parse(JSON.stringify(value ?? null))
 
+/**
+ * Columns Postgres computes for itself, which must never be written back.
+ *
+ * Seed helpers keep the FULL inserted row (so a restore preserves fields the
+ * baseline snapshot does not select — `library_role`, most importantly), and the
+ * isolation fixture upserts those rows between tests. A generated column in that
+ * payload fails the whole upsert with 428C9, which takes every seeded test in
+ * the file down with it.
+ */
+const GENERATED_COLUMNS = ['search_tsv']
+
+const withoutGeneratedColumns = (row) => {
+  if (!row || typeof row !== 'object') return row
+  const copy = { ...row }
+  for (const column of GENERATED_COLUMNS) delete copy[column]
+  return copy
+}
+
 export const getProtectedSeedSnapshot = () => ({
   notebooks: Array.from(protectedSeedRows.notebooks.values()).map(clone),
   sections: Array.from(protectedSeedRows.sections.values()).map(clone),
@@ -32,7 +50,7 @@ export const getProtectedSeedSnapshot = () => ({
 
 const protectSeedRow = (table, row) => {
   if (!row?.id) return
-  protectedSeedRows[table].set(row.id, clone(row))
+  protectedSeedRows[table].set(row.id, withoutGeneratedColumns(clone(row)))
 }
 
 const forgetProtectedNotebook = (notebookId) => {
@@ -254,6 +272,57 @@ export const createSection = async (client, userId, notebookId, title, sortOrder
 }
 
 /**
+ * Seed one "Worth a topic?" card.
+ *
+ * Rows are normally written by the library-suggest edge function, which makes a
+ * model call. Seeding them directly is what keeps this suite deterministic and
+ * offline — the panel renders stored rows and nothing else, so a seeded row
+ * exercises exactly the same path a real one does.
+ *
+ * @param {'section'|'topic'} scope which level the card is offered at
+ * @param {string|null} sectionId null for the Library-wide (section) scope
+ */
+export const createLibrarySuggestion = async (
+  client,
+  userId,
+  { scope, sectionId = null, title, why = '', evidencePageIds = [] },
+) => {
+  const { data, error } = await client
+    .from('library_suggestions')
+    .insert({
+      user_id: userId,
+      scope,
+      section_id: sectionId,
+      title,
+      why,
+      evidence_page_ids: evidencePageIds,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  await waitForReadableRow(client, 'library_suggestions', data.id)
+  return data
+}
+
+/**
+ * Retire every live suggestion for the test user.
+ *
+ * Dismissed rather than deleted, because there is no delete policy and none is
+ * wanted: a dismissed row is out of the live set, which is all a clean start
+ * needs. Run before seeding so a card left behind by an interrupted run cannot
+ * change what the block contains.
+ */
+export const clearLibrarySuggestions = async (client, userId) => {
+  const { error } = await client
+    .from('library_suggestions')
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .is('dismissed_at', null)
+    .is('accepted_at', null)
+  if (error) throw error
+}
+
+/**
  * Tall single-table page content — mirrors the user's real monthly tracker:
  * one wide table (with stored colwidths) packed with text rows, tall enough to
  * scroll. Used to prove scroll restoration is general across page types, not
@@ -305,10 +374,28 @@ export const tallTableContent = (rows = 40) => {
 }
 
 /** Create a page and return the inserted row. */
-export const createPage = async (client, userId, sectionId, title, content, sortOrder = 0) => {
+/** Create a page. `options.libraryRole` seeds a Library artifact
+ *  ('capture' | 'topic' | 'section_index' | 'lately' | 'activity'); omit it for
+ *  an ordinary tracker/recipes page. */
+export const createPage = async (
+  client,
+  userId,
+  sectionId,
+  title,
+  content,
+  sortOrder = 0,
+  options = {},
+) => {
   const { data, error } = await client
     .from('pages')
-    .insert({ user_id: userId, section_id: sectionId, title, content, sort_order: sortOrder })
+    .insert({
+      user_id: userId,
+      section_id: sectionId,
+      title,
+      content,
+      sort_order: sortOrder,
+      ...(options.libraryRole ? { library_role: options.libraryRole } : {}),
+    })
     .select()
     .single()
   if (error) throw error

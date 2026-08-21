@@ -5,7 +5,8 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
-import { getSectionPageEntry } from '../utils/sectionPages'
+import { getLibraryTreeShape } from '../utils/libraryTree'
+import { getVisibleSectionPages } from '../utils/sectionPages'
 import { canReorder, reorderById, reindexSortOrder } from '../utils/sidebarReorder'
 
 const VERTICAL_KEYBOARD_DIRECTIONS = {
@@ -13,6 +14,21 @@ const VERTICAL_KEYBOARD_DIRECTIONS = {
   ArrowRight: 1,
   ArrowUp: -1,
   ArrowLeft: -1,
+}
+
+/**
+ * The sections a notebook lets you drag, in the order they are rendered.
+ *
+ * Computed independently of NavigationTree, so it has to apply the same Library
+ * suppression: a Library's home section has no row, and if it stayed in this
+ * group then reindexSortOrder would rewrite its sort_order from a gesture aimed
+ * at two rows the user can actually see.
+ */
+function draggableSections(notebookId, { notebooks, sections, sectionPageCache }) {
+  const inNotebook = (sections ?? []).filter((section) => section.notebook_id === notebookId)
+  const notebook = (notebooks ?? []).find((item) => item.id === notebookId)
+  if (notebook?.type !== 'library') return inNotebook
+  return getLibraryTreeShape(inNotebook, sectionPageCache).sections
 }
 
 function getCurrentCoordinates(context, currentCoordinates) {
@@ -118,7 +134,7 @@ export function useSidebarDnd({
 
       if (activeData.type === 'section') {
         const notebookId = activeData.parentId
-        const group = sections.filter((section) => section.notebook_id === notebookId)
+        const group = draggableSections(notebookId, { notebooks, sections, sectionPageCache })
         const next = reorderById(group, active.id, over.id)
         if (next !== group) onReorderSections?.(notebookId, next)
         return next !== group
@@ -126,7 +142,8 @@ export function useSidebarDnd({
 
       if (activeData.type === 'page') {
         const sectionId = activeData.parentId
-        const group = getSectionPageEntry(sectionPageCache, sectionId).pages
+        // Same visible list the tree renders, so a drop index never drifts.
+        const group = getVisibleSectionPages(sectionPageCache, sectionId)
         const next = reorderById(group, active.id, over.id)
         if (next !== group) onReorderPages?.(sectionId, next)
         return next !== group
@@ -153,7 +170,7 @@ export function useSidebarDnd({
 
       if (data.type === 'section') {
         const notebookId = data.parentId
-        const group = latest.sections.filter((section) => section.notebook_id === notebookId)
+        const group = draggableSections(notebookId, latest)
         const index = group.findIndex((item) => item.id === id)
         const over = group[index + direction]
         if (!over) return false
@@ -164,7 +181,7 @@ export function useSidebarDnd({
 
       if (data.type === 'page') {
         const sectionId = data.parentId
-        const group = getSectionPageEntry(latest.sectionPageCache, sectionId).pages
+        const group = getVisibleSectionPages(latest.sectionPageCache, sectionId)
         const index = group.findIndex((item) => item.id === id)
         const over = group[index + direction]
         if (!over) return false

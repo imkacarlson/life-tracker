@@ -13,6 +13,7 @@ import EditorShell from './editor/EditorShell'
 import EditorSkeleton from './editor/EditorSkeleton'
 import { useAiDaily } from './editor/ai/useAiDaily'
 import { useAiInsert } from './editor/ai/useAiInsert'
+import LibrarySuggestions from './app/LibrarySuggestions'
 import EditorContextMenu from './editor/context-menu/EditorContextMenu'
 import { useEditorContextMenu } from './editor/context-menu/useEditorContextMenu'
 import { buildTableCommands } from './editor/table/tableCommands'
@@ -47,6 +48,7 @@ function EditorPanel({
   deepLinkActive = false,
   emptyState = null,
   onAddCustomWord = null,
+  librarySuggestions = null,
 }) {
   const editorPanelRef = useRef(null)
   const editorShellRef = useRef(null)
@@ -212,6 +214,13 @@ function EditorPanel({
       <AiInsertModal
         {...aiInsertModalProps}
       />
+
+      {/* "Worth a topic?" — beside the document, never in it. Only on the two
+          pages where a suggestion has a level to be at: Lately (sections,
+          Library-wide) and a section's front page (topics, that section).
+          Rendered ahead of the skeleton branch because it does not depend on
+          the editor and should not blink while a page loads. */}
+      {librarySuggestions ? <LibrarySuggestions {...librarySuggestions} /> : null}
 
       {editorLocked && hasEditorTarget ? (
         <EditorSkeleton />

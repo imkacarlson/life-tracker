@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { readPageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
-import { getSectionPages } from '../utils/sectionPages'
+import { getSectionPages, pickSectionLandingPage } from '../utils/sectionPages'
 import { toClientPage } from '../utils/pageModel'
 import { useSectionPageCache } from './useSectionPageCache'
 import { usePageContentCache, PAGE_CONTENT_STATUS } from './usePageContentCache'
@@ -37,6 +37,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     sectionPageCache,
     loadSectionPagesMeta,
     seedSectionPages,
+    mergeSectionPageOrder,
     upsertCachedPage,
     updateCachedPage,
     removeCachedPage,
@@ -257,7 +258,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
       const { data, error } = await runSupabaseQueryWithRetry(() =>
         supabase
           .from('pages')
-          .select('id, title, created_at, updated_at, section_id, sort_order, is_tracker_page')
+          .select('id, title, created_at, updated_at, section_id, sort_order, is_tracker_page, library_role')
           .eq('section_id', sectionId)
           .order('sort_order', { ascending: true, nullsLast: true })
           .order('updated_at', { ascending: false }),
@@ -283,9 +284,11 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
         selection.activeSectionId === sectionId &&
         !nextPages.some((item) => item.id === selection.activePageId)
       ) {
-        const firstPageId = nextPages[0]?.id ?? null
-        if (firstPageId) {
-          selectPage(selection.activeNotebookId, sectionId, firstPageId)
+        // Same rule as App.jsx's auto-open effect — the two race, so they have
+        // to agree on which page a section lands on.
+        const landingPageId = pickSectionLandingPage(nextPages)?.id ?? null
+        if (landingPageId) {
+          selectPage(selection.activeNotebookId, sectionId, landingPageId)
         } else {
           selectSection(selection.activeNotebookId, sectionId)
         }
@@ -335,6 +338,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     dailySourceSaving,
     createPage,
     createPageWithContent,
+    createLibraryTopicPage,
     reorderSectionPages,
     setDailySourcePage,
     deletePage,
@@ -348,6 +352,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     setMessage,
     setPageContent,
     seedSectionPages,
+    mergeSectionPageOrder,
     upsertCachedPage,
     removeCachedPage,
     markCachedDailySourcePage,
@@ -390,6 +395,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     handleTitleChange,
     createPage,
     createPageWithContent,
+    createLibraryTopicPage,
     reorderSectionPages,
     setDailySourcePage,
     deletePage,

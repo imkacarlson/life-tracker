@@ -33,3 +33,17 @@ enabled = true
 # Auth is the webhook secret-token header + a Telegram user-ID allowlist.
 verify_jwt = false
 entrypoint = "./functions/telegram-bot/index.ts"
+
+[functions.library-rebuild]
+enabled = true
+# verify_jwt = false is deliberate: pg_cron can't send a Supabase JWT.
+# Auth is the x-cron-secret header, same as check-scores and send-reminders.
+verify_jwt = false
+entrypoint = "./functions/library-rebuild/index.ts"
+
+[functions.library-suggest]
+enabled = true
+# verify_jwt = false is deliberate: pg_cron can't send a Supabase JWT.
+# Auth is the x-cron-secret header, same as library-rebuild.
+verify_jwt = false
+entrypoint = "./functions/library-suggest/index.ts"

@@ -199,32 +199,10 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
   )
 
   const activeNotebook = notebooks.find((notebook) => notebook.id === activeNotebookId) ?? null
+  // The one discriminant for notebook-kind behavior. Notebooks of every kind are
+  // created the same way (see NewNotebookModal) — there is deliberately no
+  // auto-provisioning special case for any single kind.
   const activeNotebookType = activeNotebook?.type ?? 'tracker'
-  const isRecipesNotebook = activeNotebookType === 'recipes'
-
-  // Auto-create the Recipes notebook (+ "General" section) on first load if missing.
-  const recipesInitRef = useRef(false)
-  useEffect(() => {
-    if (!userId || notebooks.length === 0 || recipesInitRef.current) return
-    const hasRecipes = notebooks.some((nb) => nb.type === 'recipes')
-    if (hasRecipes) {
-      recipesInitRef.current = true
-      return
-    }
-    recipesInitRef.current = true
-    // We need a session to create — fetch it once
-    ;(async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const nb = await createNotebook(session, { type: 'recipes', title: 'Recipes' })
-      if (!nb) return
-      // Create a default "General" section
-      const { error: sectionError } = await supabase
-        .from('sections')
-        .insert({ title: 'General', user_id: session.user.id, notebook_id: nb.id, sort_order: 0 })
-      if (sectionError) console.error('Failed to create default Recipes section:', sectionError.message)
-    })()
-  }, [userId, notebooks, createNotebook])
 
   return {
     notebooks,
@@ -234,7 +212,6 @@ export const useNotebooks = (userId, getPostDeleteTarget = null) => {
     message,
     setMessage,
     activeNotebookType,
-    isRecipesNotebook,
     createNotebook,
     renameNotebook,
     deleteNotebook,

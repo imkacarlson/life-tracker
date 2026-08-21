@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { EMPTY_DOC } from '../../utils/constants'
+import { buildNewTopicDoc } from '../../utils/librarySuggestions'
 import { collectAllImagePaths, deleteImagesFromStorage } from '../../utils/imageCleanup'
 import { clearPageDraft } from '../../utils/localDrafts'
 import { clearNavHierarchyCache } from '../../utils/resolveNavHierarchy'
-import { insertPageAfter, reindexSortOrder } from '../../utils/sidebarReorder'
+import {
+  insertPageAfter,
+  mergeReorderedPages,
+  reindexSortOrder,
+} from '../../utils/sidebarReorder'
 import { toClientPage } from '../../utils/pageModel'
 import { useNavigationSelectionStore } from '../../stores/navigationSelectionStore'
 
@@ -15,7 +20,7 @@ const getNextSortOrder = (pages) => {
   return orders.length > 0 ? Math.max(...orders) + 1 : 1
 }
 
-const insertPage = ({ session, sectionId, title, content, sortOrder }) =>
+const insertPage = ({ session, sectionId, title, content, sortOrder, libraryRole = null }) =>
   supabase
     .from('pages')
     .insert({
@@ -24,6 +29,9 @@ const insertPage = ({ session, sectionId, title, content, sortOrder }) =>
       content,
       section_id: sectionId,
       sort_order: sortOrder,
+      // Only ever 'topic' from the app. Every other Library role is scaffolding
+      // the rebuild owns, and captures come from the bot.
+      ...(libraryRole ? { library_role: libraryRole } : {}),
     })
     .select()
     .single()
@@ -38,6 +46,7 @@ export function usePageCrud({
   setMessage,
   setPageContent,
   seedSectionPages,
+  mergeSectionPageOrder,
   upsertCachedPage,
   removeCachedPage,
   markCachedDailySourcePage,
@@ -59,14 +68,24 @@ export function usePageCrud({
   }, [userId])
 
   // Reordering can target any expanded section, not only the active one.
+  //
+  // `nextPages` is the VISIBLE subset — drag-and-drop computes drop indices
+  // against the list the tree renders. So it is merged into what is already
+  // cached rather than replacing it: a plain replace would evict every hidden
+  // Library page from the cache that resolves an open page, and they would stay
+  // gone until the next refetch. Only the reordered rows are persisted, so a
+  // hidden page keeps its sentinel sort_order.
   const reorderSectionPages = useCallback(
     async (sectionId, nextPages) => {
       if (!userId || !sectionId || !Array.isArray(nextPages)) return
       const reordered = reindexSortOrder(nextPages)
-      seedSectionPages(sectionId, reordered)
-      if (sectionId === activeSectionId) {
-        setPages(reordered)
+      const applyLocally = () => {
+        mergeSectionPageOrder(sectionId, reordered)
+        if (sectionId === activeSectionId) {
+          setPages((previous) => mergeReorderedPages(previous, reordered))
+        }
       }
+      applyLocally()
 
       const updates = reordered.map((item) =>
         supabase.from('pages').update({ sort_order: item.sort_order }).eq('id', item.id),
@@ -78,12 +97,9 @@ export function usePageCrud({
         return
       }
 
-      seedSectionPages(sectionId, reordered)
-      if (sectionId === activeSectionId) {
-        setPages(reordered)
-      }
+      applyLocally()
     },
-    [activeSectionId, seedSectionPages, setMessage, setPages, userId],
+    [activeSectionId, mergeSectionPageOrder, setMessage, setPages, userId],
   )
 
   const createPage = async (session, sectionId) => {
@@ -107,6 +123,46 @@ export function usePageCrud({
     await reorderSectionPages(sectionId, desiredOrder)
     setPageContent(data.id, EMPTY_DOC, data.updated_at)
     selectPage(activeNotebookId, sectionId, data.id)
+  }
+
+  /**
+   * Create a Library topic page.
+   *
+   * The one page the user may author in a Library — and "author" only in the
+   * sense of naming it. Rule 2 is that topics exist ONLY because the user made
+   * one, and this is the app-side half of that: a suggestion card or the "make
+   * your own" modal, never the model.
+   *
+   * It starts EMPTY and gathers, per the 19 Aug decision. No backfill and no
+   * second model call: what belongs to it is decided at capture time from here
+   * on, which is the same rule every other topic follows.
+   */
+  const createLibraryTopicPage = async (session, sectionId, pageTitle) => {
+    const title = String(pageTitle ?? '').trim()
+    if (!session || !sectionId || !title) return null
+    setMessage('')
+    const nextSortOrder = getNextSortOrder(pages)
+    const content = buildNewTopicDoc()
+    const { data, error } = await insertPage({
+      session,
+      sectionId,
+      title,
+      content,
+      sortOrder: nextSortOrder,
+      libraryRole: 'topic',
+    })
+
+    if (error) {
+      setMessage(error.message)
+      return null
+    }
+
+    const created = { ...toClientPage(data), sort_order: nextSortOrder }
+    setPages((previous) => [...previous, created])
+    upsertCachedPage(sectionId, created)
+    setPageContent(data.id, content, data.updated_at)
+    selectPage(activeNotebookId, sectionId, data.id)
+    return created
   }
 
   const createPageWithContent = async (session, sectionId, pageTitle, content) => {
@@ -245,6 +301,7 @@ export function usePageCrud({
     dailySourceSaving,
     createPage,
     createPageWithContent,
+    createLibraryTopicPage,
     reorderSectionPages,
     setDailySourcePage,
     deletePage,

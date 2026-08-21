@@ -321,3 +321,99 @@
     height: 48px;
   }
 }
+
+/* --- New notebook modal ------------------------------------------------- */
+/* Kind is a real decision (it changes what the notebook is for), so it gets
+   labelled cards with a hint rather than a bare <select>. */
+
+.new-notebook-modal {
+  width: min(440px, 100%);
+}
+
+.new-notebook-field {
+  display: block;
+  margin-top: var(--space-md);
+}
+
+.new-notebook-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+  padding: 0;
+}
+
+.new-notebook-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.new-notebook-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.new-notebook-kinds {
+  border: 0;
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.new-notebook-kind {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  background: var(--surface);
+  transition:
+    border-color var(--duration-short) var(--ease-out),
+    background var(--duration-short) var(--ease-out);
+}
+
+.new-notebook-kind:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+
+.new-notebook-kind.selected {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.new-notebook-kind input {
+  margin: 0.2rem 0 0;
+  accent-color: var(--accent);
+}
+
+.new-notebook-kind-text {
+  display: grid;
+  gap: 2px;
+}
+
+.new-notebook-kind-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.new-notebook-kind-hint {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}

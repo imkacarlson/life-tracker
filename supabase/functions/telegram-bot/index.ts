@@ -5,9 +5,16 @@ import { Bot, webhookCallback } from 'https://deno.land/x/grammy@v1.30.0/mod.ts'
 import { isAuthorized } from './auth.ts'
 import { buildSystemPrompt } from './prompt.ts'
 import { formatNowInZone } from './datetime.ts'
-import { callClaude } from './anthropic.ts'
+import { callClaude } from '../_shared/anthropic.ts'
 import { buildTools } from './tools.ts'
 import { renderProposedPreview } from './render.ts'
+import { fetchSourceFromShare } from './fetchSource.ts'
+import { recentActivity } from './library.ts'
+import {
+  attachSourceText,
+  findCaptureByMessageId,
+  readTextDocument,
+} from './libraryAttach.ts'
 import { registerCommands, sendPhoto, sendReply, startTyping } from './telegram.ts'
 import { handleBlog } from './blog/handler.ts'
 import {
@@ -24,6 +31,8 @@ import {
   intentContextFor,
   listUpcomingReminders,
 } from './reminders.ts'
+import { runLibraryRebuild } from '../_shared/libraryRebuild.ts'
+import { makeSuggestCall, runLibrarySuggest } from '../_shared/librarySuggest.ts'
 import { parseReminderReply } from '../_shared/reminderReply.ts'
 import { classifyReminderIntent } from './geminiIntent.ts'
 import {
@@ -49,6 +58,16 @@ const EFFORT = 'medium' as const
 // The confirm/cancel classification is a tiny, well-scoped yes/no/change call —
 // run it on the fastest model so the "yes" → "Added ✅" round-trip feels instant.
 const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001'
+// Summarizing a fetched source is a bounded read-and-condense job with no tools
+// available to it, so it runs on the fast model too. The accuracy-sensitive
+// decision (which section, tracker vs library) already happened upstairs.
+const SUMMARIZE_MODEL = 'claude-haiku-4-5-20251001'
+// Telegram caps a message at 4096 characters, so a long paste arrives as a
+// .txt document instead. Anything bigger than this is not a note the user typed.
+const MAX_DOCUMENT_BYTES = 2_000_000
+// A quote-reply this long is a pasted article, not a "yes". Below it, the normal
+// flow handles the message (a short quote-reply is usually a confirmation).
+const ATTACH_MIN_CHARS = 400
 // /think: a deeper model with adaptive extended thinking, sticky until /new.
 // max_tokens is a hard ceiling that INCLUDES thinking tokens, so the standard
 // 2048 default would let thinking eat the whole budget and truncate the answer.
@@ -75,6 +94,11 @@ const ALLOWED_USER_ID = Deno.env.get('TELEGRAM_ALLOWED_USER_ID') ?? ''
 // comes from config; "today"/"now" and current-month selection are computed in
 // this zone. Update the secret if you relocate long-term. Documented fallback.
 const USER_TIMEZONE = Deno.env.get('USER_TIMEZONE') ?? 'America/New_York'
+// Same default capture.ts uses — search results carry deep links back into the app.
+const APP_URL = (Deno.env.get('APP_URL') ?? 'https://life-tracker-mu-sandy.vercel.app').replace(
+  /\/$/,
+  '',
+)
 
 // Service-role client; access is scoped in code to the single known user.
 const supabase = createClient(
@@ -130,6 +154,41 @@ bot.command('reminders', async (ctx) => {
   }
 })
 
+// /library -> what the weekly rebuild last changed. Pure reads, zero AI.
+//
+// Mirrors /reminders, and for the same reason: silent self-rewriting only earns
+// trust if the user can see what it did without having to go looking.
+bot.command('library', async (ctx) => {
+  try {
+    const userId = await getUserId()
+    const rows = await recentActivity(supabase, userId, 10)
+    if (!rows.length) {
+      await sendReply(ctx.api, ctx.chat.id, 'Nothing has been rebuilt in your Library yet.')
+      return
+    }
+    const stamp = (iso: string) =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: USER_TIMEZONE,
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }).format(new Date(iso))
+
+    const lines = rows.map((row) => `- ${stamp(row.created_at)} — ${row.summary}`)
+    await sendReply(
+      ctx.api,
+      ctx.chat.id,
+      ['**Recent Library changes**', ...lines, '', 'Reply "undo <page name>" to put one back.'].join(
+        '\n',
+      ),
+    )
+  } catch (err) {
+    console.error('/library error:', String(err))
+    await sendReply(ctx.api, ctx.chat.id, 'Couldn’t read your Library activity just now.')
+  }
+})
+
 /**
  * The whole conversational flow: session, dedup, pending-proposal capture, and
  * the agentic tool loop. Shared by the plain text handler and /think so the
@@ -167,6 +226,24 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     // Dedup: if Telegram retried this exact message, stop after the first time.
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
     if (duplicate) return
+
+    // --- Is this a wall of text quote-replied onto a capture? ---
+    // Some sources can't be fetched server-side (a paywalled article the user
+    // subscribes to). Quote-replying the capture's "Saved 📚" message with the
+    // pasted text fills in its source_text. Checked before the pending-proposal
+    // block because a long paste is never a confirmation.
+    if (replyToMessageId && text.trim().length >= ATTACH_MIN_CHARS) {
+      const target = await findCaptureByMessageId(supabase, userId, replyToMessageId)
+      if (target) {
+        const stored = await attachSourceText(supabase, target.page_id, text, now)
+        const reply = stored
+          ? `Got it — attached that text to **${target.title}**. It's searchable now.`
+          : `Couldn't attach that to **${target.title}**. Try again in a moment.`
+        await persistAssistantTurn(supabase, sessionId, reply)
+        await sendReply(ctx.api, chatId, reply)
+        return
+      }
+    }
 
     // A pending preview owns bare confirmations ("done" could mean "yes, add it"),
     // so it's resolved first and reused by the capture block below — same query,
@@ -211,20 +288,79 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
       const { decision } = await classifyReply(text, CLASSIFY_MODEL)
 
       if (decision === 'confirm') {
-        const result = await applyPendingJob(supabase, pendingJob, now)
+        const result = await applyPendingJob(supabase, pendingJob, now, USER_TIMEZONE)
         let reply: string
+        if (result.ok && pendingJob.kind === 'library_capture') {
+          await deleteJob(supabase, pendingJob.id)
+          reply = `Saved 📚 — [Open in library](${result.deepLink})`
+          // Remember which message this capture's confirmation was, so a later
+          // quote-reply carrying pasted text can attach itself to this capture.
+          const sentId = await sendReply(ctx.api, chatId, reply)
+          await persistAssistantTurn(supabase, sessionId, reply)
+          if (sentId != null) {
+            await supabase
+              .from('library_sources')
+              .update({ telegram_message_id: sentId })
+              .eq('page_id', result.pageId)
+          }
+          // Re-render the Library pages that make this capture findable in the
+          // app — the section's front page, Lately, Activity. Free: the rebuild
+          // makes zero model calls, it only renders what capture time already
+          // decided and stored.
+          //
+          // AFTER the reply, so it adds nothing to the user's "Saved 📚", and
+          // inside a try/catch that only logs: the capture is already committed
+          // by this point, and a rendering failure must never turn a successful
+          // save into an error message.
+          try {
+            const { summary } = await runLibraryRebuild(supabase, {
+              timeZone: USER_TIMEZONE,
+              sectionIds: result.sectionId ? [result.sectionId] : undefined,
+            })
+            if (!summary.ok) console.error('post-capture rebuild failed:', summary.error)
+          } catch (err) {
+            console.error('post-capture rebuild error:', String(err))
+          }
+
+          // Then notice what the new capture might be part of: "2 saved, both
+          // about recovering from a rough race — want a topic for that?"
+          //
+          // A MODEL CALL, which is exactly why it is not folded into the rebuild
+          // above — libraryRebuild.ts promises ZERO MODEL CALLS and that promise
+          // is what makes a per-capture rebuild free. This one is gated on the
+          // stored set being stale (six hours by default), so a burst of saves
+          // costs one pass and not one per save.
+          //
+          // Same try/catch-and-log for the same reason: the capture is already
+          // committed and the user has already been told so.
+          try {
+            const summary = await runLibrarySuggest(supabase, {
+              callModel: makeSuggestCall(),
+              sectionIds: result.sectionId ? [result.sectionId] : undefined,
+            })
+            if (!summary.ok) console.error('post-capture suggest failed:', summary.error)
+          } catch (err) {
+            console.error('post-capture suggest error:', String(err))
+          }
+          return
+        }
         if (result.ok) {
           await deleteJob(supabase, pendingJob.id)
           // Derived, never asserted: this runs the same parser the cron sweep
           // does over the same stored {{date:…}} strings, so the bot can't
           // promise a text that won't arrive. Silence = nothing armed.
           const armed = describeArmedForItems(
-            pendingJob.placement?.items ?? [],
+            (pendingJob.placement as { items?: string[] })?.items ?? [],
             result.pageTitle,
             now,
             USER_TIMEZONE,
           )
           reply = `Added ✅ — [Open in tracker](${result.deepLink})` + (armed ? `\n\n${armed}` : '')
+        } else if (result.reason === 'no_section') {
+          await deleteJob(supabase, pendingJob.id)
+          reply =
+            'I couldn’t work out which Library section to file that in. Tell me the section ' +
+            'and I’ll re-propose.'
         } else if (result.reason === 'anchor_missing') {
           await deleteJob(supabase, pendingJob.id)
           reply =
@@ -265,7 +401,9 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
       sessionId,
       sendPhoto,
       renderPreview: renderProposedPreview,
-    })
+      fetchSource: fetchSourceFromShare,
+      summarizeModel: SUMMARIZE_MODEL,
+    }, APP_URL)
 
     const reply = await callClaude({
       system: buildSystemPrompt(true, nowDisplay, deep),
@@ -301,6 +439,80 @@ bot.command('think', async (ctx) => {
 
 bot.on('message:text', async (ctx) => {
   await handleUserMessage(ctx, ctx.message.text)
+})
+
+/**
+ * A .txt document — how a paste longer than Telegram's 4096-character message
+ * cap arrives. Quote-replied onto a capture's confirmation, it becomes that
+ * capture's source text.
+ *
+ * This is the bot's first non-text handler. Before it, a document (or a photo,
+ * or a voice note) fell through in complete silence with no reply at all, which
+ * looks exactly like the bot being broken.
+ */
+bot.on('message:document', async (ctx) => {
+  const chatId = ctx.chat.id
+  const replyToMessageId = ctx.message.reply_to_message?.message_id ?? null
+  const fileId = ctx.message.document?.file_id
+
+  if (!replyToMessageId) {
+    await sendReply(
+      ctx.api,
+      chatId,
+      'I can read a .txt file if you reply to a saved item with it — that attaches the full ' +
+        'text to that capture. On its own I don’t have anywhere to put it.',
+    )
+    return
+  }
+
+  const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
+  try {
+    const userId = await getUserId()
+    const target = await findCaptureByMessageId(supabase, userId, replyToMessageId)
+    if (!target) {
+      await sendReply(
+        ctx.api,
+        chatId,
+        'That reply isn’t on one of your saved Library items, so I don’t know what to attach it to.',
+      )
+      return
+    }
+    if (!fileId) {
+      await sendReply(ctx.api, chatId, 'I couldn’t find a file on that message.')
+      return
+    }
+
+    const read = await readTextDocument(BOT_TOKEN, fileId, MAX_DOCUMENT_BYTES)
+    if (!read.ok) {
+      await sendReply(ctx.api, chatId, read.reason)
+      return
+    }
+
+    const stored = await attachSourceText(supabase, target.page_id, read.text, new Date())
+    await sendReply(
+      ctx.api,
+      chatId,
+      stored
+        ? `Got it — attached that text to **${target.title}**. It's searchable now.`
+        : `Couldn’t attach that to **${target.title}**. Try again in a moment.`,
+    )
+  } catch (err) {
+    console.error('document handler error:', String(err))
+    await sendReply(ctx.api, chatId, 'Sorry — something went wrong reading that file.')
+  } finally {
+    stopTyping()
+  }
+})
+
+// Everything else a user can send. Without this, a photo or a voice note is met
+// with total silence, which is indistinguishable from the bot being down.
+bot.on(['message:photo', 'message:voice', 'message:audio', 'message:video'], async (ctx) => {
+  await sendReply(
+    ctx.api,
+    ctx.chat.id,
+    'I can only read text for now. Send a link with a thought and I’ll save it, or paste the ' +
+      'text itself.',
+  )
 })
 
 // Register the command menu once at cold start (non-fatal if it fails).

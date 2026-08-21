@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canReorder,
+  mergeReorderedPages,
   reorderById,
   reindexSortOrder,
   insertPageAfter,
@@ -165,5 +166,65 @@ describe('insertPageAfter', () => {
     const next = insertPageAfter(input, created, 'a')
     expect(next).not.toBe(input)
     expect(input.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('mergeReorderedPages', () => {
+  // Drag-and-drop only ever hands the reorder path the rows the tree SHOWS,
+  // because a drop index computed against a longer list would land in the wrong
+  // place. Seeding that subset straight into the cache is what evicted every
+  // hidden Library page from it.
+  const cached = [
+    { id: 'front', library_role: 'section_index', sort_order: -3 },
+    { id: 'topic-a', library_role: 'topic', sort_order: 1 },
+    { id: 'topic-b', library_role: 'topic', sort_order: 2 },
+    { id: 'capture', library_role: 'capture', sort_order: 7 },
+  ]
+
+  it('keeps the hidden pages a visible-only reorder never mentioned', () => {
+    const reordered = [
+      { id: 'topic-b', library_role: 'topic', sort_order: 1 },
+      { id: 'topic-a', library_role: 'topic', sort_order: 2 },
+    ]
+    const merged = mergeReorderedPages(cached, reordered)
+    expect(merged.map((p) => p.id).sort()).toEqual(['capture', 'front', 'topic-a', 'topic-b'])
+  })
+
+  it('applies the new order to the rows that moved', () => {
+    const reordered = [
+      { id: 'topic-b', library_role: 'topic', sort_order: 1 },
+      { id: 'topic-a', library_role: 'topic', sort_order: 2 },
+    ]
+    const merged = mergeReorderedPages(cached, reordered)
+    expect(merged.slice(0, 2).map((p) => p.id)).toEqual(['topic-b', 'topic-a'])
+  })
+
+  it('leaves an untouched page’s sort_order exactly as it was', () => {
+    // The sentinel orders on model-owned pages must survive a drag aimed at two
+    // ordinary rows — only the reordered rows are persisted.
+    const merged = mergeReorderedPages(cached, [
+      { id: 'topic-b', library_role: 'topic', sort_order: 1 },
+      { id: 'topic-a', library_role: 'topic', sort_order: 2 },
+    ])
+    expect(merged.find((p) => p.id === 'front').sort_order).toBe(-3)
+    expect(merged.find((p) => p.id === 'capture').sort_order).toBe(7)
+  })
+
+  it('is a plain replace when the reorder covered everything', () => {
+    const full = [...cached].reverse()
+    expect(mergeReorderedPages(cached, full)).toBe(full)
+  })
+
+  it('does not mutate its inputs', () => {
+    const input = [{ id: 'a' }, { id: 'b' }]
+    const merged = mergeReorderedPages(input, [{ id: 'b' }])
+    expect(merged).not.toBe(input)
+    expect(input.map((p) => p.id)).toEqual(['a', 'b'])
+  })
+
+  it('copes with missing arguments', () => {
+    expect(mergeReorderedPages(undefined, [{ id: 'a' }]).map((p) => p.id)).toEqual(['a'])
+    expect(mergeReorderedPages([{ id: 'a' }], undefined).map((p) => p.id)).toEqual(['a'])
+    expect(mergeReorderedPages(undefined, undefined)).toEqual([])
   })
 })

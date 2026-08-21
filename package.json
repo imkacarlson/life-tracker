@@ -47,6 +47,7 @@
     "@tiptap/pm": "^3.18.0",
     "@tiptap/react": "^3.18.0",
     "@tiptap/starter-kit": "^3.18.0",
+    "defuddle": "^0.19.2",
     "linkedom": "^0.18.12",
     "nspell": "^2.1.5",
     "puppeteer-core": "^25.1.0",

@@ -2,7 +2,13 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.{js,jsx,ts,tsx}', 'supabase/functions/**/*.test.{js,jsx,ts,tsx}'],
+    include: [
+      'src/**/*.test.{js,jsx,ts,tsx}',
+      'supabase/functions/**/*.test.{js,jsx,ts,tsx}',
+      // Vercel-side shared helpers (api/_lib) are pure JS for the same reason
+      // they can't import the edge functions' .ts modules — see canonicalUrl.js.
+      'api/**/*.test.{js,ts}',
+    ],
     exclude: ['e2e/**', 'node_modules/**', 'docmost/**'],
     env: {
       // Stubs to prevent Supabase client from crashing at import time.

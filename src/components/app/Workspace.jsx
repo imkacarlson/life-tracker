@@ -3,6 +3,7 @@ import SettingsHub from '../SettingsHub'
 import ConflictModal from './ConflictModal'
 import CopyMoveModal from './CopyMoveModal'
 import NavigationTree from './NavigationTree'
+import NewNotebookModal from './NewNotebookModal'
 import SlimHeader from './SlimHeader'
 import TreeContextMenu from './TreeContextMenu'
 
@@ -17,6 +18,7 @@ export default function Workspace({
   templateEditorProps,
   primaryEditorProps,
   treeContextMenuProps,
+  newNotebookModalProps,
   copyMoveModalProps,
   conflictModalProps,
 }) {
@@ -63,6 +65,7 @@ export default function Workspace({
         )}
       </div>
       <TreeContextMenu {...treeContextMenuProps} />
+      <NewNotebookModal {...newNotebookModalProps} />
       <CopyMoveModal {...copyMoveModalProps} />
       <ConflictModal {...conflictModalProps} />
     </div>

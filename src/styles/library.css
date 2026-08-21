@@ -1,0 +1,194 @@
+/* The Library's own surfaces.
+ *
+ * Today that is one block: "Worth a topic?", the panel that sits above a Lately
+ * or Overview document. It is deliberately NOT styled like editor content — it
+ * is a control surface beside the page, and it should read as one. Hence the
+ * mono uppercase label (DESIGN.md's xs scale, the same treatment the CATALOG
+ * badge and the section count use) rather than a document heading.
+ */
+
+.library-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  /* Sits directly under the toolbar, above the document. .editor-panel is a
+     flex column with a 1rem gap, so it needs no margin of its own. */
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.library-suggestions-heading {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.library-suggestion-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Cards size themselves rather than filling a grid track: at one suggestion the
+   block should look like one card and a door, not like a row with four holes in
+   it. */
+.library-suggestion-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  flex: 1 1 200px;
+  max-width: 260px;
+  min-height: 104px;
+  padding: var(--space-sm) 0.7rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.library-suggestion-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+/* The one model-written sentence the user ever sees. Secondary weight on
+   purpose: it is an observation about what was saved, not a claim. */
+.library-suggestion-why {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.library-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: auto;
+  padding-top: var(--space-xs);
+}
+
+.library-suggestion-make {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent-dark);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-light);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-short) var(--ease-out),
+    color var(--duration-short) var(--ease-out);
+}
+
+.library-suggestion-make:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.library-suggestion-make:active:not(:disabled) {
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+/* Turning something down should be easy to do and impossible to do by accident:
+   present, unemphasised, and never the thing the eye lands on first. */
+.library-suggestion-dismiss {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.library-suggestion-dismiss:hover:not(:disabled) {
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.library-suggestion-make:disabled,
+.library-suggestion-dismiss:disabled,
+.library-suggestion-placeholder-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The door. Dashed because it is an empty slot rather than a thing — the block
+   is a fixed set of slots, and this is what an unfilled one looks like. */
+.library-suggestion-placeholder {
+  padding: 0;
+  background: none;
+  border: 1px dashed var(--border-strong);
+}
+
+.library-suggestion-placeholder-button {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
+  width: 100%;
+  padding: var(--space-sm);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    color var(--duration-short) var(--ease-out),
+    background var(--duration-short) var(--ease-out);
+}
+
+.library-suggestion-placeholder-button:hover:not(:disabled) {
+  color: var(--accent-dark);
+  background: var(--accent-bg);
+}
+
+.library-suggestion-placeholder-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.library-suggestion-plus {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.library-suggestions-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--error);
+}
+
+.library-modal-hint {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  /* One card per row on a phone: two 160px cards side by side is where the
+     "why" line starts wrapping to four lines and the block stops being
+     skimmable. */
+  .library-suggestion-card {
+    flex-basis: 100%;
+    max-width: none;
+    min-height: 0;
+  }
+}

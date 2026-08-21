@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from './hooks/useAuth'
 import { useNotebooks } from './hooks/useNotebooks'
 import { useSections } from './hooks/useSections'
@@ -20,10 +20,15 @@ import { getMountedEditorView } from './utils/editorView'
 import { registerDeepLinkSelectionApplier } from './utils/navigationHelpers'
 import { applyDeepLinkSelection } from './utils/deepLinkSelection'
 import { pickPostDeleteTarget } from './utils/navigationHistoryHelpers'
-import { SECTION_PAGE_STATUS, getSectionPageEntry } from './utils/sectionPages'
+import {
+  SECTION_PAGE_STATUS,
+  getSectionPageEntry,
+  pickSectionLandingPage,
+} from './utils/sectionPages'
 import { useNavigationSelectionStore } from './stores/navigationSelectionStore'
 import AuthForm from './components/AuthForm'
 import WelcomeScreen from './components/WelcomeScreen'
+import NewNotebookModal from './components/app/NewNotebookModal'
 import Workspace from './components/app/Workspace'
 import './styles/index.css'
 
@@ -136,7 +141,7 @@ function App() {
     notebooksLoading,
     activeNotebookId,
     activeNotebook,
-    isRecipesNotebook,
+    activeNotebookType,
     message: notebookMessage,
     setMessage: setNotebookMessage,
     createNotebook,
@@ -158,6 +163,7 @@ function App() {
     message: sectionMessage,
     setMessage: setSectionMessage,
     createSection,
+    createSectionNamed,
     renameSection,
     deleteSection,
     moveSection,
@@ -184,6 +190,7 @@ function App() {
     handleTitleChange,
     createPage,
     createPageWithContent,
+    createLibraryTopicPage,
     reorderSectionPages,
     setDailySourcePage,
     deletePage,
@@ -251,6 +258,14 @@ function App() {
     item: null,
   })
   const [copyMoveModal, setCopyMoveModal] = useState({ open: false, action: null, section: null, destId: '' })
+  // New-notebook dialog. Lives here (not in NavigationTree) because the same
+  // dialog serves both entry points: the "+ Notebook" button and the empty-account
+  // WelcomeScreen.
+  const [newNotebookModal, setNewNotebookModal] = useState({
+    open: false,
+    title: '',
+    type: 'tracker',
+  })
 
   useEffect(() => {
     if (!treeContextMenu.open) return
@@ -283,10 +298,17 @@ function App() {
     if (activePageId) recordNavVisit('pages', activePageId)
   }, [activePageId, recordNavVisit])
 
-  // Auto-open a section's first page when the user clicks the section. Waits for
-  // the section's pages to load, then navigates to the first page — unless the
-  // currently-open page is already in that section (don't yank them away) or the
-  // section is empty (fall through to the contextual empty state).
+  // Auto-open a section's landing page when the user clicks the section. Waits
+  // for the section's pages to load, then navigates — unless the section is
+  // empty (fall through to the contextual empty state).
+  //
+  // Reads the UNFILTERED list on purpose: a Library section's front page is
+  // hidden as a row precisely because the section row opens it.
+  //
+  // The don't-yank-them-away rule (stay put when the open page is already in
+  // this section) is relaxed for exactly that case. A section whose row IS its
+  // front page has to open it, or clicking "Running" while sitting on "Fueling"
+  // would do nothing at all.
   useEffect(() => {
     const sectionId = autoOpenSectionRef.current
     if (!sectionId) return
@@ -294,14 +316,15 @@ function App() {
     const entry = getSectionPageEntry(sectionPageCache, sectionId)
     if (entry.status !== SECTION_PAGE_STATUS.LOADED) return
     autoOpenSectionRef.current = null
+    const landingPage = pickSectionLandingPage(entry.pages)
+    if (!landingPage) return
+    if (landingPage.id === activePageId) return
     const activeInSection = entry.pages.some((page) => page.id === activePageId)
-    if (activeInSection) return
-    const firstPage = entry.pages[0]
-    if (!firstPage) return
+    if (activeInSection && landingPage.libraryRole !== 'section_index') return
     selectNavigationTarget({
       notebookId: activeNotebookId,
       sectionId,
-      pageId: firstPage.id,
+      pageId: landingPage.id,
     })
   }, [
     autoOpenNonce,
@@ -505,7 +528,7 @@ function App() {
     }
     primeTouchNavigationGuard()
     selectNavigationTarget(target)
-    // Arm auto-open of this section's first page (resolved once its pages load).
+    // Arm auto-open of this section's landing page (resolved once its pages load).
     if (target?.sectionId) {
       autoOpenSectionRef.current = target.sectionId
       setAutoOpenNonce((n) => n + 1)
@@ -538,6 +561,81 @@ function App() {
     createPage(session, activeSectionId)
   }
 
+  /**
+   * Make a Library topic or section, from a suggestion card or from the
+   * "make your own" modal.
+   *
+   * Both front doors land here. What it creates is EMPTY and starts gathering —
+   * no backfill, no second model call — which is the 19 Aug decision and the
+   * same rule a topic made through the bot follows.
+   *
+   * Returns truthy on success so the caller can spend the suggestion it came
+   * from; a suggestion spent on a failed insert would vanish with nothing to
+   * show for it.
+   */
+  const handleCreateLibraryThing = useCallback(
+    async ({ scope, sectionId, title }) => {
+      if (!session) return null
+      // The drawer is closed only once the insert has landed, and never while
+      // it is in flight: on mobile the dialog is rendered inside the drawer, so
+      // closing early would slide the dialog off the screen mid-create.
+      const done = () => {
+        if (isMobileViewport) setMobileSidebarOpen(false)
+      }
+
+      if (scope === 'section') {
+        const created = await createSectionNamed(session, activeNotebookId, title)
+        if (!created) return null
+        done()
+        return { sectionId: created.id }
+      }
+
+      const targetSectionId = sectionId ?? activeSectionId
+      const created = await createLibraryTopicPage(session, targetSectionId, title)
+      if (!created) return null
+      done()
+      // The row has to appear in the sidebar tagged CATALOG. createLibraryTopicPage
+      // already upserts it into the cache; this covers the case where that
+      // section's metadata was never loaded, when the upsert is a no-op.
+      loadSectionPagesMeta(targetSectionId, { force: true })
+      return { sectionId: targetSectionId, pageId: created.id }
+    },
+    [
+      activeNotebookId,
+      activeSectionId,
+      createLibraryTopicPage,
+      createSectionNamed,
+      isMobileViewport,
+      loadSectionPagesMeta,
+      session,
+      setMobileSidebarOpen,
+    ],
+  )
+
+  /**
+   * Where the "Worth a topic?" block appears, and what it offers there.
+   *
+   * The suggestion level matches the page level: Lately is Library-wide so it
+   * offers SECTIONS; a section's front page offers TOPICS in that section.
+   * Anywhere else — a topic page, a capture, any tracker page — it is absent.
+   */
+  const librarySuggestionsProps = useMemo(() => {
+    if (activeNotebookType !== 'library' || !userId) return null
+    const role = activePage?.libraryRole
+    if (role === 'lately') {
+      return { scope: 'section', sectionId: null, userId, onCreate: handleCreateLibraryThing }
+    }
+    if (role === 'section_index') {
+      return {
+        scope: 'topic',
+        sectionId: activePage.section_id ?? null,
+        userId,
+        onCreate: handleCreateLibraryThing,
+      }
+    }
+    return null
+  }, [activeNotebookType, activePage, handleCreateLibraryThing, userId])
+
   const handleOpenTreeContextMenu = (event, type, item) => {
     event.preventDefault()
     setTreeContextMenu({ open: true, x: event.clientX, y: event.clientY, type, item })
@@ -549,6 +647,21 @@ function App() {
 
   const openCopyMoveModal = (action) => {
     setCopyMoveModal({ open: true, action, section: treeContextMenu.item, destId: '' })
+  }
+
+  const openNewNotebookModal = () => {
+    setNewNotebookModal({ open: true, title: '', type: 'tracker' })
+  }
+
+  const closeNewNotebookModal = () => {
+    setNewNotebookModal((previous) => ({ ...previous, open: false }))
+  }
+
+  const handleCreateNotebookConfirm = async () => {
+    const { title, type } = newNotebookModal
+    if (!title.trim()) return
+    closeNewNotebookModal()
+    await createNotebook(session, { type, title: title.trim() })
   }
 
   const closeCopyMoveModal = () => {
@@ -645,7 +758,16 @@ function App() {
   }
 
   if (notebooks.length === 0) {
-    return <WelcomeScreen session={session} onCreateNotebook={() => createNotebook(session)} onSignOut={handleSignOut} />
+    return (
+      <>
+        <WelcomeScreen
+          session={session}
+          onCreateNotebook={openNewNotebookModal}
+          onSignOut={handleSignOut}
+        />
+        <NewNotebookModal {...newNotebookModalProps} />
+      </>
+    )
   }
 
   const interactionHandlers = {
@@ -687,14 +809,14 @@ function App() {
     userId,
     loading: dataLoading,
     compactBadges,
-    isRecipesNotebook,
+    activeNotebookType,
     isMobileViewport,
     mobileSidebarOpen,
     session,
     onSelectNotebook: handleNotebookSelect,
     onSelectSection: handleSectionSelect,
     onSelectPage: handlePageSelect,
-    onCreateNotebook: () => createNotebook(session),
+    onCreateNotebook: openNewNotebookModal,
     onCreateSection: () => createSection(session, activeNotebookId),
     onCreatePage: handleCreatePage,
     onReorderNotebooks: reorderNotebooks,
@@ -704,6 +826,7 @@ function App() {
     onLoadSectionPages: loadSectionPagesMeta,
     onCreateWithContent: (title, content) =>
       createPageWithContent(session, activeSectionId, title, content),
+    onCreateLibraryThing: handleCreateLibraryThing,
   }
   const settings = {
     isHub: isSettingsHub,
@@ -766,6 +889,7 @@ function App() {
     deepLinkActive,
     emptyState: editorEmptyState,
     onAddCustomWord: addCustomWord,
+    librarySuggestions: librarySuggestionsProps,
   }
   const treeContextMenuProps = {
     menu: treeContextMenu,
@@ -795,6 +919,15 @@ function App() {
       closeTreeContextMenu()
       openCopyMoveModal('move')
     },
+  }
+  const newNotebookModalProps = {
+    open: newNotebookModal.open,
+    title: newNotebookModal.title,
+    type: newNotebookModal.type,
+    onTitleChange: (title) => setNewNotebookModal((previous) => ({ ...previous, title })),
+    onTypeChange: (type) => setNewNotebookModal((previous) => ({ ...previous, type })),
+    onClose: closeNewNotebookModal,
+    onSubmit: handleCreateNotebookConfirm,
   }
   const copyMoveModalProps = {
     modal: copyMoveModal,
@@ -828,6 +961,7 @@ function App() {
       templateEditorProps={templateEditorProps}
       primaryEditorProps={primaryEditorProps}
       treeContextMenuProps={treeContextMenuProps}
+      newNotebookModalProps={newNotebookModalProps}
       copyMoveModalProps={copyMoveModalProps}
       conflictModalProps={conflictModalProps}
     />

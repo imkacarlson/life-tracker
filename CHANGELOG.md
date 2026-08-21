@@ -3,6 +3,82 @@
 All notable changes to life-tracker are documented here.
 Format: [Semantic Versioning](https://semver.org/). Dates: YYYY-MM-DD.
 
+## [0.5.0.0] - 2026-08-20
+
+### Added
+- **Library notebook** — a home for things the user runs across and wants to find again months
+  later, alongside the monthly trackers that hold things with a lifespan. Follows the pattern
+  Karpathy described in April 2026 (raw sources kept immutably, an LLM maintaining index pages
+  over them, questions asked against the whole thing), narrowed to one job: **recall, not
+  synthesis**. Topic pages catalog what was saved, in the user's own words, with dates. They never
+  assert a conclusion.
+- `library` notebook type, alongside `tracker` and `recipes` — one widened check constraint,
+  following the recipes precedent
+- `pages.library_role` (`capture` | `topic` | `section_index` | `lately` | `activity`) — the
+  discriminant for tree filtering and rebuild scoping. Null for every page that already existed
+- `library_sources` table — the immutable ingest record per capture: extracted text, provenance,
+  extraction status, and a `canonical_url` whose partial unique index *is* the "already have this
+  one" check
+- `save_to_library` Telegram tool, beside `propose_tracker_addition` and gated the same way. The
+  model routes between them on one question — is this something to **do**, or something to
+  **remember**? A URL is explicitly not a signal
+- `api/fetch-source.js` — a Vercel function that turns a share into a capture's raw material:
+  `defuddle` + `linkedom` for articles, with a headless-Chrome retry for JS-rendered pages, and an
+  iTunes-Search → RSS path for podcasts that works from any podcast app
+- Podcast resolution keyed on the feed and episode rather than the share URL, so the same episode
+  shared from Apple, Spotify, Overcast, or Podcast Addict is recognized as one thing
+- Full-text search over pages and stored source text: generated `tsvector` columns, GIN indexes,
+  and one `search_library` SQL function. **The tracker is now searchable too**, which falls out of
+  the same index for free
+- `search_library` bot tool — answers "I know I saved something about X, what was it?". Returns
+  titles, snippets, and links, never full source text: narrowing in Postgres before the model sees
+  anything is the whole cost story
+- `library_topic_members` — stored topic membership, decided at capture time and at topic creation,
+  never on a schedule
+- `create_library_topic` tool, callable only when the user asks. The model may *suggest* a topic;
+  it never creates one
+- `library-rebuild` edge function + weekly cron — rebuilds topic catalogs, section front pages, and
+  Lately, scoped to sections that actually received something, with every skip logged
+- `library_activity` + `revert_library_page` tool — an append-only record of what the model changed
+  and a one-step undo. Safe unconditionally, because only model-owned pages are ever rewritten
+- `/library` bot command — what the rebuild last changed, pure reads, zero AI
+- New-notebook dialog with a kind picker (Tracker / Recipes / Library)
+- The bot's first non-text handlers: a `.txt` document quote-replied to a saved item attaches its
+  full text (for paywalled sources a server fetch can't read), and photos/voice/video now get a
+  reply instead of silence
+
+### Changed
+- `prompt.ts` now names a **third** untrusted source. It previously named two — tracker text and
+  the user's own messages. Fetched articles, feed descriptions, and uploaded documents are a new
+  category, fenced in `<external_content>` tags and summarized in a separate Claude call with no
+  tools at all. Not hypothetical: the user's own podcast feed carries a live injection attempt
+- `activeNotebookType` is now the single discriminant for notebook-kind behavior; `isRecipesNotebook`
+  is retired
+- `sendReply` returns the sent message id, so a capture's confirmation can be quote-replied to later
+- `bot_preview_jobs` gains a `kind` column and nullable OCC columns, with a check constraint so only
+  a library capture may have no target page
+
+### Security
+- `search_library` is `SECURITY INVOKER`, not `SECURITY DEFINER`. The first version combined
+  `SECURITY DEFINER` with a `p_user_id` parameter on a PostgREST-exposed function, which meant any
+  caller holding the (client-bundled, therefore public) anon key could have read any user's pages
+  and stored source text by passing their id. RLS on `pages` and `library_sources` already does the
+  scoping; the service role still bypasses it as before, so `p_user_id` is now an ordinary filter
+  rather than an authorization bypass. Caught by the Supabase security advisor
+- `page_plain_text` and `search_library` both pin `search_path`
+
+### Removed
+- The Recipes auto-provisioning effect. It hardcoded one type, one title, and one section name,
+  fired only when `notebooks.length > 0` (so it never ran on a genuinely empty account), and
+  swallowed errors. Notebook kinds are now chosen in the New Notebook dialog
+
+### Fixed
+- Capture pages never appear in the sidebar tree, but remain fully openable from a topic page,
+  search, a deep link, or a citation. Filtering happens where the tree renders — the cache accessor
+  is untouched, because filtering there would make a capture impossible to open at all
+- Sidebar drag-and-drop reads the same visible page list the tree renders, so drop indices can't
+  drift
+
 ## [0.4.0.0] - 2026-04-10
 
 ### Added

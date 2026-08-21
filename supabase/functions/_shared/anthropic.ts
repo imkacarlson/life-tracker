@@ -1,5 +1,11 @@
 // Claude call with a minimal agentic loop (tool_use -> tool_result -> final text).
 //
+// Lives in _shared/ because more than one function needs it: the bot, and the
+// library-suggest noticing pass. The house rule for this directory holds — no
+// jsr:/npm:/https:// imports, and the one `Deno.env.get` sits inside the
+// function rather than at the top level, so Vitest can still import anything
+// that imports this.
+//
 // Reuses the request shape from generate-daily/index.ts (URL, anthropic-version
 // header, x-api-key, max_tokens) but, unlike generate-daily, sends a multi-turn
 // `messages` array plus `tools` so the model can call read_current_tracker.

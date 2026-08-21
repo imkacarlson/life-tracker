@@ -59,6 +59,35 @@ export function reindexSortOrder(items) {
 }
 
 /**
+ * Fold a reordered SUBSET back into the full list it came from.
+ *
+ * Drag-and-drop hands the reorder path only the rows the tree actually shows,
+ * because a drop index computed against a longer list would land in the wrong
+ * place. Seeding that subset straight into the cache, though, evicts every
+ * hidden page from it — in a Library section that means the captures vanish from
+ * the lookup that opens them until the next refetch.
+ *
+ * So: reordered rows take their new positions, and anything absent from
+ * `reordered` keeps its own entry, appended after them with its stored
+ * sort_order untouched. Only the reordered rows are ever persisted, so a hidden
+ * page's sentinel order survives a drag of two visible ones.
+ *
+ * @template {{ id: string }} T
+ * @param {T[]} existing the full cached list
+ * @param {T[]} reordered the visible subset, in its new order
+ * @returns {T[]}
+ */
+export function mergeReorderedPages(existing, reordered) {
+  if (!Array.isArray(reordered)) return Array.isArray(existing) ? existing : []
+  if (!Array.isArray(existing) || existing.length === 0) return reordered
+
+  const movedIds = new Set(reordered.map((page) => page.id))
+  const untouched = existing.filter((page) => !movedIds.has(page.id))
+  if (untouched.length === 0) return reordered
+  return [...reordered, ...untouched]
+}
+
+/**
  * Returns a new array with `created` inserted immediately after the page whose
  * id matches `activeId`. If `activeId` is null/undefined or not found in
  * `pages`, the created page is appended at the end (matching the legacy

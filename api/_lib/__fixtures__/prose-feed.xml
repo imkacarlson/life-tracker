@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>The Quiet Details</title>
+    <description>Design is everywhere in our lives, perhaps most importantly in the places where we&apos;ve just stopped noticing. The Quiet Details is a weekly exploration of the process and power of design and architecture. Learn more at quietdetails.example.</description>
+    <link>https://quietdetails.example</link>
+    <language>en-us</language>
+    <generator>Simplecast</generator>
+    <atom:link href="https://feeds.simplecast.example/qd" rel="self" type="application/rss+xml"/>
+    <itunes:author>The Quiet Details</itunes:author>
+    <itunes:owner>
+      <itunes:name>The Quiet Details</itunes:name>
+      <itunes:email>hello@quietdetails.example</itunes:email>
+    </itunes:owner>
+    <itunes:summary>Design is everywhere in our lives, perhaps most importantly in the places where we&apos;ve just stopped noticing. The Quiet Details is a weekly exploration of the process and power of design and architecture. Learn more at quietdetails.example.</itunes:summary>
+    <itunes:type>episodic</itunes:type>
+    <itunes:explicit>false</itunes:explicit>
+    <item>
+      <title>The Bone Wars</title>
+      <itunes:episode>679</itunes:episode>
+      <description><![CDATA[<p>In the late 1800s, two rival paleontologists raced to name more dinosaur species than the other, and salted the record with sabotage, bribery, and a great deal of dynamite. What they left behind is still being untangled.</p>
+<p><p>Subscribe to Podcasts+ to listen to new episodes ad-free and a whole week early.&nbsp;<br><br>Start a free trial now by visiting <a href="http://podcastsplus.example" target="_blank">podcastsplus.example</a>.&nbsp;</p></p><br/> <p>Hosted by an ad network. See <a href="https://ads.example">ads.example</a> for information about our collection and use of personal data for advertising.</p>]]></description>
+      <link>https://quietdetails.example/?p=48401</link>
+      <guid isPermaLink="false">6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8</guid>
+      <pubDate>Tue, 12 Aug 2026 07:00:00 -0000</pubDate>
+      <itunes:duration>2711</itunes:duration>
+      <enclosure url="https://media.example/qd/bone-wars.mp3" length="43521000" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Bamboo Is Innocent</title>
+      <description><![CDATA[<p>Bamboo scaffolding holds up skyscrapers, and everyone outside of the places that use it assumes it is a shortcut. It is not a shortcut.</p>
+<p><p>Subscribe to Podcasts+ to listen to new episodes ad-free and a whole week early.&nbsp;<br><br>Start a free trial now by visiting <a href="http://podcastsplus.example" target="_blank">podcastsplus.example</a>.&nbsp;</p></p><br/> <p>Hosted by an ad network. See <a href="https://ads.example">ads.example</a> for information about our collection and use of personal data for advertising.</p>]]></description>
+      <link>https://quietdetails.example/?p=48275</link>
+      <guid isPermaLink="false">1c2d3e4f-5a6b-7c8d-9e0f-1a2b3c4d5e6f</guid>
+      <pubDate>Tue, 05 Aug 2026 07:00:00 -0000</pubDate>
+      <itunes:duration>2402</itunes:duration>
+      <enclosure url="https://media.example/qd/bamboo.mp3" length="38440000" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>100 Objects #13: The Sand Letters</title>
+      <description><![CDATA[<p>Thirteenth in our run of short episodes about single objects. This one is a stack of letters written on the back of surveyor&apos;s sand charts.</p>]]></description>
+      <link>https://quietdetails.example/?p=48190</link>
+      <guid isPermaLink="false">abcdef01-2345-6789-abcd-ef0123456789</guid>
+      <pubDate>Fri, 01 Aug 2026 07:00:00 -0000</pubDate>
+      <itunes:duration>901</itunes:duration>
+      <enclosure url="https://media.example/qd/sand-letters.mp3" length="14420000" type="audio/mpeg"/>
+    </item>
+  </channel>
+</rss>

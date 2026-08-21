@@ -179,6 +179,21 @@ export async function renderTrackerPng({ content, blockIds, blockId, deviceScale
       )
     }
 
+    // No highlighted blocks means "show the whole document" — but NOT
+    // `fullPage: true`, which captures the full scrollable area and therefore
+    // pads a short document out to the 1400px viewport height. A Library
+    // capture is only a few hundred pixels tall, so that rendered as roughly
+    // three-quarters empty space. Crop to what actually got laid out instead.
+    if (!clip) {
+      const contentHeight = await page.evaluate(() => {
+        const root = document.querySelector('.render-root')
+        return root ? Math.ceil(root.getBoundingClientRect().height) : 0
+      })
+      if (contentHeight > 0) {
+        clip = { x: 0, y: 0, width: VIEWPORT_WIDTH, height: contentHeight }
+      }
+    }
+
     const png = clip
       ? await page.screenshot({ type: 'png', clip })
       : await page.screenshot({ type: 'png', fullPage: true })

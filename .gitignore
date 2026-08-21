@@ -55,3 +55,17 @@ public/dictionaries/
 # Reference implementation clones (kept locally for review, not tracked)
 docmost/
 notesnook/
+
+# Local codebase-review tooling. review-codebase.sh pipes a full repo dump into
+# `claude -p` for a whole-codebase review; the dump and the generated report are
+# large, machine-specific, and point at absolute local paths.
+review-codebase.sh
+codebase-review-*.md
+*-life-tracker-*.txt
+repo-dump*.txt
+
+# Vercel CLI project link (machine-specific project/org ids, not shared state)
+.vercel/
+
+# Env files are never committed. Added by `vercel link`, kept because it is right.
+.env*
