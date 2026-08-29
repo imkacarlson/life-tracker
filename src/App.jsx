@@ -117,6 +117,7 @@ function App() {
   const {
     settingsMode,
     setSettingsMode,
+    settingsRow,
     settingsLoading,
     templateSaveStatus,
     setTemplateSaveStatus,
@@ -125,6 +126,7 @@ function App() {
     message: settingsMessage,
     setMessage: setSettingsMessage,
     scheduleSettingsSave,
+    setSportsScoresEnabled,
     openSettings,
     closeSettings,
     openDailyTemplate,
@@ -713,6 +715,10 @@ function App() {
       onEditDailyTemplate: openDailyTemplate,
       onBackToPages: closeSettings,
       loading: settingsLoading,
+      // Missing row or null column means enabled — matches the column default
+      // and the edge function's own reading of it.
+      sportsScoresEnabled: settingsRow?.sports_scores_enabled ?? true,
+      onToggleSportsScores: setSportsScoresEnabled,
     },
   }
   const templateEditorProps = {

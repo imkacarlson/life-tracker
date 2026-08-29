@@ -570,3 +570,44 @@
 .settings-loading {
   color: var(--text-secondary);
 }
+
+/*
+ * Settings switch — the pill from .find-ai-toggle at settings scale.
+ * The explicit border/background are load-bearing overrides against the global
+ * `button` rule in base.css. min-width keeps the pill from jittering as the
+ * label swaps between "On" and "Off".
+ */
+.settings-toggle {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.settings-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.settings-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.settings-toggle.active:hover {
+  color: #fff;
+}
+
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

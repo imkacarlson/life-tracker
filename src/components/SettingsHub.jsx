@@ -1,4 +1,10 @@
-function SettingsHub({ onEditDailyTemplate, onBackToPages, loading }) {
+function SettingsHub({
+  onEditDailyTemplate,
+  onBackToPages,
+  loading,
+  sportsScoresEnabled = true,
+  onToggleSportsScores,
+}) {
   return (
     <section className="settings-hub">
       <div className="settings-header">
@@ -24,6 +30,33 @@ function SettingsHub({ onEditDailyTemplate, onBackToPages, loading }) {
             </div>
             <button type="button" onClick={onEditDailyTemplate}>
               Edit Template
+            </button>
+          </div>
+
+          <div className="settings-card">
+            <div>
+              <h3 id="sports-scores-label">Sports Score Alerts</h3>
+              <p className="subtle">
+                Emails a score summary when one of your teams finishes a game. Turning this off
+                stops all checks; turning it back on retries immediately if checking had stopped
+                itself.
+              </p>
+            </div>
+            {/*
+              role="switch" rather than the repo's aria-pressed: aria-pressed is
+              for a transient mode (the find toolbar's AI pill), while a switch
+              is the ARIA pattern for a persisted binary setting and announces
+              "on/off" to match the visible label.
+            */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sportsScoresEnabled}
+              aria-labelledby="sports-scores-label"
+              className={`settings-toggle ${sportsScoresEnabled ? 'active' : ''}`}
+              onClick={() => onToggleSportsScores?.(!sportsScoresEnabled)}
+            >
+              {sportsScoresEnabled ? 'On' : 'Off'}
             </button>
           </div>
         </div>

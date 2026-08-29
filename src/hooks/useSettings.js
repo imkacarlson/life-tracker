@@ -13,6 +13,9 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
 
   const settingsSaveTimerRef = useRef(null)
   const settingsRowRef = useRef(null)
+  // Monotonic token so rapid toggle clicks resolve last-write-wins instead of
+  // an earlier failed write rolling back a later successful one.
+  const sportsToggleTokenRef = useRef(0)
   const templateContentRef = useRef(EMPTY_DOC)
 
   useEffect(() => {
@@ -33,7 +36,7 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
     setMessage('')
     const { data, error } = await supabase
       .from('settings')
-      .select('id, user_id, daily_template_content, created_at, updated_at')
+      .select('id, user_id, daily_template_content, sports_scores_enabled, created_at, updated_at')
       .eq('user_id', userId)
       .maybeSingle()
 
@@ -138,6 +141,40 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
     [userId],
   )
 
+  /**
+   * Sports score email toggle — an IMMEDIATE write, unlike the daily template.
+   * scheduleSettingsSave is hard-coded to the template payload behind a 2s
+   * debounce meant for a text editor; a switch needs to land now. Optimistic
+   * with rollback, modeled on useCustomDictionary.addWord.
+   */
+  const setSportsScoresEnabled = useCallback(
+    async (nextEnabled) => {
+      const existing = settingsRowRef.current
+      if (!userId || !existing?.id) return
+
+      const token = sportsToggleTokenRef.current + 1
+      sportsToggleTokenRef.current = token
+
+      setSettingsRow((prev) => (prev ? { ...prev, sports_scores_enabled: nextEnabled } : prev))
+
+      const { error } = await supabase
+        .from('settings')
+        .update({
+          sports_scores_enabled: nextEnabled,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+
+      if (!error) return
+      // A newer click already superseded this one — let that one own the state.
+      if (token !== sportsToggleTokenRef.current) return
+
+      setMessage(error.message)
+      setSettingsRow((prev) => (prev ? { ...prev, sports_scores_enabled: !nextEnabled } : prev))
+    },
+    [userId],
+  )
+
   const openSettings = () => {
     setSettingsMode('hub')
     if (!settingsRow) {
@@ -172,6 +209,7 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
     message,
     setMessage,
     scheduleSettingsSave,
+    setSportsScoresEnabled,
     openSettings,
     closeSettings,
     openDailyTemplate,

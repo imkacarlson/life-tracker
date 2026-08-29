@@ -1,43 +1,38 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 
-// --- Types ---
+import {
+  HEALTHY,
+  type HealthSnapshot,
+  applyFailure,
+  applySuccess,
+  classifyFailure,
+  isBackedOff,
+  parseRetryAfter,
+} from '../_shared/backoff.ts'
+import { findStaleGames, nextPollDelayMinutes } from '../_shared/pollSchedule.ts'
+import { decideScoresRun } from '../_shared/scoresEnabled.ts'
+import { type AlertContext, sendAlert } from './alerts.ts'
+import {
+  EMAIL_RECIPIENT,
+  buildEmailHtml,
+  buildEmailSubject,
+  fromNameForTeam,
+  sendEmail,
+} from './email.ts'
+import {
+  EspnFetchError,
+  type GameResult,
+  type Team,
+  createScoreboardCache,
+  fetchTeamGames,
+} from './espn.ts'
+import { generateSummary } from './summary.ts'
 
-type Team = {
-  id: string
-  name: string
-  display_name: string
-  sport: string
-  league: string
-  espn_team_id: string
-  emoji_win: string
-  emoji_loss: string
-  emoji_tie: string
-}
+const HEALTH_ID = 'espn'
+const RETENTION_DAYS = 7
 
-type GameResult = {
-  espnGameId: string
-  gameDate: string
-  teamScore: number
-  opponentName: string
-  opponentScore: number
-  result: 'win' | 'loss' | 'tie'
-  homeAway: 'home' | 'away'
-  rawData: unknown
-}
-
-// --- Config ---
-
-const EMAIL_RECIPIENT = 'imkacarlson@gmail.com'
-// PINNED, do not "upgrade". This function needs Google Search grounding (see the
-// tools: [{ google_search: {} }] below) and the free tier does not serve grounding
-// on any 3.x model — every one of them returns 429 RESOURCE_EXHAUSTED the moment
-// the tool is requested, while 2.5-flash returns grounded results normally.
-// Verified against the live API. Plain (ungrounded) 3.x generation is fine on the
-// same key, which is why the reminder-intent classifier can run on 3.5-flash-lite.
-const GEMINI_MODEL = 'gemini-2.5-flash'
-
-// Team seed data — inserted on first run if sport_teams is empty
+// Team seed data — inserted on first run if sport_teams is empty.
 const SEED_TEAMS = [
   { name: 'nationals', display_name: 'Washington Nationals', sport: 'baseball', league: 'mlb', espn_team_id: '20', emoji_win: '⚾🏆', emoji_loss: '⚾❌', emoji_tie: '⚾🤝' },
   { name: 'pacers', display_name: 'Indiana Pacers', sport: 'basketball', league: 'nba', espn_team_id: '11', emoji_win: '🏀🏆', emoji_loss: '🏀❌', emoji_tie: '🏀🤝' },
@@ -50,300 +45,164 @@ const SEED_TEAMS = [
   { name: 'spirit', display_name: 'Washington Spirit', sport: 'soccer', league: 'usa.nwsl', espn_team_id: '15365', emoji_win: '⚽🏆', emoji_loss: '⚽❌', emoji_tie: '⚽🤝' },
 ]
 
-// Gemini prompt per team — matches the original Power Automate flow format
-const GEMINI_PROMPT_TEMPLATE = (teamFullName: string, sport: string) =>
-  `Give me a current 3-bullet update on the ${teamFullName} ${sport} team in the following format: \n` +
-  ` Record & Standings: Include win-loss record, division standing, and a note on playoff chances. \n` +
-  ` Recent News: One or two notable updates. \n` +
-  ` Next Game (not counting any games currently happening or recently ended): Date, opponent, location and start time (in eastern time zone).\n` +
-  `Keep the tone neutral and concise, and be sure to rely on sources and not hallucinate.`
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
 
-// Sport label used in the Gemini prompt
-const SPORT_LABELS: Record<string, string> = {
-  'baseball': 'MLB baseball',
-  'basketball': 'NBA',
-  'hockey': 'NHL',
-  'football': 'NFL',
-  'soccer': "women's soccer",
+// --- Health record ---
+
+type HealthRow = HealthSnapshot & {
+  last_status: number | null
+  last_success_at: string | null
+  last_seen_enabled: boolean
 }
 
-function sportLabel(team: Team): string {
-  // For college teams, use a more specific label
-  if (team.league === 'college-football') return 'NCAA football'
-  if (team.league === 'mens-college-basketball') return 'NCAA men\'s basketball'
-  if (team.league === 'womens-college-basketball') return 'NCAA women\'s basketball'
-  return SPORT_LABELS[team.sport] ?? team.sport
+const DEFAULT_HEALTH: HealthRow = {
+  ...HEALTHY,
+  last_status: null,
+  last_success_at: null,
+  last_seen_enabled: true,
 }
 
-// --- ESPN API ---
+async function loadHealth(supabase: SupabaseClient): Promise<HealthRow> {
+  const { data, error } = await supabase
+    .from('sports_check_health')
+    .select('state, consecutive_failures, backoff_level, backoff_until, last_status, last_success_at, last_seen_enabled')
+    .eq('id', HEALTH_ID)
+    .maybeSingle()
 
-async function fetchCompletedGames(team: Team): Promise<GameResult[]> {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/${team.sport}/${team.league}/teams/${team.espn_team_id}/schedule`
-  const resp = await fetch(url)
-  if (!resp.ok) {
-    console.error(`ESPN API error for ${team.display_name}: ${resp.status}`)
-    return []
+  if (error || !data) {
+    if (error) console.error('Failed to read sports_check_health:', error)
+    return { ...DEFAULT_HEALTH }
   }
-
-  const data = await resp.json()
-  const events = data.events ?? []
-  const results: GameResult[] = []
-
-  // Only process games that completed in the last 24 hours
-  // (prevents a flood of emails on first run or after downtime)
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000
-
-  for (const event of events) {
-    const competition = event.competitions?.[0]
-    if (!competition) continue
-
-    const status = competition.status?.type
-    if (!status?.completed) continue
-
-    const gameTime = new Date(event.date).getTime()
-    if (gameTime < cutoff) continue
-
-    const espnGameId = String(event.id)
-    const gameDate = event.date?.split('T')[0] ?? ''
-
-    // Find our team and the opponent in competitors
-    const competitors = competition.competitors ?? []
-    const ourTeam = competitors.find(
-      (c: any) => String(c.team?.id) === team.espn_team_id
-    )
-    const opponent = competitors.find(
-      (c: any) => String(c.team?.id) !== team.espn_team_id
-    )
-
-    if (!ourTeam || !opponent) continue
-
-    const teamScore = parseInt(ourTeam.score?.value ?? ourTeam.score ?? '0', 10)
-    const opponentScore = parseInt(opponent.score?.value ?? opponent.score ?? '0', 10)
-
-    let result: 'win' | 'loss' | 'tie'
-    if (ourTeam.winner === true) {
-      result = 'win'
-    } else if (opponent.winner === true) {
-      result = 'loss'
-    } else {
-      result = 'tie'
-    }
-
-    results.push({
-      espnGameId,
-      gameDate,
-      teamScore,
-      opponentName: opponent.team?.displayName ?? 'Unknown',
-      opponentScore,
-      result,
-      homeAway: ourTeam.homeAway ?? 'home',
-      rawData: event,
-    })
-
-  }
-
-  return results
+  return data as HealthRow
 }
 
-// --- Gemini AI Summary ---
-
-// Number of times to attempt the Gemini call (original + retries).
-// Gemini occasionally returns a transient 5xx/429 or an empty 200 body,
-// so a couple of retries with a short backoff usually recovers the summary.
-const GEMINI_MAX_ATTEMPTS = 3
-
-async function generateSummary(team: Team, apiKey: string): Promise<string | null> {
-  const prompt = GEMINI_PROMPT_TEMPLATE(team.display_name, sportLabel(team))
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`
-
-  for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
-    try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          tools: [{ google_search: {} }],
-        }),
-      })
-
-      if (resp.ok) {
-        const data = await resp.json()
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? null
-        if (text) return text
-        // 200 but no usable text — transient grounding hiccup, worth retrying
-        console.error(`Gemini empty response for ${team.display_name} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
-      } else {
-        console.error(`Gemini API error for ${team.display_name}: ${resp.status} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
-        // 4xx (except 429 rate limit) are permanent — don't waste retries on them
-        if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) {
-          return null
-        }
-      }
-    } catch (err) {
-      console.error(`Gemini call failed for ${team.display_name} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}):`, err)
-    }
-
-    // Linear backoff between attempts: 1s, then 2s. Skip the wait after the last attempt.
-    if (attempt < GEMINI_MAX_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt))
-    }
-  }
-
-  return null
-}
-
-// --- Email via Resend ---
-
-// From name per sport — matches original Power Automate flow
-const FROM_NAMES: Record<string, string> = {
-  'nationals': 'MLB Scores',
-  'pacers': 'NBA Scores',
-  'capitals': 'NHL Scores',
-  'commanders': 'NFL Scores',
-  'colts': 'NFL Scores',
-  'iu_football': 'College Football',
-  'iu_basketball': "Men's College Basketball",
-  'iu_womens_basketball': "Women's College Basketball",
-  'spirit': "Women's Soccer",
-}
-
-// Short display name for email subject
-const SHORT_NAMES: Record<string, string> = {
-  'nationals': 'Nats',
-  'pacers': 'Pacers',
-  'capitals': 'Capitals',
-  'commanders': 'Commanders',
-  'colts': 'Colts',
-  'iu_football': 'Hoosiers',
-  'iu_basketball': 'Hoosier Men',
-  'iu_womens_basketball': 'Hoosier Women',
-  'spirit': 'Spirit',
-}
-
-function buildEmailSubject(team: Team, game: GameResult): string {
-  const emoji = game.result === 'win' ? team.emoji_win
-    : game.result === 'loss' ? team.emoji_loss
-    : team.emoji_tie
-
-  const resultLabel = game.result === 'win' ? 'Win!'
-    : game.result === 'loss' ? 'Lose'
-    : 'Tie'
-
-  const shortName = SHORT_NAMES[team.name] ?? team.display_name
-
-  return `${emoji} ${shortName} ${resultLabel} ${game.teamScore}-${game.opponentScore} vs ${game.opponentName}`
-}
-
-function buildEmailHtml(team: Team, game: GameResult, aiSummary: string | null): string {
-  const resultLabel = game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Tie'
-  const location = game.homeAway === 'home' ? 'Home' : 'Away'
-
-  // Convert markdown-style bold (**text**) to <b> tags in AI summary
-  const summaryHtml = aiSummary
-    ? '<br><br>' + escapeHtml(aiSummary)
-        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-        .replace(/\n/g, '<br>')
-    : ''
-
-  return `<b>${escapeHtml(team.display_name)} ${resultLabel} ${game.teamScore}-${game.opponentScore}</b> vs ${escapeHtml(game.opponentName)} (${location})<br>${game.gameDate}${summaryHtml}`
-}
-
-function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-async function sendEmail(
-  resendApiKey: string,
-  to: string,
-  subject: string,
-  html: string,
-  fromName: string,
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: `${fromName} <onboarding@resend.dev>`,
-        to: [to],
-        subject,
-        html,
-      }),
-    })
-
-    if (!resp.ok) {
-      const errBody = await resp.text()
-      console.error('Resend error:', errBody)
-      return { ok: false, error: `Resend ${resp.status}: ${errBody}` }
-    }
-
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
+async function saveHealth(supabase: SupabaseClient, patch: Partial<HealthRow>): Promise<void> {
+  const { error } = await supabase
+    .from('sports_check_health')
+    .upsert({ id: HEALTH_ID, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'id' })
+  if (error) console.error('Failed to write sports_check_health:', error)
 }
 
 // --- Main Handler ---
 
 Deno.serve(async (req) => {
-  // Validate cron secret
+  const now = new Date()
+
+  // 1. Cron secret. The Settings toggle is NOT an auth control, so this stays first.
   const cronSecret = Deno.env.get('CRON_SECRET')
   if (!cronSecret) {
     console.error('CRON_SECRET not configured')
-    return new Response(JSON.stringify({ error: 'Server misconfigured' }), { status: 500 })
+    return json({ error: 'Server misconfigured' }, 500)
+  }
+  if (req.headers.get('x-cron-secret') !== cronSecret) {
+    return json({ error: 'Unauthorized' }, 401)
   }
 
-  const providedSecret = req.headers.get('x-cron-secret')
-  if (providedSecret !== cronSecret) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
-  }
-
-  const googleApiKey = Deno.env.get('GEMINI_SCORES_API_KEY')
-  const resendApiKey = Deno.env.get('RESEND_API_KEY')
-
-  if (!resendApiKey) {
-    console.error('RESEND_API_KEY not configured')
-    return new Response(JSON.stringify({ error: 'RESEND_API_KEY missing' }), { status: 500 })
-  }
-
-  // Use service role to bypass RLS
+  // 2. Service-role client (bypasses RLS). Created before the API-key guards so
+  //    that a disabled system with a rotated key stays quiet instead of emitting
+  //    a 500 every 15 minutes.
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   )
 
-  // Cleanup: delete score_history and notification_log older than 7 days
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  await supabase.from('notification_log').delete().lt('created_at', sevenDaysAgo)
-  await supabase.from('score_history').delete().lt('created_at', sevenDaysAgo)
+  // 3. The Settings toggle. `.limit(1)` is load-bearing: without it maybeSingle()
+  //    errors (PGRST116) on 2+ rows, which would silently disable scoring forever.
+  const { data: settingsRow, error: settingsError } = await supabase
+    .from('settings')
+    .select('sports_scores_enabled')
+    .limit(1)
+    .maybeSingle()
 
-  // Seed teams if table is empty (first run)
+  const decision = decideScoresRun(settingsRow, settingsError)
+  const health = await loadHealth(supabase)
+
+  if (!decision.run) {
+    if (decision.reason === 'settings_unavailable') {
+      console.error('Could not read settings; skipping this run:', settingsError)
+    } else if (health.last_seen_enabled) {
+      // The one write we allow while dormant, and only on the transition. It is
+      // what makes an off→on flip in Settings clear a tripped breaker below.
+      await saveHealth(supabase, { last_seen_enabled: false })
+    }
+    return json({ ok: true, skipped: decision.reason })
+  }
+
+  // A manual off→on flip means "try again now": clear any tripped breaker.
+  let currentHealth: HealthRow = health
+  if (!health.last_seen_enabled) {
+    currentHealth = { ...DEFAULT_HEALTH, last_success_at: health.last_success_at }
+    await saveHealth(supabase, { ...HEALTHY, last_seen_enabled: true })
+    console.log('Sports score alerts re-enabled — circuit breaker cleared')
+  }
+
+  // 4. API keys.
+  const googleApiKey = Deno.env.get('GEMINI_SCORES_API_KEY')
+  const resendApiKey = Deno.env.get('RESEND_API_KEY')
+  if (!resendApiKey) {
+    console.error('RESEND_API_KEY not configured')
+    return json({ error: 'RESEND_API_KEY missing' }, 500)
+  }
+
+  const alertDeps = {
+    resendApiKey,
+    recipient: EMAIL_RECIPIENT,
+    telegramToken: Deno.env.get('TELEGRAM_BOT_TOKEN') ?? undefined,
+    telegramChatId: Deno.env.get('TELEGRAM_ALLOWED_USER_ID') ?? undefined,
+  }
+
+  const logAlert = async (context: AlertContext) => {
+    const outcome = await sendAlert(alertDeps, context)
+    await supabase.from('notification_log').insert({
+      score_history_id: null,
+      channel: outcome.channel,
+      recipient: EMAIL_RECIPIENT,
+      subject: outcome.subject,
+      status: outcome.ok ? 'sent' : 'failed',
+      error_message: outcome.error ?? null,
+    })
+    await saveHealth(supabase, { last_alert_at: new Date().toISOString() })
+  }
+
+  // 5. Retention cleanup. Deliberately after the enabled check — "dormant" means
+  //    no writes either. The backlog is bounded (nothing new is created while
+  //    off) and purges on the first run after re-enabling, because cleanup
+  //    deletes by age rather than incrementally.
+  const cutoffIso = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  await supabase.from('notification_log').delete().lt('created_at', cutoffIso)
+  await supabase.from('score_history').delete().lt('created_at', cutoffIso)
+  await supabase.from('sports_expected_games').delete().lt('created_at', cutoffIso)
+
+  // 6. Seed teams on first run.
   const { count } = await supabase
     .from('sport_teams')
     .select('*', { count: 'exact', head: true })
 
   if (count === 0) {
-    // Get the single user (this is a personal app)
     const { data: users } = await supabase.auth.admin.listUsers()
     const userId = users?.users?.[0]?.id
-    if (!userId) {
-      return new Response(JSON.stringify({ error: 'No user found for seeding' }), { status: 500 })
-    }
+    if (!userId) return json({ error: 'No user found for seeding' }, 500)
 
-    const seedRows = SEED_TEAMS.map((t) => ({ ...t, user_id: userId }))
-    const { error: seedError } = await supabase.from('sport_teams').insert(seedRows)
+    const { error: seedError } = await supabase
+      .from('sport_teams')
+      .insert(SEED_TEAMS.map((t) => ({ ...t, user_id: userId })))
     if (seedError) {
       console.error('Seed error:', seedError)
-      return new Response(JSON.stringify({ error: 'Failed to seed teams' }), { status: 500 })
+      return json({ error: 'Failed to seed teams' }, 500)
     }
-    console.log('Seeded sport_teams with', seedRows.length, 'teams')
+    console.log('Seeded sport_teams with', SEED_TEAMS.length, 'teams')
   }
 
-  // Fetch active teams
+  // 7. Respect an active backoff window.
+  if (isBackedOff(currentHealth, now)) {
+    return json({ ok: true, skipped: 'backoff', retryAt: currentHealth.backoff_until })
+  }
+
+  // 8. Only teams that are actually due. `next_poll_at` null means "ask now".
   const { data: teams, error: teamsError } = await supabase
     .from('sport_teams')
     .select('*')
@@ -351,92 +210,248 @@ Deno.serve(async (req) => {
 
   if (teamsError || !teams) {
     console.error('Failed to load teams:', teamsError)
-    return new Response(JSON.stringify({ error: 'Failed to load teams' }), { status: 500 })
+    return json({ error: 'Failed to load teams' }, 500)
   }
 
-  const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
+  const dueTeams = (teams as Team[]).filter(
+    (team) => !team.next_poll_at || Date.parse(team.next_poll_at) <= now.getTime(),
+  )
 
-  for (const team of teams as Team[]) {
+  // 9. Check each due team. ONE attempt per tick: the first failed request ends
+  //    the loop rather than retrying, so a block never becomes a retry storm.
+  const cache = createScoreboardCache()
+  const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
+  let fetchError: EspnFetchError | null = null
+
+  for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
 
-    // Fetch completed games from ESPN
-    const games = await fetchCompletedGames(team)
-    teamResult.gamesFound = games.length
-
-    for (const game of games) {
-      // Dedup: try to insert into score_history first
-      // ON CONFLICT DO NOTHING — if row already exists, skip
-      const { data: inserted, error: insertError } = await supabase
-        .from('score_history')
-        .insert({
-          team_id: team.id,
-          espn_game_id: game.espnGameId,
-          game_date: game.gameDate,
-          team_score: game.teamScore,
-          opponent_name: game.opponentName,
-          opponent_score: game.opponentScore,
-          result: game.result,
-          home_away: game.homeAway,
-          raw_espn_data: game.rawData,
-        })
-        .select('id')
-        .single()
-
-      // If insert failed due to unique constraint, this game was already processed
-      if (insertError) {
-        // 23505 = unique_violation (already notified)
-        if (insertError.code === '23505') continue
-        teamResult.errors.push(`Insert error: ${insertError.message}`)
-        continue
+    let games
+    try {
+      games = await fetchTeamGames(team, now, cache)
+    } catch (err) {
+      if (err instanceof EspnFetchError) {
+        fetchError = err
+        console.error(`ESPN fetch failed for ${team.display_name}: ${err.message}`)
+        break
       }
-
-      const scoreHistoryId = inserted.id
-
-      // Generate AI summary (non-blocking — if it fails, send score-only email)
-      let aiSummary: string | null = null
-      if (googleApiKey) {
-        aiSummary = await generateSummary(team, googleApiKey)
-
-        // Save AI summary back to score_history
-        if (aiSummary) {
-          await supabase
-            .from('score_history')
-            .update({ ai_summary: aiSummary })
-            .eq('id', scoreHistoryId)
-        }
-      }
-
-      // Build and send email
-      const subject = buildEmailSubject(team, game)
-      const html = buildEmailHtml(team, game, aiSummary)
-      const fromName = FROM_NAMES[team.name] ?? 'Sports Scores'
-      const emailResult = await sendEmail(resendApiKey, EMAIL_RECIPIENT, subject, html, fromName)
-
-      // Log notification
-      await supabase.from('notification_log').insert({
-        score_history_id: scoreHistoryId,
-        channel: 'email',
-        recipient: EMAIL_RECIPIENT,
-        subject,
-        status: emailResult.ok ? 'sent' : 'failed',
-        error_message: emailResult.error ?? null,
-      })
-
-      if (emailResult.ok) {
-        teamResult.notified++
-      } else {
-        teamResult.errors.push(`Email failed: ${emailResult.error}`)
-      }
+      throw err
     }
+
+    teamResult.gamesFound = games.completed.length
+
+    // Remember every game we know about, so the stale check can notice one that
+    // never produced a result even when the response itself looks fine.
+    const expectedRows = games.all
+      .filter((game) => !game.completed)
+      .map((game) => ({
+        team_id: team.id,
+        espn_game_id: game.id,
+        start_time: game.startTime,
+      }))
+    if (expectedRows.length > 0) {
+      await supabase
+        .from('sports_expected_games')
+        .upsert(expectedRows, { onConflict: 'team_id,espn_game_id' })
+    }
+
+    for (const game of games.completed) {
+      const notified = await recordAndNotify(supabase, team, game, {
+        resendApiKey,
+        googleApiKey,
+      })
+      if (notified.skipped) continue
+      if (notified.ok) teamResult.notified++
+      if (notified.error) teamResult.errors.push(notified.error)
+    }
+
+    // A recorded result retires the expectation.
+    const settledIds = games.all.filter((game) => game.completed).map((game) => game.id)
+    if (settledIds.length > 0) {
+      await supabase
+        .from('sports_expected_games')
+        .delete()
+        .eq('team_id', team.id)
+        .in('espn_game_id', settledIds)
+    }
+
+    const delayMinutes = nextPollDelayMinutes(games.all, team.league, now)
+    await supabase
+      .from('sport_teams')
+      .update({ next_poll_at: new Date(now.getTime() + delayMinutes * 60_000).toISOString() })
+      .eq('id', team.id)
 
     results.push(teamResult)
   }
 
   const totalNotified = results.reduce((sum, r) => sum + r.notified, 0)
-  console.log(`check-scores complete: ${totalNotified} notifications sent`)
 
-  return new Response(JSON.stringify({ ok: true, results }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  })
+  // 10. Fold the outcome into the breaker and alert on state changes only.
+  if (fetchError) {
+    const kind = classifyFailure(fetchError.status)
+    const transition = applyFailure(currentHealth, {
+      kind,
+      now,
+      retryAfterSeconds: parseRetryAfter(fetchError.retryAfter, now),
+    })
+    await saveHealth(supabase, { ...transition.next, last_status: fetchError.status })
+
+    if (transition.alert) {
+      await logAlert({
+        type: transition.alert,
+        status: fetchError.status,
+        lastSuccessAt: currentHealth.last_success_at,
+        retryAt: transition.next.backoff_until,
+        consecutiveFailures: transition.next.consecutive_failures,
+      })
+    }
+
+    return json({
+      ok: false,
+      error: fetchError.message,
+      state: transition.next.state,
+      results,
+    }, 200)
+  }
+
+  if (dueTeams.length > 0) {
+    const transition = applySuccess(currentHealth)
+    await saveHealth(supabase, {
+      ...transition.next,
+      last_status: 200,
+      last_success_at: now.toISOString(),
+    })
+    if (transition.alert) {
+      await logAlert({ type: transition.alert, caughtUp: totalNotified })
+    }
+  }
+
+  // 11. Stale-data check across ALL teams — the alert that would have caught
+  //     the 2026-08-05 outage, since it fires on a clean 200 with no results.
+  await checkForStaleGames(supabase, teams as Team[], now, logAlert)
+
+  console.log(`check-scores complete: ${totalNotified} notifications sent, ${dueTeams.length}/${teams.length} teams checked`)
+
+  return json({ ok: true, teamsChecked: dueTeams.length, results })
 })
+
+// --- Helpers ---
+
+type NotifyOutcome = { ok: boolean; skipped: boolean; error?: string }
+
+/**
+ * Insert the result (the unique constraint is the dedupe), then email it.
+ * A duplicate insert means we already notified — skip silently.
+ */
+async function recordAndNotify(
+  supabase: SupabaseClient,
+  team: Team,
+  game: GameResult,
+  keys: { resendApiKey: string; googleApiKey: string | undefined },
+): Promise<NotifyOutcome> {
+  const { data: inserted, error: insertError } = await supabase
+    .from('score_history')
+    .insert({
+      team_id: team.id,
+      espn_game_id: game.espnGameId,
+      game_date: game.gameDate,
+      team_score: game.teamScore,
+      opponent_name: game.opponentName,
+      opponent_score: game.opponentScore,
+      result: game.result,
+      home_away: game.homeAway,
+      raw_espn_data: game.rawData,
+    })
+    .select('id')
+    .single()
+
+  if (insertError) {
+    // 23505 = unique_violation (already notified)
+    if (insertError.code === '23505') return { ok: false, skipped: true }
+    return { ok: false, skipped: false, error: `Insert error: ${insertError.message}` }
+  }
+
+  const scoreHistoryId = inserted.id
+
+  // AI summary is non-blocking — a failure just means a score-only email.
+  let aiSummary: string | null = null
+  if (keys.googleApiKey) {
+    aiSummary = await generateSummary(team, keys.googleApiKey)
+    if (aiSummary) {
+      await supabase.from('score_history').update({ ai_summary: aiSummary }).eq('id', scoreHistoryId)
+    }
+  }
+
+  const subject = buildEmailSubject(team, game)
+  const emailResult = await sendEmail(
+    keys.resendApiKey,
+    EMAIL_RECIPIENT,
+    subject,
+    buildEmailHtml(team, game, aiSummary),
+    fromNameForTeam(team),
+  )
+
+  await supabase.from('notification_log').insert({
+    score_history_id: scoreHistoryId,
+    channel: 'email',
+    recipient: EMAIL_RECIPIENT,
+    subject,
+    status: emailResult.ok ? 'sent' : 'failed',
+    error_message: emailResult.error ?? null,
+  })
+
+  return {
+    ok: emailResult.ok,
+    skipped: false,
+    error: emailResult.ok ? undefined : `Email failed: ${emailResult.error}`,
+  }
+}
+
+/** Alert once about games that should be over but never produced a result. */
+async function checkForStaleGames(
+  supabase: SupabaseClient,
+  teams: Team[],
+  now: Date,
+  logAlert: (context: AlertContext) => Promise<void>,
+): Promise<void> {
+  const { data: expected, error } = await supabase
+    .from('sports_expected_games')
+    .select('team_id, espn_game_id, start_time')
+    .is('alerted_at', null)
+
+  if (error || !expected || expected.length === 0) {
+    if (error) console.error('Failed to read sports_expected_games:', error)
+    return
+  }
+
+  const { data: recorded } = await supabase
+    .from('score_history')
+    .select('espn_game_id')
+    .in('espn_game_id', expected.map((row) => row.espn_game_id))
+
+  const stale = findStaleGames(
+    expected as Array<{ espn_game_id: string; start_time: string; team_id: string }>,
+    (recorded ?? []).map((row) => row.espn_game_id),
+    now,
+  ) as Array<{ espn_game_id: string; start_time: string; team_id: string }>
+
+  if (stale.length === 0) return
+
+  const teamNames = new Map(teams.map((team) => [team.id, team.display_name]))
+  await logAlert({
+    type: 'stale',
+    staleGames: stale.map(
+      (row) => `${teamNames.get(row.team_id) ?? 'Unknown team'} — game ${row.espn_game_id} started ${row.start_time}`,
+    ),
+  })
+
+  // Mark them so the alert fires once, not every 15 minutes.
+  const alertedAt = new Date().toISOString()
+  for (const row of stale) {
+    await supabase
+      .from('sports_expected_games')
+      .update({ alerted_at: alertedAt })
+      .eq('team_id', row.team_id)
+      .eq('espn_game_id', row.espn_game_id)
+  }
+}
