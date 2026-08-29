@@ -25,6 +25,7 @@ const makeController = (overrides = {}) => {
   const draftStorage = { write: vi.fn(), clear: vi.fn() }
   const controller = createSaveQueueController({
     persistPage,
+    persistPageBeacon: overrides.persistPageBeacon,
     fetchServerPage: overrides.fetchServerPage ?? vi.fn(async () => null),
     getKnownUpdatedAt: (pageId) => knownTimestamps[pageId] ?? null,
     setKnownUpdatedAt: (pageId, timestamp) => {
@@ -36,6 +37,7 @@ const makeController = (overrides = {}) => {
   return {
     controller,
     persistPage,
+    persistPageBeacon: overrides.persistPageBeacon,
     knownTimestamps,
     writeDraft: draftStorage.write,
     clearDraft: draftStorage.clear,
@@ -189,5 +191,79 @@ describe('save queue concurrency and failures', () => {
     )
     expect(onStatusChange).toHaveBeenLastCalledWith('page-a', 'Conflict')
     expect(onError).not.toHaveBeenCalled()
+  })
+})
+
+describe('flushAll keepalive beacon', () => {
+  it('sends the pending save through the beacon instead of the normal path', async () => {
+    vi.useFakeTimers()
+    const persistPageBeacon = vi.fn(() => true)
+    const { controller, persistPage, knownTimestamps, onStatusChange, onSaved } =
+      makeController({ persistPageBeacon })
+    const nextPayload = payload('Beacon', 'body', '2026-08-09T12:34:56.000Z')
+    schedule(controller, 'page-a', nextPayload)
+
+    controller.flushAll()
+    await vi.runAllTimersAsync()
+
+    expect(persistPageBeacon).toHaveBeenCalledWith('page-a', nextPayload, 'server-old-a')
+    expect(persistPage).not.toHaveBeenCalled()
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onStatusChange).toHaveBeenLastCalledWith('page-a', 'Saved')
+    // Advanced optimistically so a tab that comes back does not conflict with
+    // its own beacon.
+    expect(knownTimestamps['page-a']).toBe('2026-08-09T12:34:56.000Z')
+  })
+
+  it('leaves the localStorage draft in place as the backstop', async () => {
+    vi.useFakeTimers()
+    const { controller, writeDraft, clearDraft } = makeController({
+      persistPageBeacon: vi.fn(() => true),
+    })
+    schedule(controller, 'page-a', payload('Beacon', 'body'))
+
+    controller.flushAll()
+    await vi.runAllTimersAsync()
+
+    expect(writeDraft).toHaveBeenCalledWith('page-a', expect.objectContaining({ title: 'Beacon' }))
+    expect(clearDraft).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the normal save when the beacon declines the payload', async () => {
+    vi.useFakeTimers()
+    const persistPageBeacon = vi.fn(() => false)
+    const { controller, persistPage } = makeController({ persistPageBeacon })
+    const nextPayload = payload('TooBig', 'body')
+    schedule(controller, 'page-a', nextPayload)
+
+    controller.flushAll()
+    await vi.runAllTimersAsync()
+
+    expect(persistPageBeacon).toHaveBeenCalledTimes(1)
+    expect(persistPage).toHaveBeenCalledTimes(1)
+    expect(persistPage).toHaveBeenCalledWith('page-a', nextPayload, 'server-old-a')
+  })
+
+  it('does not beacon a page whose save is already in flight', async () => {
+    vi.useFakeTimers()
+    let resolvePersist
+    const persistPage = vi.fn(
+      () => new Promise((resolve) => {
+        resolvePersist = resolve
+      }),
+    )
+    const persistPageBeacon = vi.fn(() => true)
+    const { controller } = makeController({ persistPage, persistPageBeacon })
+    schedule(controller, 'page-a', payload('InFlight', 'body'))
+
+    // Let the debounce fire so the normal save is mid-request.
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(persistPage).toHaveBeenCalledTimes(1)
+
+    controller.flushAll()
+    expect(persistPageBeacon).not.toHaveBeenCalled()
+
+    resolvePersist({ data: { updated_at: 'next' }, error: null })
+    await vi.runAllTimersAsync()
   })
 })

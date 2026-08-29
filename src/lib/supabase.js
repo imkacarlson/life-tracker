@@ -8,3 +8,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl ?? '', supabaseAnonKey ?? '')
+
+export const SUPABASE_URL = supabaseUrl ?? ''
+export const SUPABASE_ANON_KEY = supabaseAnonKey ?? ''
+
+// supabase.auth.getSession() is async, which is useless inside an unload handler:
+// the tab is already tearing down and there is no next tick to await. Mirror the
+// token here so the keepalive save in useSaveQueue can read it synchronously.
+let accessToken = null
+
+supabase.auth.onAuthStateChange((_event, session) => {
+  accessToken = session?.access_token ?? null
+})
+
+export const getAccessTokenSync = () => accessToken

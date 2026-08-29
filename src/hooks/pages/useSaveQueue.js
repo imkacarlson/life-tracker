@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { supabase } from '../../lib/supabase'
+import {
+  SUPABASE_ANON_KEY,
+  SUPABASE_URL,
+  getAccessTokenSync,
+  supabase,
+} from '../../lib/supabase'
 import { sanitizeContentForSave } from '../../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths } from '../../utils/imageCleanup'
 import { clearPageDraft } from '../../utils/localDrafts'
@@ -13,6 +18,60 @@ const persistPage = (pageId, payload, knownTs) =>
     .eq('updated_at', knownTs)
     .select('updated_at')
     .maybeSingle()
+
+// fetch(..., { keepalive: true }) caps the request body at 64 KB across the whole
+// set of in-flight keepalive requests. Stay well under it; oversized pages fall
+// back to the normal save path plus the localStorage draft.
+const KEEPALIVE_MAX_BYTES = 50_000
+
+/**
+ * Fire-and-forget save that outlives the page. Unlike persistPage this must be
+ * callable synchronously from an unload handler, so it targets PostgREST
+ * directly rather than going through supabase-js (whose .update() awaits the
+ * session before it ever hits the network).
+ *
+ * Keeps persistPage's optimistic-concurrency filter: a stale knownTs matches
+ * zero rows exactly as `.eq('updated_at', knownTs)` does today, and the existing
+ * classifySaveResult conflict path still owns that case on the next load.
+ *
+ * Returns false when the save could not be dispatched this way, so the caller
+ * falls back to the normal path.
+ */
+const persistPageBeacon = (pageId, payload, knownTs) => {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !knownTs) return false
+  if (typeof fetch !== 'function') return false
+
+  const token = getAccessTokenSync()
+  if (!token) return false
+
+  const body = JSON.stringify(payload)
+  if (new Blob([body]).size > KEEPALIVE_MAX_BYTES) return false
+
+  const url =
+    `${SUPABASE_URL}/rest/v1/pages` +
+    `?id=eq.${encodeURIComponent(pageId)}` +
+    `&updated_at=eq.${encodeURIComponent(knownTs)}`
+
+  try {
+    void fetch(url, {
+      method: 'PATCH',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+        Prefer: 'return=minimal',
+      },
+      body,
+    }).catch(() => {
+      // The tab is going away; there is no one left to report to. The
+      // localStorage draft written before this call is the backstop.
+    })
+    return true
+  } catch {
+    return false
+  }
+}
 
 const fetchServerPage = async (pageId) => {
   const { data } = await supabase
@@ -79,6 +138,7 @@ export function useSaveQueue({
       // eslint-disable-next-line react-hooks/refs -- the factory stores ref-backed getters; it does not read ref values during render
       createSaveQueueController({
         persistPage,
+        persistPageBeacon,
         fetchServerPage,
         getKnownUpdatedAt,
         setKnownUpdatedAt,
