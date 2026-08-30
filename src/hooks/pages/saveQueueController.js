@@ -13,6 +13,9 @@ const defaultDraftStorage = {
 
 export function createSaveQueueController({
   persistPage,
+  // Optional: a synchronous, fire-and-forget variant of persistPage used only by
+  // flushAll(). Returns false when it declines the payload (see useSaveQueue).
+  persistPageBeacon = null,
   fetchServerPage,
   getKnownUpdatedAt,
   setKnownUpdatedAt,
@@ -159,6 +162,40 @@ export function createSaveQueueController({
     notifyPending()
   }
 
+  /**
+   * Hand a pending save to the keepalive transport so it survives the tab dying.
+   * Used only by flushAll(); normal debounced saves keep the awaited path.
+   *
+   * The dispatch is fire-and-forget, so treat it as a presumed success: advance
+   * the known timestamp the way a real save would, or a tab that comes back from
+   * `visibilitychange` would re-save against a stale updated_at and trip the
+   * conflict path against its own write. If the request really did die, the
+   * localStorage draft flushAll() just wrote is the backstop — and on next load
+   * detectConflict() silently drops a draft whose content already matches the
+   * server, so a beacon that succeeded costs nothing.
+   *
+   * Returns false when the save was not dispatched and the caller should fall
+   * back to flush().
+   */
+  const sendBeacon = (pageId) => {
+    if (!persistPageBeacon || inFlight[pageId]) return false
+    const queued = queuedPayloads[pageId]
+    if (!queued) return false
+
+    const { payload } = queued
+    const knownTs = getKnownUpdatedAt(pageId)
+    if (!persistPageBeacon(pageId, payload, knownTs)) return false
+
+    queuedPayloads[pageId] = null
+    clearScheduled(retryTimers, pageId)
+    if (payload.updated_at) setKnownUpdatedAt(pageId, payload.updated_at)
+    onSaved({ pageId, payload, outcome: { kind: 'saved', nextKnownTs: payload.updated_at } })
+    onStatusChange(pageId, 'Saved')
+    // Deliberately not maybeClearDraft(): the draft is what makes an undelivered
+    // beacon recoverable.
+    return true
+  }
+
   const flushAll = () => {
     for (const [pageId, timer] of Object.entries(draftWriteTimers)) {
       if (!timer) continue
@@ -175,7 +212,7 @@ export function createSaveQueueController({
     for (const [pageId, timer] of Object.entries(saveTimers)) {
       if (!timer) continue
       clearScheduled(saveTimers, pageId)
-      void flush(pageId)
+      if (!sendBeacon(pageId)) void flush(pageId)
     }
     notifyPending()
   }
