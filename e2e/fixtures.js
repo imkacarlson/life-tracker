@@ -170,17 +170,23 @@ export const test = base.extend({
         // Editing marks the page as Saving immediately, before the two-second
         // debounce starts. Wait on that observable state only when it exists;
         // read-only tests proceed directly to cleanup.
-        const status = page.locator('.status-row')
-        if (await status.count()) {
-          const text = await status.textContent().catch(() => '')
-          if (/Saving|Unsaved \(local\)/.test(text ?? '')) {
-            await expect(status).not.toContainText(/Saving|Unsaved \(local\)/, { timeout: 6000 })
+        if (!page.isClosed()) {
+          const status = page.locator('.status-row')
+          if (await status.count()) {
+            const text = await status.textContent().catch(() => '')
+            if (/Saving|Unsaved \(local\)/.test(text ?? '')) {
+              await expect(status).not.toContainText(/Saving|Unsaved \(local\)/, { timeout: 6000 })
+            }
           }
         }
 
         // Also wait for direct create/delete/update requests that do not use
-        // the editor's save status. This normally resolves immediately.
-        await expect.poll(() => pendingWrites.size, { timeout: 5000 }).toBe(0)
+        // the editor's save status. A deliberately closed page cannot report a
+        // keepalive request's completion; those tests verify the server result
+        // before closing out their own flow.
+        if (!page.isClosed()) {
+          await expect.poll(() => pendingWrites.size, { timeout: 5000 }).toBe(0)
+        }
         page.off('request', trackWrite)
         page.off('requestfinished', finishWrite)
         page.off('requestfailed', finishWrite)
