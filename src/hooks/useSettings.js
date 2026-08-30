@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { persistSportsScoresEnabled } from '../lib/settingsPersistence'
 import { EMPTY_DOC } from '../utils/constants'
 import { normalizeContent, sanitizeContentForSave } from '../utils/contentHelpers'
 
@@ -157,13 +158,11 @@ export const useSettings = (userId, hydrateContentWithSignedUrls) => {
 
       setSettingsRow((prev) => (prev ? { ...prev, sports_scores_enabled: nextEnabled } : prev))
 
-      const { error } = await supabase
-        .from('settings')
-        .update({
-          sports_scores_enabled: nextEnabled,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existing.id)
+      const { error } = await persistSportsScoresEnabled(
+        existing.id,
+        nextEnabled,
+        new Date().toISOString(),
+      )
 
       if (!error) return
       // A newer click already superseded this one — let that one own the state.
