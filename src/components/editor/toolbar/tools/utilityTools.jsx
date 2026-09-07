@@ -37,7 +37,8 @@ export function MoreTool() {
   const inTable = useEditorUIStore((s) => s.inTable)
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
-  const refs = useMemo(() => [wrapRef], [])
+  const menuRef = useRef(null)
+  const refs = useMemo(() => [wrapRef, menuRef], [])
   useOutsideClick({ isOpen: open, onClose: () => setOpen(false), refs })
 
   const onCopyLink = async () => {
@@ -61,6 +62,8 @@ export function MoreTool() {
       </Btn>
       {open && (
         <MoreMenu
+          anchorRef={wrapRef}
+          menuRef={menuRef}
           onClose={() => setOpen(false)}
           onCopyLink={onCopyLink}
           copyLinkDisabled={!toolbarDeepLinkHash}
