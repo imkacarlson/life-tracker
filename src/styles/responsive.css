@@ -91,8 +91,9 @@
     right: 0;
     top: auto;
     z-index: 35;
+    border: none;
     border-top: 1px solid var(--border);
-    border-bottom: none;
+    border-radius: 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-direction: column;
     background: var(--surface);

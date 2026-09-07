@@ -68,6 +68,8 @@
 - **Approach:** Grid-disciplined — sidebar + editor canvas, already established
 - **Grid:** Single breakpoint shift: desktop = editor + resizable sidebar; mobile (≤900px) = stacked
 - **Max content width:** No hard max (editor fills available space)
+- **Editor surface:** On desktop, present the editor as a white document surface with a Stone 200 border and large radius against the warm Stone 50 workspace. On mobile, keep the editor edge-to-edge without a card border or radius.
+- **Toolbar surface:** On desktop, use the Stone 50 page background with a Stone 200 outline and medium radius so the toolbar reads as a light control surface. On mobile, retain the white fixed bottom toolbar with only its top divider.
 - **Border radius:**
   - sm: 4px — toolbar buttons, small controls
   - md: 8px — inputs, dropdowns, cards
@@ -175,3 +177,5 @@ To regenerate, copy the preview HTML from the git history or re-run `/design-con
 | 2026-03-24 | Satoshi + Instrument Sans + JetBrains Mono | Satoshi: geometric personality for headings. Instrument Sans: warm, readable body. JetBrains Mono: best-in-class for data. |
 | 2026-03-24 | Collapsible mobile toolbar | Issue #35 — single row with 6 core actions + expand. Reclaims ~40px vertical space. |
 | 2026-03-24 | Simple trend-line logo icon | Issue #34 — replaces Vite logo. Teal rounded square with upward trend arrow. Works at favicon size. |
+| 2026-09-07 | White desktop editor surface | Give long-form content a crisp document canvas while preserving warm Stone 50 around it; keep mobile edge-to-edge. |
+| 2026-09-07 | Lighter outlined desktop toolbar | Separate controls from content without a heavy gray slab; preserve the white mobile bottom toolbar. |

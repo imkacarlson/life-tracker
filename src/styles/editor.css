@@ -15,6 +15,17 @@
   scroll-padding-top: var(--toolbar-height, 52px);
 }
 
+/* On desktop, treat the editor as a clean document surface against the warm
+   workspace canvas. Mobile keeps the existing edge-to-edge layout. */
+@media (min-width: 901px) {
+  .editor-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.25rem 0;
+  }
+}
+
 .editor-panel::-webkit-scrollbar {
   width: 0;
   height: 0;
