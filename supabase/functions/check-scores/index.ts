@@ -27,10 +27,24 @@ import {
   createScoreboardCache,
   fetchTeamGames,
 } from './espn.ts'
+import { decideNotifyAction } from './notifyState.ts'
 import { generateSummary } from './summary.ts'
 
 const HEALTH_ID = 'espn'
 const RETENTION_DAYS = 7
+
+/**
+ * Total time all Gemini summaries may consume in ONE run, across every game.
+ *
+ * The edge worker is killed at 150s. A per-attempt timeout alone is not enough:
+ * two games finishing in the same tick would each get their own ladder and
+ * together could still blow the budget. This is the whole-run ceiling, leaving
+ * ~90s for ESPN, the DB writes and the emails themselves.
+ */
+const SUMMARY_RUN_BUDGET_MS = 60_000
+
+/** Alert if a result sits recorded-but-unemailed for longer than this. */
+const UNNOTIFIED_ALERT_HOURS = 2
 
 // Team seed data — inserted on first run if sport_teams is empty.
 const SEED_TEAMS = [
@@ -223,6 +237,9 @@ Deno.serve(async (req) => {
   const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
   let fetchError: EspnFetchError | null = null
 
+  // One budget shared by every summary in this run — see SUMMARY_RUN_BUDGET_MS.
+  const summaryDeadline = Date.now() + SUMMARY_RUN_BUDGET_MS
+
   for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
 
@@ -259,6 +276,7 @@ Deno.serve(async (req) => {
       const notified = await recordAndNotify(supabase, team, game, {
         resendApiKey,
         googleApiKey,
+        summaryDeadline,
       })
       if (notified.skipped) continue
       if (notified.ok) teamResult.notified++
@@ -330,6 +348,11 @@ Deno.serve(async (req) => {
   //     the 2026-08-05 outage, since it fires on a clean 200 with no results.
   await checkForStaleGames(supabase, teams as Team[], now, logAlert)
 
+  // 12. The gap the stale check cannot see: a game we DID record and DID NOT
+  //     email. findStaleGames excludes anything present in score_history, so on
+  //     2026-09-05 it saw nothing wrong while the Indiana result sat unsent.
+  await checkForUnnotifiedGames(supabase, teams as Team[], now, logAlert)
+
   console.log(`check-scores complete: ${totalNotified} notifications sent, ${dueTeams.length}/${teams.length} teams checked`)
 
   return json({ ok: true, teamsChecked: dueTeams.length, results })
@@ -340,14 +363,24 @@ Deno.serve(async (req) => {
 type NotifyOutcome = { ok: boolean; skipped: boolean; error?: string }
 
 /**
- * Insert the result (the unique constraint is the dedupe), then email it.
- * A duplicate insert means we already notified — skip silently.
+ * Insert the result, then email it. The unique constraint dedupes the ROW; the
+ * `notified_at` timestamp dedupes the EMAIL.
+ *
+ * Those are deliberately two different facts. The insert commits seconds-to-
+ * minutes before the email is sent, and a worker killed in that window used to
+ * leave a row that every later run read as "already notified" — which is exactly
+ * how the 2026-09-05 Indiana result was recorded and never sent. Now a duplicate
+ * insert with no `notified_at` means "finish the job", not "nothing to do".
  */
 async function recordAndNotify(
   supabase: SupabaseClient,
   team: Team,
   game: GameResult,
-  keys: { resendApiKey: string; googleApiKey: string | undefined },
+  keys: {
+    resendApiKey: string
+    googleApiKey: string | undefined
+    summaryDeadline: number
+  },
 ): Promise<NotifyOutcome> {
   const { data: inserted, error: insertError } = await supabase
     .from('score_history')
@@ -365,18 +398,42 @@ async function recordAndNotify(
     .select('id')
     .single()
 
+  let scoreHistoryId: string
+  let aiSummary: string | null = null
+
   if (insertError) {
-    // 23505 = unique_violation (already notified)
-    if (insertError.code === '23505') return { ok: false, skipped: true }
-    return { ok: false, skipped: false, error: `Insert error: ${insertError.message}` }
+    // 23505 = unique_violation: we have seen this game before. Whether we
+    // EMAILED it is a separate question, answered by notified_at.
+    if (insertError.code !== '23505') {
+      return { ok: false, skipped: false, error: `Insert error: ${insertError.message}` }
+    }
+
+    const { data: existing, error: readError } = await supabase
+      .from('score_history')
+      .select('id, notified_at, ai_summary')
+      .eq('team_id', team.id)
+      .eq('espn_game_id', game.espnGameId)
+      .maybeSingle()
+
+    if (readError) {
+      return { ok: false, skipped: false, error: `Dedupe read error: ${readError.message}` }
+    }
+
+    const decision = decideNotifyAction(existing)
+    if (decision.action === 'skip') return { ok: false, skipped: true }
+
+    console.log(`Retrying unsent notification for ${team.display_name} game ${game.espnGameId}`)
+    scoreHistoryId = decision.scoreHistoryId
+    aiSummary = decision.reuseSummary
+  } else {
+    scoreHistoryId = inserted.id
   }
 
-  const scoreHistoryId = inserted.id
-
-  // AI summary is non-blocking — a failure just means a score-only email.
-  let aiSummary: string | null = null
-  if (keys.googleApiKey) {
-    aiSummary = await generateSummary(team, keys.googleApiKey)
+  // AI summary is non-blocking — a failure, a timeout, or an exhausted run
+  // budget all just mean a score-only email. Skipped entirely when a previous
+  // attempt already produced one.
+  if (keys.googleApiKey && !aiSummary) {
+    aiSummary = await generateSummary(team, keys.googleApiKey, keys.summaryDeadline)
     if (aiSummary) {
       await supabase.from('score_history').update({ ai_summary: aiSummary }).eq('id', scoreHistoryId)
     }
@@ -399,6 +456,15 @@ async function recordAndNotify(
     status: emailResult.ok ? 'sent' : 'failed',
     error_message: emailResult.error ?? null,
   })
+
+  // ONLY a confirmed send closes the game out. A failure leaves notified_at null
+  // so the next tick retries rather than declaring victory.
+  if (emailResult.ok) {
+    await supabase
+      .from('score_history')
+      .update({ notified_at: new Date().toISOString() })
+      .eq('id', scoreHistoryId)
+  }
 
   return {
     ok: emailResult.ok,
@@ -454,4 +520,51 @@ async function checkForStaleGames(
       .eq('team_id', row.team_id)
       .eq('espn_game_id', row.espn_game_id)
   }
+}
+
+/**
+ * Alert about results that were recorded but never emailed.
+ *
+ * The retry in recordAndNotify heals this within one tick under normal
+ * conditions, so anything still unsent after UNNOTIFIED_ALERT_HOURS means the
+ * retries themselves are failing — which is worth an email even though the
+ * ESPN side looks perfectly healthy.
+ */
+async function checkForUnnotifiedGames(
+  supabase: SupabaseClient,
+  teams: Team[],
+  now: Date,
+  logAlert: (context: AlertContext) => Promise<void>,
+): Promise<void> {
+  const cutoff = new Date(now.getTime() - UNNOTIFIED_ALERT_HOURS * 60 * 60 * 1000).toISOString()
+
+  const { data: unnotified, error } = await supabase
+    .from('score_history')
+    .select('id, team_id, team_score, opponent_name, opponent_score, created_at')
+    .is('notified_at', null)
+    .is('notify_alerted_at', null)
+    .lt('created_at', cutoff)
+
+  if (error || !unnotified || unnotified.length === 0) {
+    if (error) console.error('Failed to read unnotified score_history rows:', error)
+    return
+  }
+
+  const teamNames = new Map(teams.map((team) => [team.id, team.display_name]))
+  await logAlert({
+    type: 'unnotified',
+    unnotifiedGames: unnotified.map(
+      (row) =>
+        `${teamNames.get(row.team_id) ?? 'Unknown team'} ${row.team_score}-${row.opponent_score} vs ` +
+        `${row.opponent_name} (recorded ${row.created_at})`,
+    ),
+  })
+
+  // Stamp them so the alert fires once, not every 15 minutes. The rows stay
+  // unnotified, so the email retry keeps trying independently of this.
+  const alertedAt = new Date().toISOString()
+  await supabase
+    .from('score_history')
+    .update({ notify_alerted_at: alertedAt })
+    .in('id', unnotified.map((row) => row.id))
 }

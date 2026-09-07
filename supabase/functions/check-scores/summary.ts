@@ -15,6 +15,16 @@ const GEMINI_MODEL = 'gemini-2.5-flash'
 // couple of retries with a short backoff usually recovers the summary.
 const GEMINI_MAX_ATTEMPTS = 3
 
+/**
+ * Hard cap on ONE Gemini attempt.
+ *
+ * Load-bearing: on 2026-09-05 three 503s hung ~45s each and the 150s edge worker
+ * was killed mid-retry, after the score row had committed but before the email
+ * went out. The summary is decoration; the email is the product. Anything slower
+ * than this is not worth the notification.
+ */
+export const SUMMARY_ATTEMPT_TIMEOUT_MS = 15_000
+
 const GEMINI_PROMPT_TEMPLATE = (teamFullName: string, sport: string) =>
   `Give me a current 3-bullet update on the ${teamFullName} ${sport} team in the following format: \n` +
   ` Record & Standings: Include win-loss record, division standing, and a note on playoff chances. \n` +
@@ -37,11 +47,34 @@ export function sportLabel(team: Team): string {
   return SPORT_LABELS[team.sport] ?? team.sport
 }
 
-export async function generateSummary(team: Team, apiKey: string): Promise<string | null> {
+/**
+ * Best-effort team blurb. Returns null — never throws, never blocks the email —
+ * when Gemini is slow, erroring, or out of budget.
+ *
+ * `deadlineMs` is an epoch-ms cutoff for the WHOLE call, including retries and
+ * backoff. Omit it only in tests; the function passes one on every real run.
+ */
+export async function generateSummary(
+  team: Team,
+  apiKey: string,
+  deadlineMs?: number,
+): Promise<string | null> {
   const prompt = GEMINI_PROMPT_TEMPLATE(team.display_name, sportLabel(team))
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`
 
+  /** Milliseconds left in the budget, or null when running unbounded. */
+  const remaining = (): number | null =>
+    deadlineMs == null ? null : deadlineMs - Date.now()
+
   for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
+    const left = remaining()
+    if (left !== null && left <= 0) {
+      // Out of budget. This is the line that turns a hung Gemini into a
+      // score-only email instead of a killed worker and no email at all.
+      console.error(`Gemini budget exhausted for ${team.display_name} — sending without a summary`)
+      return null
+    }
+
     try {
       const resp = await fetch(url, {
         method: 'POST',
@@ -50,6 +83,11 @@ export async function generateSummary(team: Team, apiKey: string): Promise<strin
           contents: [{ parts: [{ text: prompt }] }],
           tools: [{ google_search: {} }],
         }),
+        // Cap one attempt at 15s, or whatever is left of the run budget if less.
+        // An abort lands in the catch below, same as any other network failure.
+        signal: AbortSignal.timeout(
+          left === null ? SUMMARY_ATTEMPT_TIMEOUT_MS : Math.min(SUMMARY_ATTEMPT_TIMEOUT_MS, left),
+        ),
       })
 
       if (resp.ok) {
@@ -69,9 +107,14 @@ export async function generateSummary(team: Team, apiKey: string): Promise<strin
       console.error(`Gemini call failed for ${team.display_name} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}):`, err)
     }
 
-    // Linear backoff between attempts: 1s, then 2s. Skip after the last attempt.
+    // Linear backoff between attempts: 1s, then 2s. Skip after the last attempt,
+    // and skip any sleep that would run past the budget — waiting only to bail
+    // out on the far side wastes the time we are trying to protect.
     if (attempt < GEMINI_MAX_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt))
+      const backoff = 1000 * attempt
+      const left = remaining()
+      if (left !== null && left <= backoff) break
+      await new Promise((resolve) => setTimeout(resolve, backoff))
     }
   }
 
