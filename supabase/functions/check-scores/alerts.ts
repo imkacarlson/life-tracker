@@ -8,7 +8,7 @@
 import type { AlertKind } from '../_shared/backoff.ts'
 import { escapeHtml, sendEmail } from './email.ts'
 
-export type AlertType = AlertKind | 'stale'
+export type AlertType = AlertKind | 'stale' | 'unnotified'
 
 export type AlertContext = {
   type: AlertType
@@ -22,6 +22,8 @@ export type AlertContext = {
   caughtUp?: number
   /** For 'stale': "Indiana Hoosiers — game 401816681 (2026-08-29T02:00Z)". */
   staleGames?: string[]
+  /** For 'unnotified': "Indiana Hoosiers Football 52-16 vs North Texas (recorded 2026-09-05T21:15Z)". */
+  unnotifiedGames?: string[]
 }
 
 const ALERT_FROM_NAME = 'Sports Score Monitor'
@@ -68,6 +70,15 @@ export function buildAlert(context: AlertContext): { subject: string; lines: str
           'These games should have finished more than 6 hours ago and no result was ever recorded:',
           ...(context.staleGames ?? []).map((line) => `• ${line}`),
           'The requests themselves are succeeding, so this points at the response contents rather than at a block.',
+        ],
+      }
+    case 'unnotified':
+      return {
+        subject: '📭 Sports scores: result recorded but never emailed',
+        lines: [
+          'These games were fetched and saved, but the score email never went out and retries are still failing:',
+          ...(context.unnotifiedGames ?? []).map((line) => `• ${line}`),
+          'ESPN is fine — the break is downstream of it, in the summary, the email send, or the worker time limit.',
         ],
       }
   }
