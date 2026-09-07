@@ -1,3 +1,30 @@
+.toolbar-dock {
+  position: sticky;
+  /* Counter the desktop editor panel's top padding so the dock sits flush
+     against the scrollport edge instead of leaving a background strip. */
+  top: -1rem;
+  z-index: 5;
+  margin-inline: -1.25rem;
+  padding: 0 1.25rem 0.75rem;
+  background: var(--surface);
+}
+
+/* Once pinned, the toolbar becomes edge-to-edge app chrome instead of a
+   floating card. Keeping the controls aligned with the document preserves the
+   reading grid while the full-width background closes the side gutters. */
+.toolbar-dock.is-docked {
+  padding: 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar-dock.is-docked .toolbar {
+  padding: 0.5rem 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -7,9 +34,8 @@
   border-radius: var(--radius-md);
   background: var(--bg);
   align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  position: relative;
+  z-index: 1;
 }
 
 .toolbar.disabled {

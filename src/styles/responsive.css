@@ -84,6 +84,13 @@
      which writes `transform: translate(x, y)` on every visualViewport change.
      `transform` is compositor-only, so a short transition smooths updates
      without fighting imperative writes. */
+  .toolbar-dock {
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+  }
+
   .toolbar {
     position: fixed;
     bottom: 0;
@@ -141,11 +148,6 @@
   .table-picker {
     top: auto;
     bottom: calc(100% + 6px);
-  }
-
-  .more-menu {
-    top: auto;
-    bottom: calc(100% + 4px);
   }
 
   /* On narrow phones the find bar's controls won't fit on one row. Let the

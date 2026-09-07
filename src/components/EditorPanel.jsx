@@ -8,6 +8,7 @@ import { useScrollRestoration } from '../hooks/useScrollRestoration'
 import { useEditorUIStore } from '../stores/editorUIStore'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
+import ToolbarDock from './editor/ToolbarDock'
 import AiInsertModal from './editor/AiInsertModal'
 import EditorShell from './editor/EditorShell'
 import EditorSkeleton from './editor/EditorSkeleton'
@@ -189,25 +190,27 @@ function EditorPanel({
         showDelete={showDelete}
       />
 
-      <Toolbar
-        editor={editor}
-        controlsDisabled={controlsDisabled}
-        hasEditorTarget={hasEditorTarget}
-        isTouchOnly={isTouchOnly}
-        toolbarRef={toolbarRef}
-        editorPanelRef={editorPanelRef}
-        onImageUpload={onImageUpload}
-        onAiDailyGenerate={handleGenerateToday}
-        showAiDaily={showAiDaily}
-        showAiInsert={showAiInsert}
-        title={title}
-        toolbarDeepLinkHash={toolbarDeepLinkHash}
-        isCurrentDailySourcePage={isCurrentDailySourcePage}
-        dailySourceSaving={dailySourceSaving}
-        onSetDailySourcePage={onSetDailySourcePage}
-        handleSetDailySourceFromToolbar={handleSetDailySourceFromToolbar}
-        contextMenuItems={contextMenuItems}
-      />
+      <ToolbarDock editorPanelRef={editorPanelRef} isTouchOnly={isTouchOnly}>
+        <Toolbar
+          editor={editor}
+          controlsDisabled={controlsDisabled}
+          hasEditorTarget={hasEditorTarget}
+          isTouchOnly={isTouchOnly}
+          toolbarRef={toolbarRef}
+          editorPanelRef={editorPanelRef}
+          onImageUpload={onImageUpload}
+          onAiDailyGenerate={handleGenerateToday}
+          showAiDaily={showAiDaily}
+          showAiInsert={showAiInsert}
+          title={title}
+          toolbarDeepLinkHash={toolbarDeepLinkHash}
+          isCurrentDailySourcePage={isCurrentDailySourcePage}
+          dailySourceSaving={dailySourceSaving}
+          onSetDailySourcePage={onSetDailySourcePage}
+          handleSetDailySourceFromToolbar={handleSetDailySourceFromToolbar}
+          contextMenuItems={contextMenuItems}
+        />
+      </ToolbarDock>
 
       <AiInsertModal
         {...aiInsertModalProps}
