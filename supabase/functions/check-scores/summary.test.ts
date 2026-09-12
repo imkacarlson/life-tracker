@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Team } from './espn.ts'
-import { generateSummary } from './summary.ts'
+import { SUMMARY_ATTEMPT_TIMEOUT_MS, generateSummary } from './summary.ts'
 
 const TEAM = {
   id: 'team-1',
@@ -92,6 +92,40 @@ describe('generateSummary', () => {
       'Second attempt worked.',
     )
     expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  // The 2026-09-07 regression: a 15s cap sat inside normal grounded latency, so
+  // all three attempts aborted and every email went out bare. Retrying a timeout
+  // just re-waits for the same slow answer, so one attempt has to settle it.
+  //
+  // These reject INSTANTLY rather than hanging, deliberately: a hung request
+  // consumes the whole remaining budget by construction, so the old retry-
+  // everything code would not have retried it either and the test would pass
+  // against the bug. Leaving budget on the table is what makes these discriminate
+  // — under the old behavior each would have called fetch three times.
+  it.each([
+    // Deno's AbortSignal.timeout rejects with TimeoutError...
+    ['TimeoutError', 'Signal timed out.'],
+    // ...while an explicit abort raises AbortError. Both must be terminal.
+    ['AbortError', 'The signal has been aborted'],
+  ])('does not retry after a %s', async (name, message) => {
+    const fetchSpy = vi.fn(async () => {
+      throw Object.assign(new Error(message), { name })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(generateSummary(TEAM, 'key', Date.now() + 30_000)).resolves.toBeNull()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds an attempt by the remaining budget, not the full attempt cap', async () => {
+    // A per-game slice smaller than the cap has to win, or the run ceiling means
+    // nothing and a multi-game tick can outlive the worker.
+    vi.stubGlobal('fetch', hangingFetch)
+
+    const startedAt = Date.now()
+    await expect(generateSummary(TEAM, 'key', Date.now() + 250)).resolves.toBeNull()
+    expect(Date.now() - startedAt).toBeLessThan(SUMMARY_ATTEMPT_TIMEOUT_MS)
   })
 
   it('runs unbounded when no deadline is given', async () => {
