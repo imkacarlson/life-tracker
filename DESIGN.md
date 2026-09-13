@@ -179,3 +179,5 @@ To regenerate, copy the preview HTML from the git history or re-run `/design-con
 | 2026-03-24 | Simple trend-line logo icon | Issue #34 — replaces Vite logo. Teal rounded square with upward trend arrow. Works at favicon size. |
 | 2026-09-07 | White desktop editor surface | Give long-form content a crisp document canvas while preserving warm Stone 50 around it; keep mobile edge-to-edge. |
 | 2026-09-07 | Lighter outlined desktop toolbar | Separate controls from content without a heavy gray slab; preserve the white mobile bottom toolbar. |
+| 2026-09-13 | Docked toolbar changes paint only, never layout | Swapping the gutter onto the toolbar when pinned changed its content width, flipping it between one and two rows. The height change fed back into scroll position and flickered the toolbar ~120x/sec. Identical geometry in both states makes the loop impossible. |
+| 2026-09-13 | Tighter desktop toolbar spacing (group padding 1px, gaps 3px) | Reclaims ~27px so the full control set stays on one row at desktop width even with the table-only cell-shading buttons present. Mobile keeps its roomier spacing. |

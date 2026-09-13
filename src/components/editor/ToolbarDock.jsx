@@ -1,9 +1,15 @@
 import { useEffect, useRef } from 'react'
+import { shouldDockToolbar } from '../../utils/toolbarDock'
 
 /**
  * Turns the inset desktop toolbar into full-width application chrome only
  * while it is pinned to the top of the editor scrollport. The class is toggled
  * imperatively so scrolling across the threshold does not re-render Toolbar.
+ *
+ * `is-docked` must only change paint, never layout — see the INVARIANT note in
+ * toolbar.css. This listener reads the dock's own position, so a rule that
+ * changes the dock's size when docked feeds straight back into scrollTop (via
+ * scroll anchoring) and makes the class oscillate every frame.
  */
 function ToolbarDock({ children, editorPanelRef, isTouchOnly }) {
   const dockRef = useRef(null)
@@ -15,20 +21,35 @@ function ToolbarDock({ children, editorPanelRef, isTouchOnly }) {
     const dock = dockRef.current
     if (!panel || !dock) return undefined
 
+    let rafId = null
+
     const updateDockedState = () => {
-      const panelTop = panel.getBoundingClientRect().top
-      const dockTop = dock.getBoundingClientRect().top
-      const isDocked = panel.scrollTop > 0 && dockTop <= panelTop + 1
-      dock.classList.toggle('is-docked', isDocked)
+      rafId = null
+      dock.classList.toggle(
+        'is-docked',
+        shouldDockToolbar({
+          scrollTop: panel.scrollTop,
+          dockTop: dock.getBoundingClientRect().top,
+          panelTop: panel.getBoundingClientRect().top,
+        }),
+      )
+    }
+
+    // Coalesce to one layout read per frame. Scroll fires far more often than
+    // the class can meaningfully change, and each run reads two rects.
+    const schedule = () => {
+      if (rafId !== null) return
+      rafId = requestAnimationFrame(updateDockedState)
     }
 
     updateDockedState()
-    panel.addEventListener('scroll', updateDockedState, { passive: true })
-    window.addEventListener('resize', updateDockedState)
+    panel.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', schedule)
 
     return () => {
-      panel.removeEventListener('scroll', updateDockedState)
-      window.removeEventListener('resize', updateDockedState)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      panel.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', schedule)
     }
   }, [editorPanelRef, isTouchOnly])
 
