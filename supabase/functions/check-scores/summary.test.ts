@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Team } from './espn.ts'
-import { SUMMARY_ATTEMPT_TIMEOUT_MS, generateSummary } from './summary.ts'
+import {
+  SUMMARY_ATTEMPT_TIMEOUT_MS,
+  type GeminiAttempt,
+  generateSummary,
+} from './summary.ts'
 
 const TEAM = {
   id: 'team-1',
@@ -126,6 +130,90 @@ describe('generateSummary', () => {
     const startedAt = Date.now()
     await expect(generateSummary(TEAM, 'key', Date.now() + 250)).resolves.toBeNull()
     expect(Date.now() - startedAt).toBeLessThan(SUMMARY_ATTEMPT_TIMEOUT_MS)
+  })
+
+  // Durable diagnostics. The point of these rows is that the NEXT production
+  // failure is diagnosable without reconstructing it from expiring log lines.
+  describe('attempt recording', () => {
+    const collect = () => {
+      const attempts: GeminiAttempt[] = []
+      return { attempts, record: (a: GeminiAttempt) => attempts.push(a) }
+    }
+
+    it('records a successful call with both timings', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText('Record: 1-0.'))))
+      const { attempts, record } = collect()
+
+      await expect(generateSummary(TEAM, 'key', Date.now() + 5_000, record)).resolves.toBe(
+        'Record: 1-0.',
+      )
+
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({ attempt: 1, grounded: true, outcome: 'answered', statusCode: 200 })
+      // headersMs must be populated and no greater than the total, or the
+      // "answered then stalled" distinction is meaningless.
+      expect(attempts[0].headersMs).not.toBeNull()
+      expect(attempts[0].headersMs!).toBeLessThanOrEqual(attempts[0].totalMs)
+    })
+
+    it('records a timeout AND the ungrounded fallback probe', async () => {
+      // Rejects instantly rather than hanging, same reasoning as the tests above.
+      const fetchSpy = vi
+        .fn()
+        // The grounded attempt times out...
+        .mockImplementationOnce(async () => {
+          throw Object.assign(new Error('Signal timed out.'), { name: 'TimeoutError' })
+        })
+        // ...and the probe that follows answers, which is the whole finding:
+        // the worker CAN reach Google, so grounding is what was wedged.
+        .mockImplementationOnce(async () => jsonResponse(geminiText('ungrounded reply')))
+      vi.stubGlobal('fetch', fetchSpy)
+      const { attempts, record } = collect()
+
+      await expect(generateSummary(TEAM, 'key', Date.now() + 30_000, record)).resolves.toBeNull()
+
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]).toMatchObject({ grounded: true, outcome: 'timeout', errorName: 'TimeoutError' })
+      expect(attempts[1]).toMatchObject({ grounded: false, outcome: 'answered' })
+      // Diagnostic only — the probe's text must never become the summary.
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('sends the probe without the grounding tool', async () => {
+      const fetchSpy = vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          throw Object.assign(new Error('Signal timed out.'), { name: 'TimeoutError' })
+        })
+        .mockImplementationOnce(async () => jsonResponse(geminiText('ungrounded reply')))
+      vi.stubGlobal('fetch', fetchSpy)
+      const { record } = collect()
+
+      await generateSummary(TEAM, 'key', Date.now() + 30_000, record)
+
+      const groundedBody = JSON.parse(fetchSpy.mock.calls[0][1].body)
+      const probeBody = JSON.parse(fetchSpy.mock.calls[1][1].body)
+      expect(groundedBody.tools).toEqual([{ google_search: {} }])
+      expect(probeBody.tools).toBeUndefined()
+    })
+
+    it('records a permanent 4xx with its status and does not retry', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: 'bad key' }, 403)))
+      const { attempts, record } = collect()
+
+      await expect(generateSummary(TEAM, 'key', Date.now() + 5_000, record)).resolves.toBeNull()
+
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({ grounded: true, outcome: 'http_error', statusCode: 403 })
+    })
+
+    it('works with no recorder passed', async () => {
+      // The signature is additive on purpose: index.ts and every test above
+      // must keep working untouched.
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText('no recorder'))))
+
+      await expect(generateSummary(TEAM, 'key', Date.now() + 5_000)).resolves.toBe('no recorder')
+    })
   })
 
   it('runs unbounded when no deadline is given', async () => {

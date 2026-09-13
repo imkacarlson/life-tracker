@@ -28,10 +28,21 @@ import {
   fetchTeamGames,
 } from './espn.ts'
 import { decideNotifyAction } from './notifyState.ts'
-import { generateSummary } from './summary.ts'
+import { type GeminiAttempt, generateSummary } from './summary.ts'
 
 const HEALTH_ID = 'espn'
 const RETENTION_DAYS = 7
+
+/**
+ * Diagnostics live longer than the games they describe.
+ *
+ * Summary failures arrive roughly once or twice a week, so the 7-day window
+ * above would usually hold a single one — and a single failure is what produced
+ * two wrong root causes already. 30 days keeps enough of them side by side to
+ * compare. Growth is bounded and trivial: 1-3 rows per completed game, so ~10-20
+ * rows a week, purged by age on every run.
+ */
+const DIAGNOSTICS_RETENTION_DAYS = 30
 
 /**
  * Total time all Gemini summaries may consume in ONE run, across every game.
@@ -206,6 +217,11 @@ Deno.serve(async (req) => {
   await supabase.from('score_history').delete().lt('created_at', cutoffIso)
   await supabase.from('sports_expected_games').delete().lt('created_at', cutoffIso)
 
+  const diagnosticsCutoffIso = new Date(
+    now.getTime() - DIAGNOSTICS_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString()
+  await supabase.from('gemini_call_log').delete().lt('created_at', diagnosticsCutoffIso)
+
   // 6. Seed teams on first run.
   const { count } = await supabase
     .from('sport_teams')
@@ -254,7 +270,10 @@ Deno.serve(async (req) => {
 
   // Whole-run ceiling. Each game carves a bounded slice out of this rather than
   // helping itself — see SUMMARY_GAME_BUDGET_MS.
-  const summaryRunDeadline = Date.now() + SUMMARY_RUN_BUDGET_MS
+  const runStartedAtMs = Date.now()
+  const summaryRunDeadline = runStartedAtMs + SUMMARY_RUN_BUDGET_MS
+  // Ties every gemini_call_log row from this tick together.
+  const runId = crypto.randomUUID().slice(0, 8)
 
   for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
@@ -293,6 +312,8 @@ Deno.serve(async (req) => {
         resendApiKey,
         googleApiKey,
         summaryRunDeadline,
+        runId,
+        runStartedAtMs,
       })
       if (notified.skipped) continue
       if (notified.ok) teamResult.notified++
@@ -396,6 +417,8 @@ async function recordAndNotify(
     resendApiKey: string
     googleApiKey: string | undefined
     summaryRunDeadline: number
+    runId: string
+    runStartedAtMs: number
   },
 ): Promise<NotifyOutcome> {
   const { data: inserted, error: insertError } = await supabase
@@ -455,9 +478,42 @@ async function recordAndNotify(
       Date.now() + SUMMARY_GAME_BUDGET_MS,
       keys.summaryRunDeadline,
     )
-    aiSummary = await generateSummary(team, keys.googleApiKey, gameDeadline)
+
+    const attempts: GeminiAttempt[] = []
+    const secsIntoRun = Math.round((Date.now() - keys.runStartedAtMs) / 100) / 10
+
+    aiSummary = await generateSummary(
+      team,
+      keys.googleApiKey,
+      gameDeadline,
+      (a) => attempts.push(a),
+    )
+
     if (aiSummary) {
       await supabase.from('score_history').update({ ai_summary: aiSummary }).eq('id', scoreHistoryId)
+    }
+
+    // Instrumentation must never cost us the email, so this is best-effort and
+    // swallows its own errors — including the case where the migration has not
+    // been applied yet.
+    if (attempts.length > 0) {
+      const { error: logError } = await supabase.from('gemini_call_log').insert(
+        attempts.map((a) => ({
+          score_history_id: scoreHistoryId,
+          team_name: team.display_name,
+          run_id: keys.runId,
+          attempt: a.attempt,
+          grounded: a.grounded,
+          outcome: a.outcome,
+          status_code: a.statusCode,
+          headers_ms: a.headersMs,
+          total_ms: a.totalMs,
+          secs_into_run: secsIntoRun,
+          error_name: a.errorName,
+          error_detail: a.errorDetail,
+        })),
+      )
+      if (logError) console.error('Failed to write gemini_call_log:', logError.message)
     }
   }
 
