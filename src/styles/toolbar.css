@@ -10,19 +10,33 @@
 }
 
 /* Once pinned, the toolbar becomes edge-to-edge app chrome instead of a
-   floating card. Keeping the controls aligned with the document preserves the
-   reading grid while the full-width background closes the side gutters. */
-.toolbar-dock.is-docked {
-  padding: 0;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
+   floating card. The dock already spans the full scrollport (margin-inline
+   above), so recolouring it closes the side gutters while the controls stay
+   aligned to the document text column.
 
-.toolbar-dock.is-docked .toolbar {
-  padding: 0.5rem 1.25rem;
-  border: 0;
-  border-radius: 0;
-  background: var(--bg);
+   INVARIANT: `is-docked` may only change *paint* — colours and nothing else.
+   Never give it padding, border-width, margin or gap. Changing the toolbar's
+   content width here changes how many rows it wraps to, which changes the
+   dock's height, which makes Chrome's scroll anchoring adjust the panel's
+   scrollTop, which re-fires the scroll listener in ToolbarDock.jsx that
+   toggles this very class. That closed loop flipped the toolbar ~120x/sec.
+   The reserved transparent border below exists so pinning can colour a rule
+   in without the dock growing by a pixel. */
+@media (min-width: 901px) {
+  .toolbar-dock {
+    border-bottom: 1px solid transparent;
+  }
+
+  .toolbar-dock.is-docked {
+    border-bottom-color: var(--border);
+    background: var(--bg);
+  }
+
+  .toolbar-dock.is-docked .toolbar {
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+  }
 }
 
 .toolbar {
@@ -85,6 +99,26 @@
   height: 20px;
   background: var(--border);
   margin: 0 2px;
+}
+
+/* Desktop only. The toolbar is one row wide at full desktop width with very
+   little slack — and it grows by 48px whenever the caret enters a table (the
+   cell-shading pair in insertTools.jsx). These tighter gutters buy back ~27px
+   so the full set still fits on a single row; below 901px the toolbar is the
+   fixed bottom bar and keeps its roomier mobile spacing (responsive.css). */
+@media (min-width: 901px) {
+  .toolbar {
+    padding: 6px;
+  }
+
+  .toolbar-core,
+  .toolbar-extra {
+    gap: 3px;
+  }
+
+  .toolbar-group {
+    padding: 1px;
+  }
 }
 
 .toolbar-btn {
