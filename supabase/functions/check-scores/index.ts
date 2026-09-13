@@ -38,10 +38,25 @@ const RETENTION_DAYS = 7
  *
  * The edge worker is killed at 150s. A per-attempt timeout alone is not enough:
  * two games finishing in the same tick would each get their own ladder and
- * together could still blow the budget. This is the whole-run ceiling, leaving
- * ~90s for ESPN, the DB writes and the emails themselves.
+ * together could still blow the budget. This is the whole-run ceiling.
+ *
+ * Sized against measured runs, not guesswork: ticks with nothing to notify take
+ * 23-30s, so ESPN + the DB writes + the emails cost ~30s, and 30 + 90 leaves
+ * ~30s of margin under the worker limit.
  */
-const SUMMARY_RUN_BUDGET_MS = 60_000
+const SUMMARY_RUN_BUDGET_MS = 90_000
+
+/**
+ * Most one game's summary may consume, so the FIRST game cannot eat the whole
+ * run budget and starve the rest.
+ *
+ * Without this the run budget alone was actively unfair: game 1 spending it all
+ * left game 2 a sliver, and `Math.min(attemptCap, left)` then capped game 2
+ * TIGHTER than game 1 — a second game in the same tick was structurally certain
+ * to miss its summary. Two fully-timed-out games now cost 90s, not an unbounded
+ * ladder, and any game after that degrades to a score-only email.
+ */
+const SUMMARY_GAME_BUDGET_MS = 50_000
 
 /** Alert if a result sits recorded-but-unemailed for longer than this. */
 const UNNOTIFIED_ALERT_HOURS = 2
@@ -237,8 +252,9 @@ Deno.serve(async (req) => {
   const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
   let fetchError: EspnFetchError | null = null
 
-  // One budget shared by every summary in this run — see SUMMARY_RUN_BUDGET_MS.
-  const summaryDeadline = Date.now() + SUMMARY_RUN_BUDGET_MS
+  // Whole-run ceiling. Each game carves a bounded slice out of this rather than
+  // helping itself — see SUMMARY_GAME_BUDGET_MS.
+  const summaryRunDeadline = Date.now() + SUMMARY_RUN_BUDGET_MS
 
   for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
@@ -276,7 +292,7 @@ Deno.serve(async (req) => {
       const notified = await recordAndNotify(supabase, team, game, {
         resendApiKey,
         googleApiKey,
-        summaryDeadline,
+        summaryRunDeadline,
       })
       if (notified.skipped) continue
       if (notified.ok) teamResult.notified++
@@ -379,7 +395,7 @@ async function recordAndNotify(
   keys: {
     resendApiKey: string
     googleApiKey: string | undefined
-    summaryDeadline: number
+    summaryRunDeadline: number
   },
 ): Promise<NotifyOutcome> {
   const { data: inserted, error: insertError } = await supabase
@@ -433,7 +449,13 @@ async function recordAndNotify(
   // budget all just mean a score-only email. Skipped entirely when a previous
   // attempt already produced one.
   if (keys.googleApiKey && !aiSummary) {
-    aiSummary = await generateSummary(team, keys.googleApiKey, keys.summaryDeadline)
+    // This game's slice, clamped to whatever the run has left — so the run
+    // ceiling always wins over the per-game allowance.
+    const gameDeadline = Math.min(
+      Date.now() + SUMMARY_GAME_BUDGET_MS,
+      keys.summaryRunDeadline,
+    )
+    aiSummary = await generateSummary(team, keys.googleApiKey, gameDeadline)
     if (aiSummary) {
       await supabase.from('score_history').update({ ai_summary: aiSummary }).eq('id', scoreHistoryId)
     }

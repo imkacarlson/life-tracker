@@ -13,6 +13,10 @@ const GEMINI_MODEL = 'gemini-2.5-flash'
 
 // Gemini occasionally returns a transient 5xx/429 or an empty 200 body, so a
 // couple of retries with a short backoff usually recovers the summary.
+//
+// This ladder is for FAST failures only. A timeout returns immediately instead
+// of retrying (see the catch below), so the worst case here is three cheap
+// errors, not three slow ones.
 const GEMINI_MAX_ATTEMPTS = 3
 
 /**
@@ -20,10 +24,15 @@ const GEMINI_MAX_ATTEMPTS = 3
  *
  * Load-bearing: on 2026-09-05 three 503s hung ~45s each and the 150s edge worker
  * was killed mid-retry, after the score row had committed but before the email
- * went out. The summary is decoration; the email is the product. Anything slower
- * than this is not worth the notification.
+ * went out. The summary is decoration; the email is the product.
+ *
+ * This was 15s until 2026-09-12, which was inside normal latency rather than
+ * outside it: grounded 2.5-flash measures 4.5-12.1s from a laptop, and EVERY
+ * production attempt from 2026-09-07 on timed out at 15s (9 of 9, with no 429s
+ * and no 5xx), so the edge worker is slower still. Being this generous is only
+ * affordable because a timeout no longer costs three attempts.
  */
-export const SUMMARY_ATTEMPT_TIMEOUT_MS = 15_000
+export const SUMMARY_ATTEMPT_TIMEOUT_MS = 45_000
 
 const GEMINI_PROMPT_TEMPLATE = (teamFullName: string, sport: string) =>
   `Give me a current 3-bullet update on the ${teamFullName} ${sport} team in the following format: \n` +
@@ -75,6 +84,8 @@ export async function generateSummary(
       return null
     }
 
+    const attemptStart = Date.now()
+
     try {
       const resp = await fetch(url, {
         method: 'POST',
@@ -95,16 +106,33 @@ export async function generateSummary(
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? null
         if (text) return text
         // 200 but no usable text — transient grounding hiccup, worth retrying.
-        console.error(`Gemini empty response for ${team.display_name} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
+        console.error(`Gemini empty response for ${team.display_name} after ${Date.now() - attemptStart}ms (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
       } else {
-        console.error(`Gemini API error for ${team.display_name}: ${resp.status} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
+        console.error(`Gemini API error for ${team.display_name}: ${resp.status} after ${Date.now() - attemptStart}ms (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
         // 4xx (except 429 rate limit) are permanent — don't waste retries.
         if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) {
           return null
         }
       }
     } catch (err) {
-      console.error(`Gemini call failed for ${team.display_name} (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}):`, err)
+      const elapsedMs = Date.now() - attemptStart
+      const name = (err as { name?: string } | null)?.name
+
+      // Our own signal fired: the API is SLOW, not flaky. Attempt 2 would wait
+      // just as long for the same answer, and three of those is what killed the
+      // 2026-09-05 worker. One slow attempt is enough to conclude "no summary
+      // this time" — which is why the cap above can afford to be generous.
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        console.error(
+          `Gemini timed out for ${team.display_name} after ${elapsedMs}ms — sending without a summary`,
+        )
+        return null
+      }
+
+      console.error(
+        `Gemini call failed for ${team.display_name} after ${elapsedMs}ms (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS}):`,
+        err,
+      )
     }
 
     // Linear backoff between attempts: 1s, then 2s. Skip after the last attempt,
