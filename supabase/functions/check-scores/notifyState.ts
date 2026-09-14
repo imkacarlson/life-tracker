@@ -39,3 +39,37 @@ export function decideNotifyAction(existing: ExistingScoreRow | null | undefined
     reuseSummary: existing.ai_summary ?? null,
   }
 }
+
+/** Inputs to the "is this game ready to email?" decision. */
+export type SendDecisionInput = {
+  /** Did we manage to generate (or reuse) an AI summary? */
+  hasSummary: boolean
+  /** How long ago the result was recorded, from score_history.created_at. */
+  ageMs: number
+  /** How long a game may wait for its summary before the email goes anyway. */
+  holdMs: number
+}
+
+/**
+ * Send the email now, or hold this game for one more summary attempt later?
+ *
+ * The summary gets exactly one shot today, in the ~60s before the email is sent,
+ * and gemini-2.5-flash currently hangs often enough that the shot usually misses
+ * (see googleapis/python-genai#1893 — sockets stall instead of returning 503).
+ * Once the email is out the blurb is lost for that game forever. Holding briefly
+ * buys a second attempt minutes later, which is the spacing an intermittent
+ * upstream actually responds to.
+ *
+ * Load-bearing property: the decision is derived from the row's AGE, not from a
+ * retry counter. So it is stateless, and it self-limits — if the pending-games
+ * pass breaks completely, the next run sees an old row and sends it. The email
+ * always goes out; at worst it is `holdMs` late. That is the 2026-09-05
+ * guarantee and it must not be weakened into "the email waits for Gemini".
+ */
+export function decideSendAction(input: SendDecisionInput): 'send' | 'hold' {
+  if (input.hasSummary) return 'send'
+  // >= rather than >: a holdMs of 0 must mean "never hold", so the behavior can
+  // be switched off by configuration alone.
+  if (input.ageMs >= input.holdMs) return 'send'
+  return 'hold'
+}

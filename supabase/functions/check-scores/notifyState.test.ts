@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decideNotifyAction } from './notifyState.ts'
+import { decideNotifyAction, decideSendAction } from './notifyState.ts'
 
 describe('decideNotifyAction', () => {
   it('skips a game that was already emailed', () => {
@@ -29,5 +29,36 @@ describe('decideNotifyAction', () => {
   it('skips when the row has gone (a retention purge racing the insert)', () => {
     expect(decideNotifyAction(null)).toEqual({ action: 'skip' })
     expect(decideNotifyAction(undefined)).toEqual({ action: 'skip' })
+  })
+})
+
+describe('decideSendAction', () => {
+  const HOLD = 5 * 60_000
+
+  it('sends immediately once a summary exists', () => {
+    expect(decideSendAction({ hasSummary: true, ageMs: 0, holdMs: HOLD })).toBe('send')
+  })
+
+  it('holds a fresh game whose summary is still missing', () => {
+    // The whole point: gemini-2.5-flash hangs often enough that one attempt in
+    // the 60s before the email usually misses, and sending now loses the blurb
+    // for good.
+    expect(decideSendAction({ hasSummary: false, ageMs: 0, holdMs: HOLD })).toBe('hold')
+    expect(decideSendAction({ hasSummary: false, ageMs: HOLD - 1, holdMs: HOLD })).toBe('hold')
+  })
+
+  it('sends without a summary once the hold window is up', () => {
+    // THE load-bearing test. The email always goes; the blurb is garnish. If
+    // this ever returns 'hold', a Gemini outage silently swallows the email --
+    // which is the 2026-09-05 failure this whole design exists to prevent.
+    expect(decideSendAction({ hasSummary: false, ageMs: HOLD, holdMs: HOLD })).toBe('send')
+    expect(decideSendAction({ hasSummary: false, ageMs: HOLD * 100, holdMs: HOLD })).toBe('send')
+  })
+
+  it('never holds when the window is zero or negative', () => {
+    // So the behavior can be switched off by configuration alone, with no code
+    // change, if holding ever turns out to be a bad trade.
+    expect(decideSendAction({ hasSummary: false, ageMs: 0, holdMs: 0 })).toBe('send')
+    expect(decideSendAction({ hasSummary: false, ageMs: 0, holdMs: -1 })).toBe('send')
   })
 })

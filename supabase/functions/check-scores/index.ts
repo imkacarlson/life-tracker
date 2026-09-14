@@ -27,7 +27,7 @@ import {
   createScoreboardCache,
   fetchTeamGames,
 } from './espn.ts'
-import { decideNotifyAction } from './notifyState.ts'
+import { decideNotifyAction, decideSendAction } from './notifyState.ts'
 import { type GeminiAttempt, generateSummary } from './summary.ts'
 
 const HEALTH_ID = 'espn'
@@ -68,6 +68,24 @@ const SUMMARY_RUN_BUDGET_MS = 90_000
  * ladder, and any game after that degrades to a score-only email.
  */
 const SUMMARY_GAME_BUDGET_MS = 50_000
+
+/**
+ * How long a game may wait for its AI summary before the email goes out anyway.
+ *
+ * The summary used to get exactly one attempt, in the ~60s before the email was
+ * sent, and gemini-2.5-flash hangs often enough (googleapis/python-genai#1893:
+ * sockets stall instead of returning 503) that the attempt usually missed. Once
+ * the email was out, the blurb was lost for that game forever.
+ *
+ * Holding briefly buys a second attempt minutes later, which is the spacing an
+ * intermittent upstream actually responds to. The ceiling is deliberately short:
+ * the score is the product, the blurb is garnish, and a late score is worse than
+ * a plain one.
+ */
+const SUMMARY_HOLD_MINUTES = 5
+
+/** Most held games to finish per run, so a backlog cannot blow the worker. */
+const PENDING_BATCH_LIMIT = 5
 
 /** Alert if a result sits recorded-but-unemailed for longer than this. */
 const UNNOTIFIED_ALERT_HOURS = 2
@@ -208,6 +226,19 @@ Deno.serve(async (req) => {
     await saveHealth(supabase, { last_alert_at: new Date().toISOString() })
   }
 
+  // Whole-run ceiling, shared by the pending pass and the team loop. Each game
+  // carves a bounded slice out of this rather than helping itself — see
+  // SUMMARY_GAME_BUDGET_MS.
+  const runStartedAtMs = Date.now()
+  const notifyKeys = {
+    resendApiKey,
+    googleApiKey,
+    summaryRunDeadline: runStartedAtMs + SUMMARY_RUN_BUDGET_MS,
+    runStartedAtMs,
+    // Ties every gemini_call_log row from this tick together.
+    runId: crypto.randomUUID().slice(0, 8),
+  }
+
   // 5. Retention cleanup. Deliberately after the enabled check — "dormant" means
   //    no writes either. The backlog is bounded (nothing new is created while
   //    off) and purges on the first run after re-enabling, because cleanup
@@ -242,6 +273,22 @@ Deno.serve(async (req) => {
     console.log('Seeded sport_teams with', SEED_TEAMS.length, 'teams')
   }
 
+  // 6b. Finish games we recorded but held back for another summary attempt.
+  //
+  //     Before the backoff check deliberately: a held email needs nothing from
+  //     ESPN, so it must still go out while ESPN is in a backoff window.
+  //
+  //     This cannot be folded into the team loop below. `nextPollDelayMinutes`
+  //     returns MAX_POLL_MINUTES once a team has no live or upcoming games —
+  //     exactly the state right after an evening game — so a team that just
+  //     played sleeps ~24h and a held email would wait a day. The retry has to
+  //     be independent of polling, and it can be: score_history carries every
+  //     field the email needs.
+  const pending = await flushPendingGames(supabase, notifyKeys)
+  if (pending.sent > 0 || pending.held > 0) {
+    console.log(`pending games: ${pending.sent} sent, ${pending.held} still held`)
+  }
+
   // 7. Respect an active backoff window.
   if (isBackedOff(currentHealth, now)) {
     return json({ ok: true, skipped: 'backoff', retryAt: currentHealth.backoff_until })
@@ -267,13 +314,6 @@ Deno.serve(async (req) => {
   const cache = createScoreboardCache()
   const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
   let fetchError: EspnFetchError | null = null
-
-  // Whole-run ceiling. Each game carves a bounded slice out of this rather than
-  // helping itself — see SUMMARY_GAME_BUDGET_MS.
-  const runStartedAtMs = Date.now()
-  const summaryRunDeadline = runStartedAtMs + SUMMARY_RUN_BUDGET_MS
-  // Ties every gemini_call_log row from this tick together.
-  const runId = crypto.randomUUID().slice(0, 8)
 
   for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
@@ -308,13 +348,7 @@ Deno.serve(async (req) => {
     }
 
     for (const game of games.completed) {
-      const notified = await recordAndNotify(supabase, team, game, {
-        resendApiKey,
-        googleApiKey,
-        summaryRunDeadline,
-        runId,
-        runStartedAtMs,
-      })
+      const notified = await recordAndNotify(supabase, team, game, notifyKeys)
       if (notified.skipped) continue
       if (notified.ok) teamResult.notified++
       if (notified.error) teamResult.errors.push(notified.error)
@@ -397,7 +431,21 @@ Deno.serve(async (req) => {
 
 // --- Helpers ---
 
-type NotifyOutcome = { ok: boolean; skipped: boolean; error?: string }
+type NotifyOutcome = {
+  ok: boolean
+  skipped: boolean
+  /** Recorded, summary still missing, email intentionally held for a retry. */
+  deferred?: boolean
+  error?: string
+}
+
+type NotifyKeys = {
+  resendApiKey: string
+  googleApiKey: string | undefined
+  summaryRunDeadline: number
+  runStartedAtMs: number
+  runId: string
+}
 
 /**
  * Insert the result, then email it. The unique constraint dedupes the ROW; the
@@ -413,13 +461,7 @@ async function recordAndNotify(
   supabase: SupabaseClient,
   team: Team,
   game: GameResult,
-  keys: {
-    resendApiKey: string
-    googleApiKey: string | undefined
-    summaryRunDeadline: number
-    runId: string
-    runStartedAtMs: number
-  },
+  keys: NotifyKeys,
 ): Promise<NotifyOutcome> {
   const { data: inserted, error: insertError } = await supabase
     .from('score_history')
@@ -434,11 +476,13 @@ async function recordAndNotify(
       home_away: game.homeAway,
       raw_espn_data: game.rawData,
     })
-    .select('id')
+    .select('id, created_at')
     .single()
 
   let scoreHistoryId: string
   let aiSummary: string | null = null
+  /** When the RESULT was recorded — the clock the hold window runs on. */
+  let recordedAtMs: number
 
   if (insertError) {
     // 23505 = unique_violation: we have seen this game before. Whether we
@@ -449,7 +493,7 @@ async function recordAndNotify(
 
     const { data: existing, error: readError } = await supabase
       .from('score_history')
-      .select('id, notified_at, ai_summary')
+      .select('id, notified_at, ai_summary, created_at')
       .eq('team_id', team.id)
       .eq('espn_game_id', game.espnGameId)
       .maybeSingle()
@@ -464,9 +508,35 @@ async function recordAndNotify(
     console.log(`Retrying unsent notification for ${team.display_name} game ${game.espnGameId}`)
     scoreHistoryId = decision.scoreHistoryId
     aiSummary = decision.reuseSummary
+    recordedAtMs = Date.parse(existing?.created_at ?? '') || Date.now()
   } else {
     scoreHistoryId = inserted.id
+    recordedAtMs = Date.parse(inserted.created_at ?? '') || Date.now()
   }
+
+  return finishGame(supabase, team, game, {
+    scoreHistoryId,
+    existingSummary: aiSummary,
+    recordedAtMs,
+  }, keys)
+}
+
+/**
+ * Attempt the summary, then either email the result or hold it for another go.
+ *
+ * Shared deliberately by the fresh path above and the pending pass below: both
+ * must make the IDENTICAL send-or-hold decision, and two copies of that rule
+ * would drift apart.
+ */
+async function finishGame(
+  supabase: SupabaseClient,
+  team: Team,
+  game: GameResult,
+  row: { scoreHistoryId: string; existingSummary: string | null; recordedAtMs: number },
+  keys: NotifyKeys,
+): Promise<NotifyOutcome> {
+  const scoreHistoryId = row.scoreHistoryId
+  let aiSummary = row.existingSummary
 
   // AI summary is non-blocking — a failure, a timeout, or an exhausted run
   // budget all just mean a score-only email. Skipped entirely when a previous
@@ -517,6 +587,23 @@ async function recordAndNotify(
     }
   }
 
+  // Send, or hold this game for one more attempt on a later run? The decision
+  // lives in notifyState.ts so it can be unit tested; it is keyed on the row's
+  // AGE, so even if the pending pass breaks entirely the next run sends anyway.
+  if (
+    decideSendAction({
+      hasSummary: Boolean(aiSummary),
+      ageMs: Date.now() - row.recordedAtMs,
+      holdMs: SUMMARY_HOLD_MINUTES * 60_000,
+    }) === 'hold'
+  ) {
+    console.log(
+      `Holding ${team.display_name} game ${game.espnGameId} for another summary attempt ` +
+      `(up to ${SUMMARY_HOLD_MINUTES}m); notified_at stays null`,
+    )
+    return { ok: false, skipped: false, deferred: true }
+  }
+
   const subject = buildEmailSubject(team, game)
   const emailResult = await sendEmail(
     keys.resendApiKey,
@@ -549,6 +636,73 @@ async function recordAndNotify(
     skipped: false,
     error: emailResult.ok ? undefined : `Email failed: ${emailResult.error}`,
   }
+}
+
+/**
+ * Finish games that were recorded but held back, without touching ESPN.
+ *
+ * GameResult maps 1:1 onto score_history's columns, so a held game can be
+ * emailed from the row alone. The query rides the partial index added with
+ * `notified_at` (score_history_unnotified_idx: created_at WHERE notified_at IS
+ * NULL), so this costs essentially nothing on the overwhelming majority of runs
+ * where there is nothing pending.
+ */
+async function flushPendingGames(
+  supabase: SupabaseClient,
+  keys: NotifyKeys,
+): Promise<{ sent: number; held: number }> {
+  const { data: pending, error } = await supabase
+    .from('score_history')
+    .select(
+      'id, espn_game_id, game_date, team_score, opponent_name, opponent_score, ' +
+      'result, home_away, raw_espn_data, ai_summary, created_at, sport_teams(*)',
+    )
+    .is('notified_at', null)
+    .order('created_at', { ascending: true })
+    .limit(PENDING_BATCH_LIMIT)
+
+  if (error) {
+    console.error('Failed to read pending games:', error.message)
+    return { sent: 0, held: 0 }
+  }
+  if (!pending || pending.length === 0) return { sent: 0, held: 0 }
+
+  let sent = 0
+  let held = 0
+
+  for (const rowData of pending) {
+    const row = rowData as Record<string, any>
+    const team = row.sport_teams as Team | null
+    if (!team) {
+      // The team row is gone (deleted, not just deactivated). Nothing to email
+      // to, and retention will clear the orphan.
+      console.error(`Pending game ${row.espn_game_id} has no team; skipping`)
+      continue
+    }
+
+    const game: GameResult = {
+      espnGameId: row.espn_game_id,
+      gameDate: row.game_date,
+      teamScore: row.team_score,
+      opponentName: row.opponent_name,
+      opponentScore: row.opponent_score,
+      result: row.result,
+      homeAway: row.home_away,
+      rawData: row.raw_espn_data,
+    }
+
+    const outcome = await finishGame(supabase, team, game, {
+      scoreHistoryId: row.id,
+      existingSummary: row.ai_summary ?? null,
+      recordedAtMs: Date.parse(row.created_at ?? '') || Date.now(),
+    }, keys)
+
+    if (outcome.deferred) held++
+    else if (outcome.ok) sent++
+    else if (outcome.error) console.error(`Pending game ${row.espn_game_id}: ${outcome.error}`)
+  }
+
+  return { sent, held }
 }
 
 /** Alert once about games that should be over but never produced a result. */
