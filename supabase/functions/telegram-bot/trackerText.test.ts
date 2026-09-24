@@ -188,6 +188,32 @@ describe('flattenTrackerToTextWithHandles', () => {
     expect(handles.get('b4')).toBe('uuid-li2')
   })
 
+  it('tags all-bold list lines as categories in the structure view only', () => {
+    const categoryDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'bulletList',
+          attrs: { id: 'next' },
+          content: [
+            {
+              type: 'listItem',
+              content: [
+                { type: 'paragraph', attrs: { id: 'cat' }, content: [{ ...text('Jerry Updates'), marks: [{ type: 'bold' }] }] },
+                { type: 'bulletList', attrs: { id: 'sub' }, content: [{ type: 'listItem', content: [para('t1', 'Update to Jerry')] }] },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const { text: out } = flattenTrackerToTextWithHandles(categoryDoc)
+    expect(out).toContain('- **Jerry Updates** (category) {{b1}}')
+    expect(out).toContain('  - Update to Jerry {{b2}}')
+    // The Q&A view stays unannotated.
+    expect(flattenTrackerToText(categoryDoc)).not.toContain('(category)')
+  })
+
   it('is deterministic — the same doc yields the same handles', () => {
     const a = flattenTrackerToTextWithHandles(doc)
     const b = flattenTrackerToTextWithHandles(doc)

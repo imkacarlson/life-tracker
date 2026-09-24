@@ -22,16 +22,40 @@ function plainText(node: TiptapNode): string {
   return (node.content ?? []).map(plainText).join('')
 }
 
+const hasBoldRun = (p: TiptapNode): boolean =>
+  (p.content ?? []).some((run) => run.type === 'text' && (run.marks ?? []).some((m) => m.type === 'bold'))
+
+// A list item whose own line is entirely bold is a category ("**Jerry Updates**").
+function categoryTitleOfItem(item: TiptapNode): string | null {
+  if (item.type !== 'listItem' && item.type !== 'taskItem') return null
+  const first = item.content?.[0]
+  if (first?.type !== 'paragraph') return null
+  const runs = (first.content ?? []).filter((r) => r.type === 'text' && (r.text ?? '').trim())
+  if (!runs.length || !runs.every((r) => (r.marks ?? []).some((m) => m.type === 'bold'))) return null
+  return plainText(first).trim() || null
+}
+
 // The category title of a table cell: the first paragraph carrying a bold run
 // (the user's category-name convention), else the first non-empty paragraph.
-function boldCategoryOfCell(cell: TiptapNode): string | null {
-  const paras = (cell.content ?? []).filter((c) => c.type === 'paragraph')
+// With `upTo` (the cell child containing the target), the LAST bold paragraph
+// at or before it wins — one cell can hold two sections (e.g. Apartment + Work).
+function boldCategoryOfCell(cell: TiptapNode, upTo?: TiptapNode): string | null {
+  const children = cell.content ?? []
+  const stop = upTo ? children.indexOf(upTo) : -1
+  if (stop !== -1) {
+    for (let i = stop; i >= 0; i--) {
+      const c = children[i]
+      if (c.type === 'paragraph' && hasBoldRun(c)) {
+        const text = plainText(c).trim()
+        if (text) return text
+      }
+    }
+  }
+
+  const paras = children.filter((c) => c.type === 'paragraph')
 
   for (const p of paras) {
-    const hasBold = (p.content ?? []).some(
-      (run) => run.type === 'text' && (run.marks ?? []).some((m) => m.type === 'bold'),
-    )
-    if (hasBold) {
+    if (hasBoldRun(p)) {
       const text = plainText(p).trim()
       if (text) return text
     }
@@ -55,10 +79,23 @@ function boldCategoryOfCell(cell: TiptapNode): string | null {
  * Returns null when the id is missing/unresolvable or nothing names the section.
  */
 export function findSectionTitle(doc: TiptapNode, targetBlockId: string): string | null {
-  if (!doc || typeof doc !== 'object' || !targetBlockId) return null
+  return findPlacementPath(doc, targetBlockId).section
+}
+
+/**
+ * Section AND category for the preview caption ("Running → Jerry Updates").
+ * The category is the outermost bold list item enclosing the target (or the
+ * target's own line, when it is a category line). Either part may be null.
+ */
+export function findPlacementPath(
+  doc: TiptapNode,
+  targetBlockId: string,
+): { section: string | null; category: string | null } {
+  if (!doc || typeof doc !== 'object' || !targetBlockId) return { section: null, category: null }
 
   let lastHeading: string | null = null
   let result: string | null = null
+  let category: string | null = null
   let found = false
 
   const visit = (node: TiptapNode, ancestors: TiptapNode[]): void => {
@@ -75,12 +112,20 @@ export function findSectionTitle(doc: TiptapNode, targetBlockId: string): string
         result = plainText(node).trim() || null
         return
       }
-      // Nearest enclosing table cell -> its category title (the single-column
+      // Outermost bold list item on the way down = the category.
+      for (const a of ancestors) {
+        const title = categoryTitleOfItem(a)
+        if (title) {
+          category = title
+          break
+        }
+      }
+      // Nearest enclosing table cell -> its section title (the single-column
       // category table is the common case).
       for (let i = ancestors.length - 1; i >= 0; i--) {
         const a = ancestors[i]
         if (a.type === 'tableCell' || a.type === 'tableHeader') {
-          result = boldCategoryOfCell(a)
+          result = boldCategoryOfCell(a, ancestors[i + 1] ?? node)
           return
         }
       }
@@ -97,5 +142,5 @@ export function findSectionTitle(doc: TiptapNode, targetBlockId: string): string
   }
 
   visit(doc, [])
-  return result
+  return { section: result, category }
 }

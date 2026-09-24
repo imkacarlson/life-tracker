@@ -34,12 +34,16 @@ describe('buildSystemPrompt', () => {
     expect(base).toContain('coming up very soon')
   })
 
-  it('defaults additions to plain bullets at the bottom of the section', () => {
+  it('defaults additions to plain bullets at the bottom of the right category', () => {
     const base = buildSystemPrompt(false)
     // New items default to plain bullets, not checkboxes.
     expect(base).toContain('Default to a plain bullet list')
-    // And land at the bottom of the section they belong to.
-    expect(base).toContain('BOTTOM of the section')
+    // And land at the bottom of the category they belong to, falling back to Other.
+    expect(base).toContain('BOTTOM of that category')
+    expect(base).toContain('into_category')
+    expect(base).toContain('**Other**')
+    // A new category only on explicit request (Other is the one exception).
+    expect(base).toContain('explicitly asks for')
   })
 
   it('omits the date anchor when no nowDisplay is given', () => {

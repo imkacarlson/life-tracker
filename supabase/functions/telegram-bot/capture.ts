@@ -23,7 +23,13 @@ export type PendingJob = {
   base_updated_at: string
   proposed_content: TiptapNode
   inserted_block_ids: string[]
-  placement: { targetBlockId: string | null; position: Placement; format: Format; items: string[] }
+  placement: {
+    targetBlockId: string | null
+    position: Placement
+    format: Format
+    items: string[]
+    category?: string
+  }
   preview_message_id: number | null
   status: string
   session_id: string | null
@@ -170,9 +176,9 @@ export async function applyPendingJob(
       contentToWrite = job.proposed_content
       blockId = job.inserted_block_ids?.[0]
     } else {
-      const { targetBlockId, position, format, items } = job.placement ?? ({} as PendingJob['placement'])
+      const { targetBlockId, position, format, items, category } = job.placement ?? ({} as PendingJob['placement'])
       const nodes = buildItems(format, items)
-      const result = insertRelativeToBlock(page.content as TiptapNode, targetBlockId ?? null, position, nodes)
+      const result = insertRelativeToBlock(page.content as TiptapNode, targetBlockId ?? null, position, nodes, { category })
       if (!result.insertedBlockIds.length) return { ok: false, reason: 'anchor_missing' }
       contentToWrite = result.doc
       blockId = result.insertedBlockIds[0]

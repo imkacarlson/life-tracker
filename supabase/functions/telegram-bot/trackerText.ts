@@ -98,6 +98,12 @@ function pushHandleLine(
   if (handle) lines.push(prefix + `{{${handle}}}`)
 }
 
+// A list item's own line that is entirely bold is a category ("**Jerry Updates**").
+function isCategoryLine(paragraph: TiptapNode): boolean {
+  const runs = (paragraph.content ?? []).filter((r) => r.type === 'text' && (r.text ?? '').trim())
+  return runs.length > 0 && runs.every((r) => (r.marks ?? []).some((m) => m.type === 'bold'))
+}
+
 function serializeNode(
   node: TiptapNode,
   lines: string[],
@@ -159,7 +165,10 @@ function serializeNode(
       const children = node.content || []
       children.forEach((child, i) => {
         if (i === 0 && child.type === 'paragraph') {
-          lines.push(prefix + marker + serializeInline(child.content) + idMarker(child, opts))
+          // In the structure view, flag category lines so the model can aim
+          // into_category at them instead of guessing from the bold markup.
+          const tag = opts.handleFor && isCategoryLine(child) ? ' (category)' : ''
+          lines.push(prefix + marker + serializeInline(child.content) + tag + idMarker(child, opts))
         } else {
           serializeNode(child, lines, indent + 1, null, opts)
         }
