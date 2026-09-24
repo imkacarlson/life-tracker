@@ -1,8 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-import {
 import { anthropicEffortConfig, extractAnthropicText } from '../_shared/anthropicText.ts'
+import {
   buildDaily,
   buildTrackerContext,
   parseDateResolutions,
