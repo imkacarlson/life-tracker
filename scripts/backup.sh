@@ -7,13 +7,36 @@
 #
 # Prerequisites:
 #   - Supabase CLI linked to the project (run `npx supabase link` once)
-#   - Running in WSL with access to powershell.exe (for zip creation)
+#   - Running in WSL, or in Git Bash on Windows (Docker may live in WSL only)
 #
-# Change the path below if your OneDrive folder is somewhere else.
-BACKUP_DIR="/mnt/c/Users/imkac/OneDrive/Life Tracker Backups"
+# Override BACKUP_DIR in the environment if your OneDrive folder is somewhere else.
 MAX_BACKUPS=3
 
 set -euo pipefail
+
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  PLATFORM=wsl
+  : "${BACKUP_DIR:=/mnt/c/Users/imkac/OneDrive/Life Tracker Backups}"
+else
+  PLATFORM=windows
+  : "${BACKUP_DIR:=$(cygpath -u "${OneDrive:-C:\\Users\\imkac\\OneDrive}")/Life Tracker Backups}"
+fi
+
+# Dump the linked database to $1; extra args are passed to `supabase db dump`.
+# The CLI only prints its pg_dump script (--dry-run) and we run that in a
+# postgres container, so it works even when the CLI itself can't see Docker
+# (Windows npx from WSL, or Git Bash with Docker only inside WSL).
+dump_db() {
+  local out="$1"; shift
+  local docker=(docker)
+  [ "$PLATFORM" = windows ] && docker=(wsl.exe docker)
+  npx supabase db dump --linked --workdir "$PROJECT_ROOT" --dry-run "$@" 2>/dev/null \
+    | "${docker[@]}" run --rm -i postgres:17 bash > "$out"
+}
+
+to_win_path() {
+  if [ "$PLATFORM" = wsl ]; then wslpath -w "$1"; else cygpath -w "$1"; fi
+}
 
 # --- Resolve project root (one level up from this script) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,26 +58,34 @@ echo ""
 
 # --- 1. Database schema ---
 echo "[1/3] Dumping database schema..."
-npx supabase db dump --workdir "$PROJECT_ROOT" -f "$WORK_DIR/schema.sql"
+dump_db "$WORK_DIR/schema.sql"
 echo "      schema.sql ($(wc -c < "$WORK_DIR/schema.sql" | tr -d ' ') bytes)"
 
 # --- 2. Database data ---
 echo "[2/3] Dumping database data..."
-npx supabase db dump --data-only --workdir "$PROJECT_ROOT" -f "$WORK_DIR/data.sql"
+dump_db "$WORK_DIR/data.sql" --data-only
 echo "      data.sql ($(wc -c < "$WORK_DIR/data.sql" | tr -d ' ') bytes)"
 
 # --- 3. Storage images ---
 echo "[3/3] Downloading storage images..."
-npx supabase storage cp -r --experimental --workdir "$PROJECT_ROOT" \
-  "ss:///tracker-images" "$WORK_DIR/images" 2>&1 || true
+IMAGES_DST="$WORK_DIR/images"
+if [ "$PLATFORM" = windows ]; then
+  # The CLI parses a "C:\..." destination as a URL with scheme "c", so pass a
+  # drive-less path (resolves against the current drive) and skip MSYS mangling.
+  IMAGES_DST="$(cygpath -m "$IMAGES_DST")"
+  IMAGES_DST="${IMAGES_DST#?:}"
+fi
+MSYS_NO_PATHCONV=1 npx supabase storage cp -r --experimental --linked \
+  "ss:///tracker-images" "$IMAGES_DST" >/dev/null 2>&1 || true
 IMAGE_COUNT="$(find "$WORK_DIR/images" -type f 2>/dev/null | wc -l | tr -d ' ')"
 echo "      $IMAGE_COUNT image(s) downloaded"
+[ "$IMAGE_COUNT" -gt 0 ] || echo "      WARNING: no images downloaded — check 'supabase storage cp' manually"
 
-# --- 4. Zip it up using PowerShell (always available in WSL) ---
+# --- 4. Zip it up using PowerShell (available from both WSL and Git Bash) ---
 echo ""
 echo "Zipping backup..."
-# Convert WSL temp path to Windows path for PowerShell
-WIN_TEMP_DIR="$(wslpath -w "$TEMP_DIR")"
+# Convert temp path to a Windows path for PowerShell
+WIN_TEMP_DIR="$(to_win_path "$TEMP_DIR")"
 WIN_SRC="$WIN_TEMP_DIR\\backup_$TIMESTAMP"
 WIN_ZIP="$WIN_TEMP_DIR\\backup_$TIMESTAMP.zip"
 powershell.exe -NoProfile -Command \
