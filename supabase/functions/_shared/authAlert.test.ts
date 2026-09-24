@@ -7,7 +7,7 @@ import {
   isAutomatedClient,
 } from './authAlert.ts'
 
-// Real user agents seen in auth.sessions, plus Playwright's.
+// Typical browser user agents, plus Playwright's.
 const UA = {
   claudeApp:
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/2.7032.0 Chrome/152.0.7977.130 Safari/537.36 MSIX',
@@ -152,14 +152,14 @@ describe('buildAlertEmail', () => {
       event: session({ user_agent: '<script>x</script>' }),
       reasons: ['New network'],
       device: 'Unknown browser on unknown OS',
-      ipInfo: { city: 'Reston', region: 'Virginia', country: 'US', org: 'AS701 Verizon' },
+      ipInfo: { city: 'Springfield', region: 'Example State', country: 'US', org: 'AS64500 Example ISP' },
       timeZone: 'America/New_York',
       dashboardUrl: 'https://example.com',
     })
     expect(subject).toBe('Life Tracker: new sign-in (owner@example.com)')
     expect(html).toContain('203.0.113.5')
-    expect(html).toContain('Reston, Virginia, US')
-    expect(html).toContain('AS701 Verizon')
+    expect(html).toContain('Springfield, Example State, US')
+    expect(html).toContain('AS64500 Example ISP')
     expect(html).toContain('Sep 24, 2026')
     expect(html).toContain('&lt;script&gt;')
     expect(html).not.toContain('<script>')
