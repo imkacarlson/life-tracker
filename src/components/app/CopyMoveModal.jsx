@@ -1,4 +1,6 @@
-function CopyMoveModal({ modal, notebooks, activeNotebookId, onDestChange, onClose, onConfirm }) {
+import { getDestinationNotebooks } from '../../utils/copyMoveDestinations'
+
+function CopyMoveModal({ modal, notebooks, onDestChange, onClose, onConfirm }) {
   if (!modal.open) return null
 
   return (
@@ -19,13 +21,11 @@ function CopyMoveModal({ modal, notebooks, activeNotebookId, onDestChange, onClo
           onChange={(event) => onDestChange(event.target.value)}
         >
           <option value="">— choose notebook —</option>
-          {notebooks
-            .filter((nb) => modal.action === 'copy' || nb.id !== activeNotebookId)
-            .map((nb) => (
-              <option key={nb.id} value={nb.id}>
-                {nb.title}
-              </option>
-            ))}
+          {getDestinationNotebooks(notebooks, modal.action, modal.section).map((nb) => (
+            <option key={nb.id} value={nb.id}>
+              {nb.title}
+            </option>
+          ))}
         </select>
         <div className="ai-insert-actions">
           <button type="button" className="ghost" onClick={onClose}>
