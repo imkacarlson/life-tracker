@@ -16,7 +16,7 @@ import {
   AddRowTool, AddColTool, ShadingTool, DeleteTableTool,
 } from './tools/insertTools'
 import { UndoTool, RedoTool, ExportTool, CopyTool } from './tools/historyTools'
-import { AiDailyTool, AiInsertTool } from './tools/aiTools'
+import { AiDailyTool } from './tools/aiTools'
 import { FindTool, MoreTool } from './tools/utilityTools'
 
 // --- Registry -------------------------------------------------------------
@@ -51,7 +51,6 @@ export const TOOL_DEFINITIONS = {
   export:      { Component: ExportTool },
   copy:        { Component: CopyTool },
   aiDaily:     { Component: AiDailyTool },
-  aiInsert:    { Component: AiInsertTool },
   find:        { Component: FindTool },
   more:        { Component: MoreTool },
 }
@@ -78,6 +77,6 @@ export const EXTRA_GROUPS = [
   { id: 'extra-insert', tools: ['link', 'unlink', 'image', 'table', 'addRow', 'addCol', 'shading', 'deleteTable'] },
   { separator: true, id: 'sep-2' },
   { id: 'extra-utility', tools: ['redo', 'export', 'copy'] },
-  { id: 'extra-ai', tools: ['aiDaily', 'aiInsert'], visible: (ctx) => Boolean(ctx.showAiDaily) },
+  { id: 'extra-ai', tools: ['aiDaily'], visible: (ctx) => Boolean(ctx.showAiDaily) },
   { id: 'extra-more', tools: ['more'] },
 ]

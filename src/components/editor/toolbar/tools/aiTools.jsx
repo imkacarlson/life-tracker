@@ -9,7 +9,6 @@ import { Btn } from './ToolButton'
 export function AiDailyTool() {
   const { hasEditorTarget, onAiDailyGenerate } = useToolbarContext()
   const aiLoading = useEditorUIStore((s) => s.aiLoading)
-  const aiInsertLoading = useEditorUIStore((s) => s.aiInsertLoading)
   const aiDailyDate = useEditorUIStore((s) => s.aiDailyDate)
   const setAiDailyDate = useEditorUIStore((s) => s.setAiDailyDate)
   const [open, setOpen] = useState(false)
@@ -31,7 +30,7 @@ export function AiDailyTool() {
     if (!isNaN(parsed.getTime())) setAiDailyDate(parsed)
   }
 
-  const disabled = !hasEditorTarget || aiLoading || aiInsertLoading
+  const disabled = !hasEditorTarget || aiLoading
 
   return (
     <div className="ai-daily-control" ref={wrapRef}>
@@ -65,27 +64,5 @@ export function AiDailyTool() {
         />
       )}
     </div>
-  )
-}
-
-export function AiInsertTool() {
-  const { hasEditorTarget, showAiInsert } = useToolbarContext()
-  const aiLoading = useEditorUIStore((s) => s.aiLoading)
-  const aiInsertLoading = useEditorUIStore((s) => s.aiInsertLoading)
-  const setAiInsertOpen = useEditorUIStore((s) => s.setAiInsertOpen)
-  if (!showAiInsert) return null
-  return (
-    <Btn
-      disabled={!hasEditorTarget || aiLoading || aiInsertLoading}
-      className="toolbar-btn-ai"
-      onActivate={() => setAiInsertOpen(true)}
-      title={aiInsertLoading ? 'Inserting...' : 'AI Insert'}
-      ariaLabel="AI Insert"
-    >
-      <AiIcon />
-      <span className="toolbar-btn-label toolbar-btn-ai-label">
-        {aiInsertLoading ? '...' : '⊕'}
-      </span>
-    </Btn>
   )
 }

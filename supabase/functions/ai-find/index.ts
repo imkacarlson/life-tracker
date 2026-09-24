@@ -3,7 +3,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // AI Find: given a short natural-language query and the current page's blocks
 // ({id, text}), return the ids of blocks that semantically match. Mirrors the
-// structure/CORS/auth of ai-insert/index.ts.
+// structure/CORS/auth of generate-daily/index.ts.
 //
 // Cost control: the (larger, stable) block list goes in the SYSTEM prompt with
 // cache_control so refining the query within the 5-min TTL re-reads it at ~10%

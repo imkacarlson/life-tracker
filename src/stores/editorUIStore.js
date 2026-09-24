@@ -30,14 +30,6 @@ export const useEditorUIStore = create((set, get) => ({
   setAiSearchMode: (v) => set({ aiSearchMode: v }),
   setAiSearchLoading: (v) => set({ aiSearchLoading: v }),
 
-  // AI Insert modal
-  aiInsertOpen: false,
-  aiInsertLoading: false,
-  aiInsertText: '',
-  setAiInsertOpen: (v) => set({ aiInsertOpen: v }),
-  setAiInsertLoading: (v) => set({ aiInsertLoading: v }),
-  setAiInsertText: (v) => set({ aiInsertText: v }),
-
   // AI Daily
   aiLoading: false,
   aiDailyDate: new Date(),
@@ -102,8 +94,6 @@ export const useEditorUIStore = create((set, get) => ({
     findQuery: '',
     findStatus: { query: '', matches: [], index: -1 },
     aiSearchLoading: false,
-    aiInsertOpen: false,
-    aiInsertText: '',
     contextMenu: { open: false, x: 0, y: 0, blockId: null, inTable: false, misspelling: null },
     submenuOpen: false,
   }),

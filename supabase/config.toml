@@ -5,11 +5,6 @@ verify_jwt = false
 import_map = "./functions/generate-daily/deno.json"
 entrypoint = "./functions/generate-daily/index.ts"
 
-[functions.ai-insert]
-enabled = true
-verify_jwt = false
-entrypoint = "./functions/ai-insert/index.ts"
-
 [functions.ai-paste-recipe]
 enabled = true
 verify_jwt = false

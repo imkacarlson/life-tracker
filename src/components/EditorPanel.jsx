@@ -9,11 +9,9 @@ import { useEditorUIStore } from '../stores/editorUIStore'
 import EditorHeader from './editor/EditorHeader'
 import Toolbar from './editor/Toolbar'
 import ToolbarDock from './editor/ToolbarDock'
-import AiInsertModal from './editor/AiInsertModal'
 import EditorShell from './editor/EditorShell'
 import EditorSkeleton from './editor/EditorSkeleton'
 import { useAiDaily } from './editor/ai/useAiDaily'
-import { useAiInsert } from './editor/ai/useAiInsert'
 import EditorContextMenu from './editor/context-menu/EditorContextMenu'
 import { useEditorContextMenu } from './editor/context-menu/useEditorContextMenu'
 import { buildTableCommands } from './editor/table/tableCommands'
@@ -44,7 +42,6 @@ function EditorPanel({
   showDelete = true,
   headerActions = null,
   showAiDaily = true,
-  showAiInsert = true,
   deepLinkActive = false,
   emptyState = null,
   onAddCustomWord = null,
@@ -86,15 +83,6 @@ function EditorPanel({
     const view = getMountedEditorView(editor)
     return isTouchOnly && !view?.hasFocus() ? editor.chain() : editor.chain().focus()
   }, [editor, isTouchOnly])
-
-  const { aiInsertModalProps } = useAiInsert({
-    editor,
-    hasEditorTarget,
-    title,
-    pageId,
-    editorPanelRef,
-    toolbarRef,
-  })
 
   const { handleGenerateToday } = useAiDaily({
     editor,
@@ -201,7 +189,6 @@ function EditorPanel({
           onImageUpload={onImageUpload}
           onAiDailyGenerate={handleGenerateToday}
           showAiDaily={showAiDaily}
-          showAiInsert={showAiInsert}
           title={title}
           toolbarDeepLinkHash={toolbarDeepLinkHash}
           isCurrentDailySourcePage={isCurrentDailySourcePage}
@@ -211,10 +198,6 @@ function EditorPanel({
           contextMenuItems={contextMenuItems}
         />
       </ToolbarDock>
-
-      <AiInsertModal
-        {...aiInsertModalProps}
-      />
 
       {editorLocked && hasEditorTarget ? (
         <EditorSkeleton />

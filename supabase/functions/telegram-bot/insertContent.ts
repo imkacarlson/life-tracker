@@ -1,10 +1,9 @@
 // Pure-JSON insert helpers (no Deno / jsr imports) so they can be unit-tested
 // with Vitest. Walks plain Tiptap JSON immutably — no ProseMirror view needed.
 //
-// Mirrors src/components/editor/aiInsertHelpers.js `buildAiInsertContent`, but:
-//   - WITHOUT the yellow review-highlight mark: inserted content goes in clean.
-//   - Operates on serialized JSON (the bot has no live editor), so placement is
-//     resolved by walking the doc tree instead of resolving ProseMirror positions.
+// Operates on serialized JSON (the bot has no live editor), so placement is
+// resolved by walking the doc tree instead of resolving ProseMirror positions.
+// Inserted content goes in clean — no review-highlight mark.
 
 import { DATE_HIGHLIGHT_COLOR, splitDateTokens } from '../_shared/dateToken.ts'
 
@@ -36,8 +35,6 @@ const LIST_TYPES = new Set(['bulletList', 'orderedList', 'taskList'])
  * The token splitting itself lives in _shared/dateToken.ts because the bot's
  * "⏰ I'll text you…" confirmation runs the SAME split through the reminder
  * deriver — so the bot can't promise a reminder the cron won't send.
- * Mirrors aiInsertHelpers.js `makeHighlightedTextNode` (same mark shape,
- * different color — that one is the yellow review highlight).
  */
 export function buildInlineRuns(text: string): TiptapNode[] {
   return splitDateTokens(text).map((run) =>

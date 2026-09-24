@@ -53,8 +53,6 @@ export function useEditorContextMenu({
     currentBlockId,
     setCurrentBlockId,
     setInTable,
-    aiInsertLoading,
-    setAiInsertOpen,
   } = useEditorUIStore(
     useShallow((state) => ({
       contextMenu: state.contextMenu,
@@ -66,8 +64,6 @@ export function useEditorContextMenu({
       currentBlockId: state.currentBlockId,
       setCurrentBlockId: state.setCurrentBlockId,
       setInTable: state.setInTable,
-      aiInsertLoading: state.aiInsertLoading,
-      setAiInsertOpen: state.setAiInsertOpen,
     })),
   )
 
@@ -179,9 +175,6 @@ export function useEditorContextMenu({
 
     const handleKeyDown = (event) => {
       if (event.key !== 'Escape') return
-      if (!aiInsertLoading) {
-        setAiInsertOpen(false)
-      }
       closeContextMenu()
     }
 
@@ -191,7 +184,7 @@ export function useEditorContextMenu({
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [contextMenu.open, aiInsertLoading, closeContextMenu, setAiInsertOpen])
+  }, [contextMenu.open, closeContextMenu])
 
   const deepLinkHash = useMemo(() => {
     if (!contextMenu.blockId || !pageId || !notebookId || !sectionId) return null
