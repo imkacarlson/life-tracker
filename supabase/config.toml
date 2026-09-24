@@ -22,6 +22,13 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/send-reminders/index.ts"
 
+[functions.auth-alerts]
+enabled = true
+# verify_jwt = false is deliberate: the auth.sessions/auth.users trigger calls
+# it via pg_net and can't send a Supabase JWT. Auth is the x-cron-secret header.
+verify_jwt = false
+entrypoint = "./functions/auth-alerts/index.ts"
+
 [functions.telegram-bot]
 enabled = true
 # verify_jwt = false is deliberate: Telegram can't send a Supabase JWT.
