@@ -1,6 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { Bot, webhookCallback } from 'https://deno.land/x/grammy@v1.30.0/mod.ts'
+import { Bot, webhookCallback } from 'npm:grammy@1.30.0'
 
 import { isAuthorized } from './auth.ts'
 import { buildSystemPrompt } from './prompt.ts'
