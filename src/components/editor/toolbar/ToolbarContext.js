@@ -13,7 +13,6 @@ import { createContext, useContext } from 'react'
  *   onImageUpload:              fn   — invoked by the image tool
  *   onAiDailyGenerate:          fn   — invoked by the AI Daily tool
  *   showAiDaily:                bool — gates AI group visibility
- *   showAiInsert:               bool — gates the AI Insert button
  *   toolbarDeepLinkHash:        str  — for the More menu's copy-link
  *   isCurrentDailySourcePage:       bool — More menu label state
  *   dailySourceSaving:          bool — More menu label state

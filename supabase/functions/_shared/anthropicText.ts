@@ -1,4 +1,4 @@
-// Shared bits for the single-shot Anthropic calls (ai-insert, generate-daily,
+// Shared bits for the single-shot Anthropic calls (generate-daily,
 // ai-paste-recipe). The model is chosen client-side, so both helpers have to
 // cope with whatever model string arrives.
 

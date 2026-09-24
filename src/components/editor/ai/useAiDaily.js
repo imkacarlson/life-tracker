@@ -36,8 +36,8 @@ export function useAiDaily({
   }
 
   const handleGenerateToday = async () => {
-    const { aiLoading, aiInsertLoading, setAiLoading } = useEditorUIStore.getState()
-    if (!editor || aiLoading || aiInsertLoading) return
+    const { aiLoading, setAiLoading } = useEditorUIStore.getState()
+    if (!editor || aiLoading) return
     setAiLoading(true)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'

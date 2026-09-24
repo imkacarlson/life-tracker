@@ -745,7 +745,6 @@ function App() {
       </button>
     ),
     showAiDaily: false,
-    showAiInsert: false,
   }
   const primaryEditorProps = {
     editor,
