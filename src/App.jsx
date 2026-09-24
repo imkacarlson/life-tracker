@@ -805,7 +805,6 @@ function App() {
   const copyMoveModalProps = {
     modal: copyMoveModal,
     notebooks,
-    activeNotebookId,
     onDestChange: (destId) => setCopyMoveModal((previous) => ({ ...previous, destId })),
     onClose: closeCopyMoveModal,
     onConfirm: handleCopyMoveConfirm,
