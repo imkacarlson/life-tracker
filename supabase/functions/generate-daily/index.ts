@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 import {
+import { anthropicEffortConfig, extractAnthropicText } from '../_shared/anthropicText.ts'
   buildDaily,
   buildTrackerContext,
   parseDateResolutions,
@@ -29,11 +30,12 @@ const PROVIDERS: Record<string, {
       body: JSON.stringify({
         model,
         max_tokens: 4096,
+        ...anthropicEffortConfig(model),
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       }),
     }),
-    extractResponse: (data) => data.content?.[0]?.text ?? '',
+    extractResponse: extractAnthropicText,
   },
   openai: {
     url: 'https://api.openai.com/v1/chat/completions',

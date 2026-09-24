@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { anthropicEffortConfig, extractAnthropicText } from '../_shared/anthropicText.ts'
 
 const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || '*'
 const CORS_HEADERS = {
@@ -41,12 +42,13 @@ const PROVIDERS: Record<string, ProviderConfig> = {
         body: JSON.stringify({
           model,
           max_tokens: 4096,
+          ...anthropicEffortConfig(model),
           system: systemPrompt,
           messages: [{ role: 'user', content: images.length > 0 ? content : userMessage }],
         }),
       }
     },
-    extractResponse: (data) => data.content?.[0]?.text ?? '',
+    extractResponse: extractAnthropicText,
   },
   openai: {
     url: 'https://api.openai.com/v1/chat/completions',
