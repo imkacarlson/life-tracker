@@ -52,7 +52,9 @@ const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001'
 // /think: a deeper model with adaptive extended thinking, sticky until /new.
 // max_tokens is a hard ceiling that INCLUDES thinking tokens, so the standard
 // 2048 default would let thinking eat the whole budget and truncate the answer.
-const THINK_MODEL = 'claude-opus-5'
+// Opus 5.5: same surface as Opus 5 for this call (adaptive thinking, explicit
+// effort, append-only history, no forced tool_choice) at $4/$20 vs $5/$25.
+const THINK_MODEL = 'claude-opus-5-5'
 const THINK_EFFORT = 'medium' as const
 const THINK_MAX_TOKENS = 8192
 const THINK_USAGE =

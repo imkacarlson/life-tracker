@@ -60,7 +60,7 @@ export function useAiInsert({
     setAiInsertLoading(true)
     try {
       const provider = localStorage.getItem('ai-provider') || 'anthropic'
-      const model = localStorage.getItem('ai-model') || 'claude-sonnet-4-6'
+      const model = localStorage.getItem('ai-model') || 'claude-sonnet-5'
       const pageText = serializeDocToText(editor.getJSON())
 
       const { data: sessionData } = await supabase.auth.getSession()
