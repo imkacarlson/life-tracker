@@ -1,8 +1,12 @@
 // Score email composition and delivery (Resend).
 
 import type { GameResult, Team } from './espn.ts'
+import { OWNER_EMAIL } from '../_shared/resendEmail.ts'
 
-export const EMAIL_RECIPIENT = 'imkacarlson@gmail.com'
+// Delivery lives in _shared so auth-alerts can reuse it.
+export { sendEmail } from '../_shared/resendEmail.ts'
+
+export const EMAIL_RECIPIENT = OWNER_EMAIL
 
 // From name per sport — matches the original Power Automate flow.
 const FROM_NAMES: Record<string, string> = {
@@ -66,38 +70,4 @@ export function buildEmailHtml(team: Team, game: GameResult, aiSummary: string |
     : ''
 
   return `<b>${escapeHtml(team.display_name)} ${resultLabel} ${game.teamScore}-${game.opponentScore}</b> vs ${escapeHtml(game.opponentName)} (${location})<br>${game.gameDate}${summaryHtml}`
-}
-
-export async function sendEmail(
-  resendApiKey: string,
-  to: string,
-  subject: string,
-  html: string,
-  fromName: string,
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: `${fromName} <onboarding@resend.dev>`,
-        to: [to],
-        subject,
-        html,
-      }),
-    })
-
-    if (!resp.ok) {
-      const errBody = await resp.text()
-      console.error('Resend error:', errBody)
-      return { ok: false, error: `Resend ${resp.status}: ${errBody}` }
-    }
-
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, error: String(err) }
-  }
 }
