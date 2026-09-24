@@ -303,3 +303,154 @@ describe('insertRelativeToBlock — edge cases', () => {
     expect(out.content?.[1].attrs?.id).toBe(insertedBlockIds[0])
   })
 })
+
+// --- category layout (the user's tracker after the Sept 2026 reorg) ---
+//
+// Next steps list ("next"):
+//   - **Clubs XC**              (category, has a nested list)
+//       - Happening on 12/26
+//   - **Jerry Updates**         (category, has a nested list)
+//       - Update to Jerry 9/20
+//       - Update to Jerry 9/27
+//   - **Working with a doctor** (category, empty)
+
+const boldPara = (id: string, text: string): TiptapNode => ({
+  type: 'paragraph',
+  attrs: { id },
+  content: [{ type: 'text', text, marks: [{ type: 'bold' }] }],
+})
+
+const li = (p: TiptapNode, sub?: TiptapNode): TiptapNode => ({
+  type: 'listItem',
+  content: sub ? [p, sub] : [p],
+})
+
+const bullets = (id: string, items: TiptapNode[]): TiptapNode => ({ type: 'bulletList', attrs: { id }, content: items })
+
+function categoryDoc(): TiptapNode {
+  return {
+    type: 'doc',
+    content: [
+      bullets('next', [
+        li(boldPara('cat-clubs', 'Clubs XC'), bullets('clubs-list', [li(para('clubs-1', 'Happening on 12/26'))])),
+        li(
+          boldPara('cat-jerry', 'Jerry Updates'),
+          bullets('jerry-list', [li(para('jerry-1', 'Update to Jerry 9/20')), li(para('jerry-2', 'Update to Jerry 9/27'))]),
+        ),
+        li(boldPara('cat-doctor', 'Working with a doctor')),
+      ]),
+    ],
+  }
+}
+
+// Titles of the category list, in order.
+const categoryTitles = (doc: TiptapNode): string[] =>
+  (findById(doc, 'next')?.content ?? []).map((item) => textOf(item.content?.[0] ?? {}))
+
+// Text of the lines nested directly under a category.
+const linesUnder = (doc: TiptapNode, categoryParaId: string): string[] => {
+  const item = (findById(doc, 'next')?.content ?? []).find((i) => i.content?.[0]?.attrs?.id === categoryParaId)
+  const sub = item?.content?.find((c) => c.type === 'bulletList')
+  return (sub?.content ?? []).map((i) => textOf(i.content?.[0] ?? {}))
+}
+
+describe('insertRelativeToBlock — after_block on a list line (indentation fix)', () => {
+  it('adds a sibling at the same level instead of nesting under the line', () => {
+    const nodes = buildItems('bullet_list', ['Update to Jerry 10/4'])
+    const { doc: out, insertedBlockIds } = insertRelativeToBlock(categoryDoc(), 'jerry-2', 'after_block', nodes)
+
+    expect(linesUnder(out, 'cat-jerry')).toEqual(['Update to Jerry 9/20', 'Update to Jerry 9/27', 'Update to Jerry 10/4'])
+    // The anchored line gained no child list.
+    const jerry2 = (findById(out, 'jerry-list')?.content ?? [])[1]
+    expect(jerry2.content?.map((c) => c.type)).toEqual(['paragraph'])
+    expect(insertedBlockIds).toHaveLength(1)
+    expect(textOf(findById(out, insertedBlockIds[0]) ?? {})).toBe('Update to Jerry 10/4')
+  })
+
+  it('adds the sibling right after the anchor, not at the end of the list', () => {
+    const nodes = buildItems('bullet_list', ['middle'])
+    const { doc: out } = insertRelativeToBlock(categoryDoc(), 'jerry-1', 'after_block', nodes)
+    expect(linesUnder(out, 'cat-jerry')).toEqual(['Update to Jerry 9/20', 'middle', 'Update to Jerry 9/27'])
+  })
+
+  it('puts a plain bullet after a checkbox list (same level) rather than inside it', () => {
+    const doc: TiptapNode = {
+      type: 'doc',
+      content: [
+        {
+          type: 'taskList',
+          attrs: { id: 'tasks' },
+          content: [{ type: 'taskItem', attrs: { checked: false }, content: [para('t1', 'task one')] }],
+        },
+      ],
+    }
+    const nodes = buildItems('bullet_list', ['plain bullet'])
+    const { doc: out, insertedBlockIds } = insertRelativeToBlock(doc, 't1', 'after_block', nodes)
+
+    expect(out.content?.map((n) => n.type)).toEqual(['taskList', 'bulletList'])
+    expect(out.content?.[0].content).toHaveLength(1)
+    expect(findById(out, insertedBlockIds[0])?.type).toBe('bulletList')
+  })
+})
+
+describe('insertRelativeToBlock — into_category', () => {
+  it('appends to the bottom of the category', () => {
+    const nodes = buildItems('bullet_list', ['Update to Jerry 10/4'])
+    const { doc: out, insertedBlockIds } = insertRelativeToBlock(categoryDoc(), 'cat-jerry', 'into_category', nodes)
+
+    expect(linesUnder(out, 'cat-jerry')).toEqual(['Update to Jerry 9/20', 'Update to Jerry 9/27', 'Update to Jerry 10/4'])
+    expect(categoryTitles(out)).toEqual(['Clubs XC', 'Jerry Updates', 'Working with a doctor'])
+    expect(textOf(findById(out, insertedBlockIds[0]) ?? {})).toBe('Update to Jerry 10/4')
+  })
+
+  it('starts the list under an empty category', () => {
+    const nodes = buildItems('bullet_list', ['Book appointment'])
+    const { doc: out, insertedBlockIds } = insertRelativeToBlock(categoryDoc(), 'cat-doctor', 'into_category', nodes)
+
+    expect(linesUnder(out, 'cat-doctor')).toEqual(['Book appointment'])
+    expect(insertedBlockIds).toHaveLength(1)
+  })
+
+  it('appends when pointed at the category list itself', () => {
+    const nodes = buildItems('bullet_list', ['Flights booked'])
+    const { doc: out } = insertRelativeToBlock(categoryDoc(), 'clubs-list', 'into_category', nodes)
+    expect(linesUnder(out, 'cat-clubs')).toEqual(['Happening on 12/26', 'Flights booked'])
+  })
+})
+
+describe('insertRelativeToBlock — new_category', () => {
+  it('creates a bold category in alphabetical position with the items under it', () => {
+    const nodes = buildItems('bullet_list', ['Buy new shoes'])
+    const { doc: out, insertedBlockIds, createdCategory } = insertRelativeToBlock(
+      categoryDoc(),
+      'next',
+      'new_category',
+      nodes,
+      { category: 'Other' },
+    )
+
+    expect(createdCategory).toBe(true)
+    expect(categoryTitles(out)).toEqual(['Clubs XC', 'Jerry Updates', 'Other', 'Working with a doctor'])
+    const heading = findById(out, insertedBlockIds[0])
+    expect(textOf(heading ?? {})).toBe('Other')
+    expect(heading?.content?.[0].marks).toEqual([{ type: 'bold' }])
+    expect(textOf(findById(out, insertedBlockIds[1]) ?? {})).toBe('Buy new shoes')
+  })
+
+  it('appends to an existing category with the same name instead of duplicating it', () => {
+    const nodes = buildItems('bullet_list', ['Update to Jerry 10/4'])
+    const { doc: out, createdCategory } = insertRelativeToBlock(categoryDoc(), 'next', 'new_category', nodes, {
+      category: 'jerry updates',
+    })
+
+    expect(createdCategory).toBeUndefined()
+    expect(categoryTitles(out)).toEqual(['Clubs XC', 'Jerry Updates', 'Working with a doctor'])
+    expect(linesUnder(out, 'cat-jerry')).toHaveLength(3)
+  })
+
+  it('goes last when it sorts after every existing category', () => {
+    const nodes = buildItems('bullet_list', ['x'])
+    const { doc: out } = insertRelativeToBlock(categoryDoc(), 'next', 'new_category', nodes, { category: 'Zoo' })
+    expect(categoryTitles(out).at(-1)).toBe('Zoo')
+  })
+})

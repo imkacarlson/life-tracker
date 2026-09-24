@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { findSectionTitle } from './sectionTitle.ts'
+import { findPlacementPath, findSectionTitle } from './sectionTitle.ts'
 
 type Node = {
   type?: string
@@ -147,5 +147,47 @@ describe('findSectionTitle', () => {
     ])
     expect(findSectionTitle(tracker, 'item-1')).toBe('Rewards/Credit Cards')
     expect(findSectionTitle(tracker, 'item-2')).toBe('Friends & Family')
+  })
+})
+
+describe('findPlacementPath', () => {
+  const li = (p: Node, sub?: Node): Node => ({ type: 'listItem', content: sub ? [p, sub] : [p] })
+  const list = (id: string, items: Node[]): Node => ({ type: 'bulletList', attrs: { id }, content: items })
+
+  const tracker = doc([
+    singleColumnTable([
+      cell([
+        boldPara('running', 'Running'),
+        para('bg', 'Background: All things running'),
+        list('next', [
+          li(boldPara('cat-jerry', 'Jerry Updates'), list('jerry-list', [li(para('jerry-1', 'Update to Jerry'))])),
+          li(boldPara('cat-aws', 'AWS'), list('aws-list', [li(para('aws-1', 'Upgrade AWS Instance'))])),
+        ]),
+      ]),
+      cell([
+        boldPara('apt', 'Apartment Stuff & Chores'),
+        list('apt-list', [li(para('apt-1', 'Clean oven'))]),
+        boldPara('work', 'Work'),
+        list('work-list', [li(para('work-1', 'Double check leave balance'))]),
+      ]),
+    ]),
+  ])
+
+  it('names the category when the target is the category line', () => {
+    expect(findPlacementPath(tracker, 'cat-jerry')).toEqual({ section: 'Running', category: 'Jerry Updates' })
+  })
+
+  it('names the category for a line or list inside it', () => {
+    expect(findPlacementPath(tracker, 'jerry-1')).toEqual({ section: 'Running', category: 'Jerry Updates' })
+    expect(findPlacementPath(tracker, 'aws-list')).toEqual({ section: 'Running', category: 'AWS' })
+  })
+
+  it('has no category for the list that holds the categories', () => {
+    expect(findPlacementPath(tracker, 'next')).toEqual({ section: 'Running', category: null })
+  })
+
+  it('picks the right section when one cell holds two', () => {
+    expect(findPlacementPath(tracker, 'work-1').section).toBe('Work')
+    expect(findPlacementPath(tracker, 'apt-1').section).toBe('Apartment Stuff & Chores')
   })
 })

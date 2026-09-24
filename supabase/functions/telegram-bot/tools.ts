@@ -15,7 +15,7 @@ import {
   selectCurrentMonthTracker,
 } from './trackerText.ts'
 import { buildItems, insertRelativeToBlock } from './insertContent.ts'
-import { findSectionTitle } from './sectionTitle.ts'
+import { findPlacementPath } from './sectionTitle.ts'
 import type { Format, Placement, TiptapNode } from './insertContent.ts'
 import type { ToolDef } from './anthropic.ts'
 
@@ -39,33 +39,34 @@ export type ToolRegistry = {
 type CurrentPage = { id: string; title?: string; content?: TiptapNode | null; updated_at?: string }
 
 const VALID_FORMATS = new Set<Format>(['bullet_list', 'task_list', 'paragraphs'])
-const VALID_PLACEMENTS = new Set<Placement>(['after_block', 'append_to_list'])
+const VALID_PLACEMENTS = new Set<Placement>(['after_block', 'append_to_list', 'into_category', 'new_category'])
 
 const PLACEMENT_RULES =
-  'How to choose the anchor and placement (ported from the app\'s AI-insert rules):\n' +
+  'How to choose the anchor and placement:\n' +
   '- targetBlockId MUST be one of the {{b…}} handles from read_tracker_structure (pass it ' +
-  'bare, e.g. "b12"). Never invent a handle. ' +
-  'If no good anchor exists, omit it (the items go at the end).\n' +
-  '- Default placement = the BOTTOM of the section the item belongs to. The user writes ' +
-  'oldest-at-top / newest-at-bottom, so a new item continues at the end of its section.\n' +
-  '- placement "append_to_list": targetBlockId is a list (its {{b…}} handle sits on its own ' +
-  'line right after the bullets/tasks). This appends to the BOTTOM of that list and keeps ' +
-  'one clean list. PREFER this when the section\'s existing list is already bullets — anchor ' +
-  'on that list so the new bullet lands at the bottom of the section.\n' +
-  '- Bullet-into-a-checkbox-section case: append_to_list forces new items to match the ' +
-  'target list\'s type, so appending into a task/checkbox list always yields checkboxes. ' +
-  'If the section\'s existing list is a checkbox/task list and the user did NOT ask for a ' +
-  'checkbox, use placement "after_block" anchored on the LAST line of that list with ' +
-  'format "bullet_list", so the bullet lands at the bottom of the section as its own plain ' +
-  'bullet. This is the one spot where after_block + bullet_list beats append_to_list.\n' +
-  '- placement "after_block": targetBlockId is a heading, paragraph, table cell, or list ' +
-  'line. The new content is inserted right after it. Use this to start a new list/paragraph ' +
-  'under a category heading, or (per the case above) to add a plain bullet after the last ' +
-  'line of a checkbox list.\n' +
+  'bare, e.g. "b12"). Never invent a handle.\n' +
+  '- The tracker is a table of sections (a bold title such as **Running**, then Background, ' +
+  'Recurring things, and Next steps). Next steps is organized into bold categories, shown as ' +
+  '"- **Jerry Updates** (category) {{b12}}", in alphabetical order. Tasks live UNDER a category.\n' +
+  '- DEFAULT: placement "into_category" with targetBlockId = the category line\'s handle. The ' +
+  'items land at the BOTTOM of that category (the user writes oldest-at-top, newest-at-bottom). ' +
+  'This also works for a category with nothing under it yet.\n' +
+  '- Pick the category the item best belongs to within the right section. If none fits, use ' +
+  'that section\'s **Other** category.\n' +
+  '- If the section has no fitting category AND no Other, use placement "new_category" with ' +
+  'category "Other" and targetBlockId = the handle of the list that holds the section\'s ' +
+  'categories (the standalone {{b…}} line after that list). The code adds the bold category in ' +
+  'alphabetical order. Only create a category with any other name when the user explicitly asks ' +
+  'for a new category.\n' +
+  '- Never add a bare bullet directly between categories, and never add to "Recurring things" ' +
+  'unless the user asks for a recurring item.\n' +
+  '- "append_to_list" (target = a list\'s standalone handle line) and "after_block" (target = a ' +
+  'line; new items go right after it AT THE SAME LEVEL, never nested under it) are for sections ' +
+  'that have no categories, or when the user asks for an exact spot.\n' +
   '- format: default "bullet_list" for plain bullets, "task_list" only when the user ' +
   'explicitly asks for a checklist/to-do/checkboxes, "paragraphs" for prose. items are ' +
   'concise plain-text lines (no markdown, no handles).\n' +
-  '- Last resort: if no section fits, omit targetBlockId and the items go to the end of ' +
+  '- Last resort: if no section fits at all, omit targetBlockId and the items go to the end of ' +
   'the tracker.'
 
 /**
@@ -121,8 +122,17 @@ export function buildTools(
           },
           placement: {
             type: 'string',
-            enum: ['after_block', 'append_to_list'],
-            description: 'append_to_list to extend an existing list; after_block to insert after the anchor.',
+            enum: ['into_category', 'new_category', 'append_to_list', 'after_block'],
+            description:
+              'into_category (default) to add to the bottom of a category; new_category to create ' +
+              'a category (Other, or one the user named); append_to_list / after_block for ' +
+              'sections without categories.',
+          },
+          category: {
+            type: 'string',
+            description:
+              'Only with placement "new_category": the category title to create, e.g. "Other". ' +
+              'Use any other name only when the user explicitly asked for that new category.',
           },
           format: {
             type: 'string',
@@ -235,6 +245,9 @@ export function buildTools(
     if (!VALID_PLACEMENTS.has(placement)) return `Invalid placement "${input.placement}".`
     if (!VALID_FORMATS.has(format)) return `Invalid format "${input.format}".`
 
+    const category = typeof input.category === 'string' ? input.category.trim() : ''
+    if (placement === 'new_category' && !category) return 'new_category needs a category title.'
+
     const items = Array.isArray(input.items)
       ? input.items.map((i) => String(i ?? '').trim()).filter(Boolean)
       : []
@@ -252,11 +265,12 @@ export function buildTools(
     const targetBlockId = anchor.blockId
 
     const nodes = buildItems(format, items)
-    const { doc, insertedBlockIds } = insertRelativeToBlock(
+    const { doc, insertedBlockIds, createdCategory } = insertRelativeToBlock(
       page.content as TiptapNode,
       targetBlockId,
       placement,
       nodes,
+      { category },
     )
     if (!insertedBlockIds.length) {
       return (
@@ -276,7 +290,7 @@ export function buildTools(
         base_updated_at: page.updated_at,
         proposed_content: doc,
         inserted_block_ids: insertedBlockIds,
-        placement: { targetBlockId, position: placement, format, items },
+        placement: { targetBlockId, position: placement, format, items, ...(category ? { category } : {}) },
       })
       .select('id')
       .single()
@@ -285,13 +299,15 @@ export function buildTools(
       return 'Could not stage the proposal. Please try again.'
     }
 
-    // Name the target section in the caption so the user knows where it lands
-    // even though the cropped screenshot may not show the category title.
-    const section = targetBlockId
-      ? findSectionTitle(page.content as TiptapNode, targetBlockId)
-      : null
-    const caption = section
-      ? `📍 Adding to **${section}**`
+    // Name the section AND category in the caption, since the cropped
+    // screenshot often hides both titles.
+    const path = targetBlockId
+      ? findPlacementPath(page.content as TiptapNode, targetBlockId)
+      : { section: null, category: null }
+    const categoryLabel = placement === 'new_category' ? category : path.category
+    const where = [path.section, categoryLabel].filter(Boolean).join(' → ')
+    const caption = where
+      ? `📍 Adding to **${where}**${createdCategory ? ' (new category)' : ''}`
       : '📍 Adding to the end of your tracker'
 
     try {
