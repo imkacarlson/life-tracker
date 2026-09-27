@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-import { anthropicEffortConfig, extractAnthropicText } from '../_shared/anthropicText.ts'
+import { anthropicOutputConfig, extractAnthropicText } from '../_shared/anthropicText.ts'
 import {
   buildDaily,
   buildTrackerContext,
@@ -29,8 +29,7 @@ const PROVIDERS: Record<string, {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 4096,
-        ...anthropicEffortConfig(model),
+        ...anthropicOutputConfig(model),
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       }),
