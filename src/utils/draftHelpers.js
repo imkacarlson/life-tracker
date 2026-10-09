@@ -34,3 +34,29 @@ export const detectConflict = (pageId, serverRow, draft) => {
   }
   return null
 }
+
+/**
+ * Decide whether a rejected save (the version check matched zero rows) is a
+ * real conflict.
+ *
+ * Unlike detectConflict, timestamps don't matter here. The save was rejected
+ * because another device wrote the page after we loaded it, and our local edit
+ * is always "newer" by the clock — comparing times would wave the conflict
+ * through and let the next save overwrite the other device's work. The only
+ * safe "no conflict" answer is when the server already holds exactly what we
+ * were trying to save.
+ */
+export const detectSaveConflict = (pageId, serverRow, local) => {
+  if (!pageId || !serverRow || !local?.content) return null
+  const sameTitle = (serverRow.title ?? null) === (local.title ?? null)
+  if (sameTitle && draftMatchesServerContent(serverRow, local)) return null
+  return {
+    pageId,
+    draftTs: local.ts,
+    serverUpdatedAt: serverRow.updated_at,
+    draftContent: local.content,
+    draftTitle: local.title,
+    serverContent: serverRow.content,
+    serverTitle: serverRow.title,
+  }
+}

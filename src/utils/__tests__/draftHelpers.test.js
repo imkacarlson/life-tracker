@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { detectConflict, draftMatchesServerContent } from '../draftHelpers'
+import { detectConflict, detectSaveConflict, draftMatchesServerContent } from '../draftHelpers'
 
 describe('draftMatchesServerContent', () => {
   const content = { type: 'doc', content: [{ type: 'paragraph' }] }
@@ -135,5 +135,44 @@ describe('detectConflict', () => {
     const server = serverRow('2026-03-25T12:00:00.000Z')
     const d = { ts: new Date('2026-03-25T11:00:00.000Z').getTime(), title: 'Draft' }
     expect(detectConflict('page-1', server, d)).toBeNull()
+  })
+})
+
+describe('detectSaveConflict', () => {
+  const doc = (text) => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+  })
+
+  it('flags a conflict even when the local edit is newer than the server write', () => {
+    // The real-world case: laptop saved at 12:00, then the phone (still holding
+    // the pre-laptop copy) typed at 12:05. The phone's edit is newer by the
+    // clock, but saving it would erase the laptop's work.
+    const server = { updated_at: '2026-03-25T12:00:00.000Z', content: doc('laptop'), title: 'T' }
+    const local = { ts: Date.parse('2026-03-25T12:05:00.000Z'), content: doc('phone'), title: 'T' }
+    const result = detectSaveConflict('page-1', server, local)
+    expect(result).toMatchObject({
+      pageId: 'page-1',
+      serverContent: doc('laptop'),
+      draftContent: doc('phone'),
+      serverUpdatedAt: '2026-03-25T12:00:00.000Z',
+    })
+  })
+
+  it('returns null when the server already holds exactly what we tried to save', () => {
+    const server = { updated_at: '2026-03-25T12:00:00.000Z', content: doc('same'), title: 'T' }
+    const local = { ts: Date.parse('2026-03-25T12:05:00.000Z'), content: doc('same'), title: 'T' }
+    expect(detectSaveConflict('page-1', server, local)).toBeNull()
+  })
+
+  it('flags a conflict when only the title differs', () => {
+    const server = { updated_at: '2026-03-25T12:00:00.000Z', content: doc('same'), title: 'Renamed' }
+    const local = { ts: Date.now(), content: doc('same'), title: 'Old' }
+    expect(detectSaveConflict('page-1', server, local)).not.toBeNull()
+  })
+
+  it('returns null without a server row or local content', () => {
+    expect(detectSaveConflict('page-1', null, { content: doc('x') })).toBeNull()
+    expect(detectSaveConflict('page-1', { content: doc('x') }, { title: 'T' })).toBeNull()
   })
 })

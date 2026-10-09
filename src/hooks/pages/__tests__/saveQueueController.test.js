@@ -194,6 +194,118 @@ describe('save queue concurrency and failures', () => {
   })
 })
 
+describe('save-time conflict when the other device wrote earlier by the clock', () => {
+  // Regression: the phone held a stale copy, the laptop saved, then the phone
+  // typed. The phone's edit is newer than the laptop's write, which used to make
+  // the conflict check wave it through and silently overwrite the laptop.
+  it('surfaces the conflict instead of reporting the rejected save as saved', async () => {
+    vi.useFakeTimers()
+    const phoneEdit = payload('Page', 'phone typing', '2026-08-09T12:05:00.000Z')
+    const laptopRow = {
+      title: 'Page',
+      content: payload('Page', 'laptop work').content,
+      updated_at: '2026-08-09T12:00:00.000Z',
+    }
+    const persistPage = vi.fn(async () => ({ data: null, error: null }))
+    const { controller, onConflict, onSaved, onStatusChange, clearDraft } = makeController({
+      persistPage,
+      fetchServerPage: vi.fn(async () => laptopRow),
+    })
+
+    schedule(controller, 'page-a', phoneEdit)
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(onConflict).toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: 'page-a', serverContent: laptopRow.content }),
+    )
+    expect(onSaved).not.toHaveBeenCalled()
+    expect(clearDraft).not.toHaveBeenCalled()
+    expect(onStatusChange).toHaveBeenLastCalledWith('page-a', 'Conflict')
+    expect(persistPage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('beacon acknowledgement', () => {
+  const deferred = () => {
+    let resolve
+    const promise = new Promise((r) => {
+      resolve = r
+    })
+    return { promise, resolve }
+  }
+
+  it('drops the backstop draft once the beacon is confirmed delivered', async () => {
+    vi.useFakeTimers()
+    const ack = deferred()
+    const { controller, clearDraft, onDraftCleared } = makeController({
+      persistPageBeacon: vi.fn(() => ack.promise),
+    })
+    schedule(controller, 'page-a', payload('Beacon', 'body'))
+    controller.flushAll()
+
+    // Until we hear back, the device still counts as having local changes.
+    expect(controller.hasLocalChanges('page-a')).toBe(true)
+
+    ack.resolve('delivered')
+    await controller.settleBeacon('page-a')
+
+    expect(clearDraft).toHaveBeenCalledWith('page-a')
+    expect(onDraftCleared).toHaveBeenCalledWith('page-a')
+    expect(controller.hasLocalChanges('page-a')).toBe(false)
+  })
+
+  it('rewinds the version and surfaces a conflict when the beacon was rejected', async () => {
+    vi.useFakeTimers()
+    const ack = deferred()
+    const beaconPayload = payload('Beacon', 'phone', '2026-08-09T12:34:56.000Z')
+    const serverRow = {
+      title: 'Beacon',
+      content: payload('Beacon', 'laptop').content,
+      updated_at: '2026-08-09T12:30:00.000Z',
+    }
+    const persistPage = vi.fn(async () => ({ data: null, error: null }))
+    const { controller, knownTimestamps, onConflict } = makeController({
+      persistPage,
+      persistPageBeacon: vi.fn(() => ack.promise),
+      fetchServerPage: vi.fn(async () => serverRow),
+    })
+    schedule(controller, 'page-a', beaconPayload)
+    controller.flushAll()
+    expect(knownTimestamps['page-a']).toBe('2026-08-09T12:34:56.000Z')
+
+    ack.resolve('rejected')
+    await controller.settleBeacon('page-a')
+    await vi.runAllTimersAsync()
+
+    // Re-saved against the version we really had, which surfaces the conflict.
+    expect(persistPage).toHaveBeenCalledWith('page-a', beaconPayload, 'server-old-a')
+    expect(onConflict).toHaveBeenCalledWith(expect.objectContaining({ pageId: 'page-a' }))
+  })
+
+  it('retries through the normal path when the beacon failed', async () => {
+    vi.useFakeTimers()
+    const ack = deferred()
+    const beaconPayload = payload('Beacon', 'body', '2026-08-09T12:34:56.000Z')
+    const { controller, persistPage, knownTimestamps } = makeController({
+      persistPageBeacon: vi.fn(() => ack.promise),
+    })
+    schedule(controller, 'page-a', beaconPayload)
+    controller.flushAll()
+
+    ack.resolve('failed')
+    await controller.settleBeacon('page-a')
+    await vi.runAllTimersAsync()
+
+    expect(persistPage).toHaveBeenCalledWith('page-a', beaconPayload, 'server-old-a')
+    expect(knownTimestamps['page-a']).toBe('server-old-a-next')
+  })
+
+  it('settleBeacon resolves immediately when no beacon is outstanding', async () => {
+    const { controller } = makeController()
+    await expect(controller.settleBeacon('page-a')).resolves.toBeUndefined()
+  })
+})
+
 describe('flushAll keepalive beacon', () => {
   it('sends the pending save through the beacon instead of the normal path', async () => {
     vi.useFakeTimers()

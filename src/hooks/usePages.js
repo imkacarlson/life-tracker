@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { readPageDraft, clearPageDraft } from '../utils/localDrafts'
 import { detectConflict } from '../utils/draftHelpers'
 import { runSupabaseQueryWithRetry } from '../utils/supabaseRetry'
+import { withTimeout } from '../utils/promiseTimeout'
 import { getSectionPages } from '../utils/sectionPages'
 import { toClientPage } from '../utils/pageModel'
 import { useSectionPageCache } from './useSectionPageCache'
@@ -11,6 +12,11 @@ import { usePageRealtime } from './sync/usePageRealtime'
 import { usePageCrud } from './pages/usePageCrud'
 import { useSaveQueue } from './pages/useSaveQueue'
 import { useNavigationSelectionStore } from '../stores/navigationSelectionStore'
+
+// How long the editor stays locked on resume while we check for edits made on
+// another device. Normally the check takes a fraction of a second; on a bad
+// connection we unlock anyway and let the save-time conflict check catch it.
+const RESUME_SYNC_TIMEOUT_MS = 4000
 
 export const usePages = (userId, getPostDeleteTarget = null) => {
   const [pages, setPages] = useState([])
@@ -27,6 +33,10 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
   const [activeDraft, setActiveDraft] = useState(null)
   // Bumped on resume to force the realtime channel to tear down + resubscribe.
   const [reconnectKey, setReconnectKey] = useState(0)
+  // True while the resume check runs; the editor is read-only meanwhile so you
+  // can't type into a stale copy of the page.
+  const [resumeSyncing, setResumeSyncing] = useState(false)
+  const resumeSyncIdRef = useRef(0)
 
   const titleDraftRef = useRef(titleDraft)
   const activePageRef = useRef(null)
@@ -49,6 +59,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     setPageContent,
     getKnownUpdatedAt,
     setKnownUpdatedAt,
+    hasSeenVersion,
   } = usePageContentCache(userId)
   const pageContentCacheRef = useRef(pageContentCache)
 
@@ -64,6 +75,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     handleTitleChange,
     getHasPendingForPage,
     hasLocalChanges,
+    settleBeacon,
     flushAllPendingSaves,
     flushSaveForPage,
     clearPendingTitle,
@@ -88,15 +100,31 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     setTitleDraft,
   })
 
+  // Keep the active page id in a ref so the stable resume handler can read it
+  // without being recreated on every page switch.
+  const activePageIdRef = useRef(activePageId)
+  useEffect(() => {
+    activePageIdRef.current = activePageId
+  }, [activePageId])
+
+  // App.jsx registers a function that puts another device's content into the
+  // open editor (see useApplyRemoteContent). Updating the cache alone would
+  // leave the old text on screen for the next keystroke to save back.
+  const remoteContentApplierRef = useRef(null)
+  const registerRemoteContentApplier = useCallback((fn) => {
+    remoteContentApplierRef.current = typeof fn === 'function' ? fn : null
+  }, [])
+
   // Realtime: when another device writes the active page, react accordingly.
-  const handleRemotePageChange = useCallback(
-    (payload) => {
+  const applyRemotePageChange = useCallback(
+    async (payload) => {
       const row = payload?.new
       if (!row?.id) return
       const pageId = row.id
       const incomingTs = row.updated_at
-      // Ignore echoes of our own write (we already advanced the token to this value).
-      if (incomingTs && getKnownUpdatedAt(pageId) === incomingTs) return
+      // Ignore versions this device already held: echoes of our own saves,
+      // including late ones that arrive after a newer save has gone through.
+      if (incomingTs && hasSeenVersion(pageId, incomingTs)) return
 
       const isDirty = hasLocalChanges(pageId)
 
@@ -107,8 +135,13 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
         return
       }
 
-      // Clean editor: swap server content in and advance the token in one step.
+      // Clean editor: show the server content, then advance the token. Order
+      // matters — the token only moves once the editor really holds the new
+      // content, so if you type in the gap the save still hits the conflict check.
       if (row.content !== undefined) {
+        const applier = remoteContentApplierRef.current
+        const applied = applier ? await applier(pageId, row.content) : true
+        if (!applied || hasLocalChanges(pageId)) return
         setPageContent(pageId, row.content, incomingTs)
       } else if (incomingTs) {
         setKnownUpdatedAt(pageId, incomingTs)
@@ -117,18 +150,29 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
         setPages((prev) =>
           prev.map((item) => (item.id === pageId ? { ...item, title: row.title, updated_at: incomingTs } : item)),
         )
+        // The title box shows titleDraft, not the page list.
+        if (pageId === activePageIdRef.current) {
+          setTitleDraft(row.title)
+          titleDraftRef.current = row.title
+        }
       }
     },
-    [getKnownUpdatedAt, hasLocalChanges, setKnownUpdatedAt, setPageContent],
+    [hasSeenVersion, hasLocalChanges, setKnownUpdatedAt, setPageContent],
+  )
+  // Applying a remote version is async (image URLs get signed first), so run
+  // them one at a time; otherwise two quick updates could trip over each other.
+  const remoteChangeQueueRef = useRef(Promise.resolve())
+  const handleRemotePageChange = useCallback(
+    (payload) => {
+      const next = remoteChangeQueueRef.current
+        .then(() => applyRemotePageChange(payload))
+        .catch((error) => console.warn('Applying remote page change failed', error))
+      remoteChangeQueueRef.current = next
+      return next
+    },
+    [applyRemotePageChange],
   )
   usePageRealtime(activePageId, handleRemotePageChange, reconnectKey)
-
-  // Keep the active page id in a ref so the stable resume handler can read it
-  // without being recreated on every page switch.
-  const activePageIdRef = useRef(activePageId)
-  useEffect(() => {
-    activePageIdRef.current = activePageId
-  }, [activePageId])
 
   // Called when the app returns to the foreground (see useResumeRefresh). The
   // realtime socket may have died while backgrounded, so resubscribe; then pull
@@ -136,16 +180,33 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
   // conflict-aware path as realtime — catching edits made on another device
   // without clobbering unsaved local changes (handleRemotePageChange bails when
   // the editor is dirty).
+  //
+  // The editor is locked (resumeSyncing) until this finishes, so you see the
+  // other device's edits before you can type over a stale copy.
   const handleResume = useCallback(async () => {
     setReconnectKey((key) => key + 1)
     const pageId = activePageIdRef.current
     if (!pageId) return
-    const { data, error } = await runSupabaseQueryWithRetry(() =>
-      supabase.from('pages').select('id, content, updated_at, title').eq('id', pageId).single(),
-    )
-    if (error || !data) return
-    handleRemotePageChange({ new: data })
-  }, [handleRemotePageChange])
+
+    const syncId = ++resumeSyncIdRef.current
+    setResumeSyncing(true)
+
+    const sync = async () => {
+      // If we were backgrounded right after typing, the last save went out as a
+      // beacon. Wait for its answer first: until it's settled this device looks
+      // like it has unsaved work and would refuse the remote content.
+      await settleBeacon(pageId)
+      const { data, error } = await runSupabaseQueryWithRetry(() =>
+        supabase.from('pages').select('id, content, updated_at, title').eq('id', pageId).single(),
+      )
+      if (error || !data) return
+      await handleRemotePageChange({ new: data })
+    }
+
+    await withTimeout(sync(), RESUME_SYNC_TIMEOUT_MS, () => undefined)
+    // A newer resume owns the lock now; let it clear it.
+    if (resumeSyncIdRef.current === syncId) setResumeSyncing(false)
+  }, [handleRemotePageChange, settleBeacon])
 
   const cachedActiveSectionPages = useMemo(
     () => getSectionPages(sectionPageCache, activeSectionId),
@@ -379,7 +440,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     activePage,
     titleDraft,
     setTitleDraft,
-    saveStatus,
+    saveStatus: resumeSyncing ? 'Syncing...' : saveStatus,
     setSaveStatus,
     hasPendingSaves,
     dataLoading,
@@ -403,5 +464,7 @@ export const usePages = (userId, getPostDeleteTarget = null) => {
     flushAllPendingSaves,
     flushSaveForPage,
     handleResume,
+    resumeSyncing,
+    registerRemoteContentApplier,
   }
 }

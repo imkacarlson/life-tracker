@@ -10,6 +10,8 @@ export const PAGE_CONTENT_STATUS = {
 }
 
 const MAX_CACHE_ENTRIES = 30
+// How many past version tokens to remember per page for hasSeenVersion.
+const MAX_SEEN_VERSIONS = 50
 
 /**
  * Per-page content cache using the Notesnook lazy-fetch-on-activation pattern.
@@ -25,6 +27,8 @@ const MAX_CACHE_ENTRIES = 30
  *   invalidatePage(id)       — resets to IDLE (for conflict resolution)
  *   getKnownUpdatedAt(id)    — current OCC version token from server
  *   setKnownUpdatedAt(id, ts)— record the latest server timestamp we've observed
+ *   hasSeenVersion(id, ts)   — true if this device already held that version
+ *                              (our own saves, loads, adopted remote versions)
  */
 export function usePageContentCache(userId) {
   const [pageContentCache, setPageContentCache] = useState({})
@@ -36,6 +40,10 @@ export function usePageContentCache(userId) {
   // OCC version tokens: { [pageId]: '2026-05-10T12:34:56.789Z' }
   // Populated from each successful load and each successful save.
   const knownUpdatedAtRef = useRef({})
+  // Every version token this device has held per page: { [pageId]: string[] }.
+  // Lets realtime ignore late echoes of our own earlier saves, which would
+  // otherwise look like a remote edit and roll the editor back.
+  const seenVersionsRef = useRef({})
 
   useEffect(() => {
     cacheRef.current = pageContentCache
@@ -47,8 +55,18 @@ export function usePageContentCache(userId) {
     inFlightRef.current = {}
     lruOrderRef.current = []
     knownUpdatedAtRef.current = {}
+    seenVersionsRef.current = {}
     setPageContentCache({})
   }, [userId])
+
+  // Single place that moves the OCC token, so every version we hold is remembered.
+  const rememberVersion = useCallback((pageId, updatedAt) => {
+    knownUpdatedAtRef.current[pageId] = updatedAt
+    const seen = seenVersionsRef.current[pageId] ?? []
+    if (!seen.includes(updatedAt)) {
+      seenVersionsRef.current[pageId] = [...seen, updatedAt].slice(-MAX_SEEN_VERSIONS)
+    }
+  }, [])
 
   const recordAccess = useCallback((pageId) => {
     const order = lruOrderRef.current.filter((id) => id !== pageId)
@@ -107,7 +125,7 @@ export function usePageContentCache(userId) {
 
         const content = data?.content ?? null
         if (data?.updated_at) {
-          knownUpdatedAtRef.current[pageId] = data.updated_at
+          rememberVersion(pageId, data.updated_at)
         }
         recordAccess(pageId)
         setPageContentCache((prev) =>
@@ -133,14 +151,14 @@ export function usePageContentCache(userId) {
         }
       }
     },
-    [userId, recordAccess, applyEviction],
+    [userId, recordAccess, applyEviction, rememberVersion],
   )
 
   const setPageContent = useCallback(
     (pageId, content, updatedAt) => {
       if (!pageId) return
       if (updatedAt) {
-        knownUpdatedAtRef.current[pageId] = updatedAt
+        rememberVersion(pageId, updatedAt)
       }
       recordAccess(pageId)
       setPageContentCache((prev) =>
@@ -155,13 +173,14 @@ export function usePageContentCache(userId) {
         }),
       )
     },
-    [recordAccess, applyEviction],
+    [recordAccess, applyEviction, rememberVersion],
   )
 
   const invalidatePage = useCallback((pageId) => {
     if (!pageId) return
     delete inFlightRef.current[pageId]
     delete knownUpdatedAtRef.current[pageId]
+    delete seenVersionsRef.current[pageId]
     lruOrderRef.current = lruOrderRef.current.filter((id) => id !== pageId)
     setPageContentCache((prev) => {
       const next = { ...prev }
@@ -175,9 +194,17 @@ export function usePageContentCache(userId) {
     return knownUpdatedAtRef.current[pageId] ?? null
   }, [])
 
-  const setKnownUpdatedAt = useCallback((pageId, updatedAt) => {
-    if (!pageId || !updatedAt) return
-    knownUpdatedAtRef.current[pageId] = updatedAt
+  const setKnownUpdatedAt = useCallback(
+    (pageId, updatedAt) => {
+      if (!pageId || !updatedAt) return
+      rememberVersion(pageId, updatedAt)
+    },
+    [rememberVersion],
+  )
+
+  const hasSeenVersion = useCallback((pageId, updatedAt) => {
+    if (!pageId || !updatedAt) return false
+    return (seenVersionsRef.current[pageId] ?? []).includes(updatedAt)
   }, [])
 
   return {
@@ -187,5 +214,6 @@ export function usePageContentCache(userId) {
     invalidatePage,
     getKnownUpdatedAt,
     setKnownUpdatedAt,
+    hasSeenVersion,
   }
 }

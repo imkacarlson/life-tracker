@@ -25,17 +25,21 @@ const persistPage = (pageId, payload, knownTs) =>
 const KEEPALIVE_MAX_BYTES = 50_000
 
 /**
- * Fire-and-forget save that outlives the page. Unlike persistPage this must be
- * callable synchronously from an unload handler, so it targets PostgREST
- * directly rather than going through supabase-js (whose .update() awaits the
- * session before it ever hits the network).
+ * Save that outlives the page. Unlike persistPage this must be callable
+ * synchronously from an unload handler, so it targets PostgREST directly rather
+ * than going through supabase-js (whose .update() awaits the session before it
+ * ever hits the network).
  *
  * Keeps persistPage's optimistic-concurrency filter: a stale knownTs matches
- * zero rows exactly as `.eq('updated_at', knownTs)` does today, and the existing
- * classifySaveResult conflict path still owns that case on the next load.
+ * zero rows exactly as `.eq('updated_at', knownTs)` does.
  *
  * Returns false when the save could not be dispatched this way, so the caller
- * falls back to the normal path.
+ * falls back to the normal path. Otherwise returns a promise that settles to:
+ *   'delivered' -> the row was updated
+ *   'rejected'  -> zero rows matched (another device wrote first)
+ *   'failed'    -> the request errored
+ * If the tab is killed the promise simply never settles; the localStorage
+ * draft is the backstop for that case.
  */
 const persistPageBeacon = (pageId, payload, knownTs) => {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !knownTs) return false
@@ -47,27 +51,32 @@ const persistPageBeacon = (pageId, payload, knownTs) => {
   const body = JSON.stringify(payload)
   if (new Blob([body]).size > KEEPALIVE_MAX_BYTES) return false
 
+  // select=id asks PostgREST to echo back the updated rows, so an empty list
+  // tells us the version check rejected the write.
   const url =
     `${SUPABASE_URL}/rest/v1/pages` +
     `?id=eq.${encodeURIComponent(pageId)}` +
-    `&updated_at=eq.${encodeURIComponent(knownTs)}`
+    `&updated_at=eq.${encodeURIComponent(knownTs)}` +
+    `&select=id`
 
   try {
-    void fetch(url, {
+    return fetch(url, {
       method: 'PATCH',
       keepalive: true,
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${token}`,
-        Prefer: 'return=minimal',
+        Prefer: 'return=representation',
       },
       body,
-    }).catch(() => {
-      // The tab is going away; there is no one left to report to. The
-      // localStorage draft written before this call is the backstop.
     })
-    return true
+      .then(async (response) => {
+        if (!response.ok) return 'failed'
+        const rows = await response.json()
+        return Array.isArray(rows) && rows.length > 0 ? 'delivered' : 'rejected'
+      })
+      .catch(() => 'failed')
   } catch {
     return false
   }
@@ -281,6 +290,7 @@ export function useSaveQueue({
     handleTitleChange,
     getHasPendingForPage: controller.hasPendingForPage,
     hasLocalChanges: controller.hasLocalChanges,
+    settleBeacon: controller.settleBeacon,
     flushAllPendingSaves: controller.flushAll,
     flushSaveForPage: controller.flush,
     clearPendingTitle,

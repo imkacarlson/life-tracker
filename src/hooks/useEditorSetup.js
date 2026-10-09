@@ -62,6 +62,7 @@ export const useEditorSetup = ({
   uploadImageRef,
   deepLinkFocusGuard,
   deepLinkFocusGuardRef,
+  resumeSyncing = false,
 }) => {
   const suppressFocusRef = useRef(false)
   const isLoading = editorSession.status !== 'ready'
@@ -181,6 +182,7 @@ export const useEditorSetup = ({
     touchNavigationGuard,
     pendingEditTapRef,
     suppressFocusRef,
+    resumeSyncing,
   })
 
   // Autosave: read latest session via ref so we don't re-subscribe on autosaves.

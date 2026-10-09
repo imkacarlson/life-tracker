@@ -12,6 +12,7 @@ import { useEditorSetup } from './hooks/useEditorSetup'
 import { useCustomDictionary } from './hooks/useCustomDictionary'
 import { useEditorSession } from './hooks/useEditorSession'
 import { useResumeRefresh } from './hooks/useResumeRefresh'
+import { useApplyRemoteContent } from './hooks/sync/useApplyRemoteContent'
 import { useSaveLifecycle } from './components/app/hooks/useSaveLifecycle'
 import { useSidebarLayout } from './components/app/hooks/useSidebarLayout'
 import { clearNavHierarchyCache } from './utils/resolveNavHierarchy'
@@ -195,6 +196,8 @@ function App() {
     flushAllPendingSaves,
     flushSaveForPage,
     handleResume,
+    resumeSyncing,
+    registerRemoteContentApplier,
   } = usePages(userId, getPostDeletePageTarget)
 
   const { session: editorSession, sessionKey, bumpSessionNonce } = useEditorSession({
@@ -428,6 +431,15 @@ function App() {
     uploadImageRef,
     deepLinkFocusGuard,
     deepLinkFocusGuardRef,
+    resumeSyncing,
+  })
+
+  // Lets edits from another device replace what's on screen (see usePages).
+  useApplyRemoteContent({
+    editor,
+    editorSession,
+    hydrate: hydrateContentWithSignedUrls,
+    register: registerRemoteContentApplier,
   })
 
   const finalUploadImageAndInsert = useImageUpload(session, editor, setMessage)
@@ -751,6 +763,8 @@ function App() {
     editorLocked: editorSession.status !== 'ready' || editorTransitioning,
     title: titleDraft,
     onTitleChange: (value) => handleTitleChange(value, editor),
+    // Read-only while the resume check pulls in edits from other devices.
+    titleReadOnly: resumeSyncing,
     onDelete: deletePage,
     saveStatus,
     onImageUpload: finalUploadImageAndInsert,
