@@ -1,4 +1,4 @@
-import { detectConflict } from '../../utils/draftHelpers'
+import { detectSaveConflict } from '../../utils/draftHelpers'
 import { clearPageDraft, writePageDraft } from '../../utils/localDrafts'
 import { classifySaveResult } from '../../utils/saveConflict'
 
@@ -13,8 +13,10 @@ const defaultDraftStorage = {
 
 export function createSaveQueueController({
   persistPage,
-  // Optional: a synchronous, fire-and-forget variant of persistPage used only by
-  // flushAll(). Returns false when it declines the payload (see useSaveQueue).
+  // Optional: a synchronous variant of persistPage used only by flushAll().
+  // Returns false when it declines the payload; otherwise it has dispatched the
+  // save and may return a promise of 'delivered' | 'rejected' | 'failed' that
+  // settles if the tab lives long enough to hear back (see useSaveQueue).
   persistPageBeacon = null,
   fetchServerPage,
   getKnownUpdatedAt,
@@ -33,6 +35,8 @@ export function createSaveQueueController({
   let queuedPayloads = {}
   let draftWriteTimers = {}
   let latestDraftKeys = {}
+  // pageId -> promise that settles once we know what happened to a beacon save.
+  let beaconAcks = {}
 
   const clearScheduled = (timers, pageId) => {
     if (!timers[pageId]) return
@@ -102,7 +106,7 @@ export function createSaveQueueController({
     if (outcome.kind === 'conflict') {
       const serverRow = await fetchServerPage(pageId)
       const conflict = serverRow
-        ? detectConflict(pageId, serverRow, {
+        ? detectSaveConflict(pageId, serverRow, {
             ts: Date.parse(payload.updated_at) || Date.now(),
             content: payload.content,
             title: payload.title,
@@ -174,6 +178,9 @@ export function createSaveQueueController({
    * detectConflict() silently drops a draft whose content already matches the
    * server, so a beacon that succeeded costs nothing.
    *
+   * When the tab survives (the usual case for a phone app that was only swiped
+   * away), the beacon's answer arrives later and handleBeaconAck() settles it.
+   *
    * Returns false when the save was not dispatched and the caller should fall
    * back to flush().
    */
@@ -184,17 +191,63 @@ export function createSaveQueueController({
 
     const { payload } = queued
     const knownTs = getKnownUpdatedAt(pageId)
-    if (!persistPageBeacon(pageId, payload, knownTs)) return false
+    const dispatched = persistPageBeacon(pageId, payload, knownTs)
+    if (!dispatched) return false
 
     queuedPayloads[pageId] = null
     clearScheduled(retryTimers, pageId)
     if (payload.updated_at) setKnownUpdatedAt(pageId, payload.updated_at)
     onSaved({ pageId, payload, outcome: { kind: 'saved', nextKnownTs: payload.updated_at } })
     onStatusChange(pageId, 'Saved')
-    // Deliberately not maybeClearDraft(): the draft is what makes an undelivered
-    // beacon recoverable.
+    // Deliberately not maybeClearDraft() yet: the draft is what makes an
+    // undelivered beacon recoverable. handleBeaconAck clears it once we know.
+    if (typeof dispatched?.then === 'function') {
+      const ack = dispatched
+        .then((result) => handleBeaconAck(pageId, queued, knownTs, result))
+        .catch(() => handleBeaconAck(pageId, queued, knownTs, 'failed'))
+        .finally(() => {
+          if (beaconAcks[pageId] === ack) delete beaconAcks[pageId]
+        })
+      beaconAcks[pageId] = ack
+    }
     return true
   }
+
+  /**
+   * Settle a beacon save once its response comes back.
+   *
+   *   delivered -> the server has it; drop the backstop draft so this device
+   *                counts as clean and can take in edits from other devices.
+   *   rejected  -> another device wrote first (version check matched nothing).
+   *   failed    -> the request never landed.
+   *
+   * For the last two, undo the optimistic version bump and put the payload back
+   * in the queue: a rejected save then surfaces as a conflict, a failed one
+   * retries like any other failed save.
+   */
+  const handleBeaconAck = (pageId, queued, previousTs, result) => {
+    const { payload, payloadKey } = queued
+    if (result === 'delivered') {
+      maybeClearDraft(pageId, payloadKey)
+      return
+    }
+    if (result !== 'rejected' && result !== 'failed') return
+    // Only rewind if nothing has saved since; a newer save already moved on.
+    if (getKnownUpdatedAt(pageId) === payload.updated_at) {
+      setKnownUpdatedAt(pageId, previousTs)
+    }
+    if (!queuedPayloads[pageId] && !inFlight[pageId]) {
+      queuedPayloads[pageId] = queued
+    }
+    void flush(pageId)
+  }
+
+  /**
+   * Resolve once any outstanding beacon for this page has been settled (or
+   * immediately when there is none). The resume path waits on this so it knows
+   * whether this device still has unsaved work before pulling in remote edits.
+   */
+  const settleBeacon = (pageId) => beaconAcks[pageId] ?? Promise.resolve()
 
   const flushAll = () => {
     for (const [pageId, timer] of Object.entries(draftWriteTimers)) {
@@ -224,6 +277,7 @@ export function createSaveQueueController({
     queuedPayloads = {}
     draftWriteTimers = {}
     latestDraftKeys = {}
+    beaconAcks = {}
     onPendingChange(false)
   }
 
@@ -247,5 +301,6 @@ export function createSaveQueueController({
     hasPendingForPage,
     hasLocalChanges,
     discardConflict,
+    settleBeacon,
   }
 }

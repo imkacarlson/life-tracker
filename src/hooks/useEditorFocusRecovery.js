@@ -13,6 +13,10 @@ import { getMountedEditorView } from '../utils/editorView'
  *    cleared by a click outside the editor, restore focus/caret on the next
  *    in-editor pointer-down.
  *
+ *    The same effect also keeps the editor non-editable while `resumeSyncing` is
+ *    true (the app just came back to the foreground and is checking for edits
+ *    made on another device), so you can't type into a stale copy of the page.
+ *
  * 3. selectionchange recovery — if the DOM selection is inside the editor but focus
  *    has fallen back to <body> (can happen after table ops, programmatic selections,
  *    or autosave UI updates), silently refocus the editor view.
@@ -26,10 +30,15 @@ export function useEditorFocusRecovery({
   touchNavigationGuard,
   pendingEditTapRef,
   suppressFocusRef,
+  resumeSyncing = false,
 }) {
   const previousDeepLinkFocusGuardRef = useRef(deepLinkFocusGuard)
   const previousTouchNavigationGuardRef = useRef(touchNavigationGuard)
   const pendingDesktopDeepLinkRecoveryRef = useRef(false)
+  // Whether the editor had focus when the resume lock kicked in, so desktop can
+  // put the caret back once it lifts.
+  const focusedBeforeResumeLockRef = useRef(false)
+  const resumeLockedRef = useRef(false)
 
   // Effect 1: touch guard / deep-link guard → enable/disable editing + focus routing
   useEffect(() => {
@@ -49,6 +58,29 @@ export function useEditorFocusRecovery({
       requestAnimationFrame(() => {
         getMountedEditorView(editor)?.dom.blur()
       })
+      return
+    }
+    // The lock and unlock pass emitUpdate=false: an 'update' event triggers
+    // autosave, which here would queue a save of the stale copy we are guarding.
+    if (resumeSyncing) {
+      if (!resumeLockedRef.current) {
+        resumeLockedRef.current = true
+        focusedBeforeResumeLockRef.current = Boolean(getMountedEditorView(editor)?.hasFocus())
+      }
+      editor.setEditable(false, false)
+      return
+    }
+    if (resumeLockedRef.current) {
+      resumeLockedRef.current = false
+      editor.setEditable(true, false)
+      // Desktop gets its caret back. Touch skips this: refocusing would pop the
+      // keyboard back open.
+      if (focusedBeforeResumeLockRef.current && !isTouchDevice) {
+        requestAnimationFrame(() => {
+          getMountedEditorView(editor)?.focus()
+        })
+      }
+      focusedBeforeResumeLockRef.current = false
       return
     }
     const tapIntent = pendingEditTapRef?.current
@@ -71,7 +103,7 @@ export function useEditorFocusRecovery({
       return
     }
     editor.setEditable(true)
-  }, [editor, isLoading, editorSessionMode, deepLinkFocusGuard, touchNavigationGuard, pendingEditTapRef])
+  }, [editor, isLoading, editorSessionMode, deepLinkFocusGuard, touchNavigationGuard, pendingEditTapRef, resumeSyncing])
 
   // Effect 2: desktop deep-link click recovery
   useEffect(() => {
