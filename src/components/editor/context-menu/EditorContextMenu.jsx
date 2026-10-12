@@ -1,3 +1,9 @@
+import { useCallback, useEffect, useRef } from 'react'
+
+// How long the pointer can rest on another main-menu item before the Table
+// submenu closes. Gives a diagonal path toward the submenu time to arrive.
+const SUBMENU_CLOSE_DELAY_MS = 300
+
 export default function EditorContextMenu({
   menuRef,
   submenuRef,
@@ -19,6 +25,35 @@ export default function EditorContextMenu({
   handleCopyLink,
   handleSetDailySourceFromMenu,
 }) {
+  const tableParentRef = useRef(null)
+  const closeTimerRef = useRef(null)
+
+  const cancelSubmenuClose = useCallback(() => {
+    clearTimeout(closeTimerRef.current)
+    closeTimerRef.current = null
+  }, [])
+
+  useEffect(() => cancelSubmenuClose, [cancelSubmenuClose])
+
+  // Like native menus: leaving the menu (e.g. cutting across table cells on
+  // the way to the submenu) keeps the submenu open. It only closes after the
+  // pointer settles on a different main-menu item.
+  const handleMenuMouseOver = useCallback(
+    (event) => {
+      if (tableParentRef.current?.contains(event.target)) {
+        cancelSubmenuClose()
+        setSubmenuOpen(true)
+        return
+      }
+      if (!submenuOpen || closeTimerRef.current) return
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null
+        setSubmenuOpen(false)
+      }, SUBMENU_CLOSE_DELAY_MS)
+    },
+    [submenuOpen, setSubmenuOpen, cancelSubmenuClose],
+  )
+
   if (!contextMenu.open) return null
 
   return (
@@ -26,6 +61,7 @@ export default function EditorContextMenu({
       ref={menuRef}
       className="table-context-menu"
       style={{ left: contextMenu.x, top: contextMenu.y }}
+      onMouseOver={handleMenuMouseOver}
     >
       {contextMenu.misspelling && (
         <>
@@ -73,11 +109,7 @@ export default function EditorContextMenu({
             : 'Set this page as tracker'}
       </button>
       {contextMenu.inTable && (
-        <div
-          className="table-context-parent"
-          onMouseEnter={() => setSubmenuOpen(true)}
-          onMouseLeave={() => setSubmenuOpen(false)}
-        >
+        <div ref={tableParentRef} className="table-context-parent">
           <button
             type="button"
             className="table-context-item"
