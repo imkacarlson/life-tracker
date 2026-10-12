@@ -192,8 +192,11 @@ const TableDragEscape = Extension.create({
 
                 if (!crossedCells || escaped || anchorCellPos == null || lastHeadCellPos == null) return
 
+                // Don't stop propagation: prosemirror-tables' own mouseup
+                // listener on the root must run to remove its mousemove
+                // listener, otherwise the CellSelection keeps following the
+                // mouse after release.
                 e.preventDefault()
-                e.stopImmediatePropagation()
 
                 // Re-assert the CellSelection immediately and after a frame
                 // so it survives ProseMirror's DOM observer cycle which can
