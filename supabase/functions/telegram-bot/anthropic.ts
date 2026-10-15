@@ -26,8 +26,8 @@ type CallArgs = {
   maxTokens?: number
   maxIterations?: number
   /**
-   * Reasoning effort. Only send this for models that support it (Sonnet 5 /
-   * Opus 5) — Haiku 4.5 rejects `output_config`, so the classify pass omits it.
+   * Reasoning effort. Only send this for models that support it (Sonnet 5+ /
+   * Opus 5+ / Haiku 5.5) — Haiku 4.5 rejects `output_config`.
    */
   effort?: Effort
   /**

@@ -3,7 +3,7 @@ import { anthropicOutputConfig, extractAnthropicText } from './anthropicText.ts'
 
 describe('anthropicOutputConfig', () => {
   it('sets max_tokens and low effort on Sonnet 5 and other effort-capable models', () => {
-    for (const model of ['claude-sonnet-5', 'claude-sonnet-4-6', 'claude-opus-5', 'claude-opus-5-5']) {
+    for (const model of ['claude-sonnet-5', 'claude-sonnet-5-5', 'claude-sonnet-4-6', 'claude-opus-5', 'claude-opus-5-5', 'claude-haiku-5-5']) {
       expect(anthropicOutputConfig(model)).toEqual({ max_tokens: 16000, output_config: { effort: 'low' } })
     }
   })

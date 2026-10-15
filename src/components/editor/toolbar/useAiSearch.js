@@ -9,7 +9,7 @@ import {
 
 const DEBOUNCE_MS = 600
 const MIN_QUERY_LENGTH = 3
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
+const DEFAULT_MODEL = 'claude-haiku-5-5'
 
 /**
  * Owns the latency/cost control for AI find:

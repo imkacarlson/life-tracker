@@ -134,7 +134,10 @@ export async function classifyReply(userText: string, model: string): Promise<{ 
       tools: [],
       runTool: async () => '',
       model,
-      maxTokens: 200,
+      // Haiku 5.5 thinks by default and thinking counts toward maxTokens, so a
+      // 200 cap could end before the label. Low effort keeps the think short.
+      effort: 'low',
+      maxTokens: 1024,
       maxIterations: 1,
     })
     return parseDecision(raw)

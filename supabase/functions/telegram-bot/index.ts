@@ -39,16 +39,15 @@ import type { SessionMode } from './session.ts'
 // --- Constants (tunable) ---
 const IDLE_MINUTES = 30 // continue same conversation if last reply was within this window
 const MAX_TURNS = 12 // recent turns loaded into context (sessions are short by design)
-const MODEL = 'claude-sonnet-5' // main reasoning: placement choice + Q&A (accuracy-sensitive)
-// Sonnet 5 defaults to `high` effort, which would be slower and pricier than the
-// old Sonnet 4.6 behavior. Anthropic rates Sonnet 5 @ medium as comparable to
-// Sonnet 4.6 @ high — i.e. today's quality, cheaper. Don't drop below medium:
-// at `low` the model makes fewer tool calls and may skip read_tracker_structure,
-// which is exactly the step that makes placement good.
+const MODEL = 'claude-sonnet-5-5' // main reasoning: placement choice + Q&A (accuracy-sensitive)
+// Sonnet 5.5 defaults to `high` effort, which would be slower and pricier than
+// we need. Anthropic recommends starting at medium for multistep tool use. Don't
+// drop below medium: at `low` the model makes fewer tool calls and may skip
+// read_tracker_structure, which is exactly the step that makes placement good.
 const EFFORT = 'medium' as const
 // The confirm/cancel classification is a tiny, well-scoped yes/no/change call —
 // run it on the fastest model so the "yes" → "Added ✅" round-trip feels instant.
-const CLASSIFY_MODEL = 'claude-haiku-4-5-20251001'
+const CLASSIFY_MODEL = 'claude-haiku-5-5'
 // /think: a deeper model with adaptive extended thinking, sticky until /new.
 // max_tokens is a hard ceiling that INCLUDES thinking tokens, so the standard
 // 2048 default would let thinking eat the whole budget and truncate the answer.
