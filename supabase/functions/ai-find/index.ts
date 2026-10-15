@@ -195,7 +195,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json()
     const provider = String(body?.provider || 'anthropic')
-    const model = String(body?.model || 'claude-haiku-4-5-20251001')
+    const model = String(body?.model || 'claude-haiku-5-5')
     const query = String(body?.query ?? '').trim()
 
     if (!query) {

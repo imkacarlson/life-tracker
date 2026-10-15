@@ -11,7 +11,7 @@ const MAX_TOKENS = 16000
 // says to keep adaptive thinking on and use `low` effort rather than disabling
 // it. Only send effort to models that accept it — Haiku 4.5 and older models
 // reject the field.
-const EFFORT_MODELS = /^claude-(sonnet-(4-6|5)|opus-(4-[5-9]|5)|fable-|mythos-)/
+const EFFORT_MODELS = /^claude-(sonnet-(4-6|5)|opus-(4-[5-9]|5)|haiku-5|fable-|mythos-)/
 
 export function anthropicOutputConfig(model: string): {
   max_tokens: number
