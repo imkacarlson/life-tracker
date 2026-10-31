@@ -153,6 +153,40 @@ const clampDelay = (minutes: number): number =>
   Math.min(MAX_POLL_MINUTES, Math.max(LIVE_POLL_MINUTES, Math.round(minutes)))
 
 /**
+ * Teams to check this run: every team whose LEAGUE has at least one team due.
+ *
+ * Teams in one league read the same scoreboard URL, so checking a not-yet-due
+ * teammate costs nothing — the per-run cache answers it. Left on independent
+ * clocks, two NBA teams would each wake on their own schedule and fetch the
+ * same scoreboard twice; pulled in together (and given one shared next poll,
+ * see `leagueNextPollDelays`), they cost one request where they used to cost two.
+ */
+export function selectDueTeams<T extends { league: string; next_poll_at: string | null }>(
+  teams: T[],
+  now: Date,
+): T[] {
+  const isDue = (team: T) => !team.next_poll_at || Date.parse(team.next_poll_at) <= now.getTime()
+  const dueLeagues = new Set(teams.filter(isDue).map((team) => team.league))
+  return teams.filter((team) => dueLeagues.has(team.league))
+}
+
+/**
+ * One next-poll delay per league: the soonest any of its teams needs.
+ *
+ * Polling the sleepier team early is free (same scoreboard request), while
+ * polling the busier one late would delay its email — so the minimum wins.
+ */
+export function leagueNextPollDelays(
+  delays: Array<{ league: string; delayMinutes: number }>,
+): Map<string, number> {
+  const byLeague = new Map<string, number>()
+  for (const { league, delayMinutes } of delays) {
+    byLeague.set(league, Math.min(byLeague.get(league) ?? Infinity, delayMinutes))
+  }
+  return byLeague
+}
+
+/**
  * Stale-data detection — the check that would have caught the Aug 5 outage.
  *
  * It deliberately reads from games we recorded as EXPECTED on an earlier run,

@@ -10,7 +10,13 @@ import {
   isBackedOff,
   parseRetryAfter,
 } from '../_shared/backoff.ts'
-import { findStaleGames, nextPollDelayMinutes } from '../_shared/pollSchedule.ts'
+import {
+  MAX_POLL_MINUTES,
+  findStaleGames,
+  leagueNextPollDelays,
+  nextPollDelayMinutes,
+  selectDueTeams,
+} from '../_shared/pollSchedule.ts'
 import { decideScoresRun } from '../_shared/scoresEnabled.ts'
 import { type AlertContext, sendAlert } from './alerts.ts'
 import {
@@ -94,6 +100,7 @@ const UNNOTIFIED_ALERT_HOURS = 2
 const SEED_TEAMS = [
   { name: 'nationals', display_name: 'Washington Nationals', sport: 'baseball', league: 'mlb', espn_team_id: '20', emoji_win: '⚾🏆', emoji_loss: '⚾❌', emoji_tie: '⚾🤝' },
   { name: 'pacers', display_name: 'Indiana Pacers', sport: 'basketball', league: 'nba', espn_team_id: '11', emoji_win: '🏀🏆', emoji_loss: '🏀❌', emoji_tie: '🏀🤝' },
+  { name: 'wizards', display_name: 'Washington Wizards', sport: 'basketball', league: 'nba', espn_team_id: '27', emoji_win: '🏀🏆', emoji_loss: '🏀❌', emoji_tie: '🏀🤝' },
   { name: 'capitals', display_name: 'Washington Capitals', sport: 'hockey', league: 'nhl', espn_team_id: '23', emoji_win: '🏒🏆', emoji_loss: '🏒❌', emoji_tie: '🏒🤝' },
   { name: 'commanders', display_name: 'Washington Commanders', sport: 'football', league: 'nfl', espn_team_id: '28', emoji_win: '🏈🏆', emoji_loss: '🏈❌', emoji_tie: '🏈🤝' },
   { name: 'colts', display_name: 'Indianapolis Colts', sport: 'football', league: 'nfl', espn_team_id: '11', emoji_win: '🏈🏆', emoji_loss: '🏈❌', emoji_tie: '🏈🤝' },
@@ -305,15 +312,14 @@ Deno.serve(async (req) => {
     return json({ error: 'Failed to load teams' }, 500)
   }
 
-  const dueTeams = (teams as Team[]).filter(
-    (team) => !team.next_poll_at || Date.parse(team.next_poll_at) <= now.getTime(),
-  )
+  const dueTeams = selectDueTeams(teams as Team[], now)
 
   // 9. Check each due team. ONE attempt per tick: the first failed request ends
   //    the loop rather than retrying, so a block never becomes a retry storm.
   const cache = createScoreboardCache()
   const results: Array<{ team: string; gamesFound: number; notified: number; errors: string[] }> = []
   let fetchError: EspnFetchError | null = null
+  const polled: Array<{ team: Team; league: string; delayMinutes: number }> = []
 
   for (const team of dueTeams) {
     const teamResult = { team: team.display_name, gamesFound: 0, notified: 0, errors: [] as string[] }
@@ -364,13 +370,20 @@ Deno.serve(async (req) => {
         .in('espn_game_id', settledIds)
     }
 
-    const delayMinutes = nextPollDelayMinutes(games.all, team.league, now)
+    polled.push({ team, league: team.league, delayMinutes: nextPollDelayMinutes(games.all, team.league, now) })
+
+    results.push(teamResult)
+  }
+
+  // Same-league teams share one next poll so they keep sharing one request.
+  // Written after the loop, so teams checked before a fetch failure still get it.
+  const leagueDelays = leagueNextPollDelays(polled)
+  for (const { team } of polled) {
+    const delayMinutes = leagueDelays.get(team.league) ?? MAX_POLL_MINUTES
     await supabase
       .from('sport_teams')
       .update({ next_poll_at: new Date(now.getTime() + delayMinutes * 60_000).toISOString() })
       .eq('id', team.id)
-
-    results.push(teamResult)
   }
 
   const totalNotified = results.reduce((sum, r) => sum + r.notified, 0)
