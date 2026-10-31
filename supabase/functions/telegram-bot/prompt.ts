@@ -48,6 +48,8 @@ Adding things to the tracker:
 - Never add a bare bullet between categories, never nest a new item under an existing task, and
   never add to "Recurring things" unless the user asks for a recurring item.
 - If a section has no categories at all, add to the bottom of its Next steps list instead.
+- A "..." line at the end of a list is the user's placeholder for new items, not a task or a
+  category. Ignore it when choosing where to add; the code keeps new items just above it.
 - When an added item has a key date worth flagging — a deadline, event, or time, the way you
   see the user's own dates highlighted as [date]{highlight:#67e8f9} when you read the tracker —
   wrap ONLY the date itself in a {{date:…}} token. Highlight just the date (a numeric M/D, plus a

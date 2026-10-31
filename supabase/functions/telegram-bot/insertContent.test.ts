@@ -454,3 +454,60 @@ describe('insertRelativeToBlock — new_category', () => {
     expect(categoryTitles(out).at(-1)).toBe('Zoo')
   })
 })
+
+// The category doc with a "..." placeholder closing the Jerry list and the category list.
+function placeholderDoc(): TiptapNode {
+  const doc = categoryDoc()
+  const jerryList = findById(doc, 'jerry-list') as TiptapNode
+  jerryList.content = [...(jerryList.content ?? []), li(para('jerry-dots', '...'))]
+  const next = findById(doc, 'next') as TiptapNode
+  next.content = [...(next.content ?? []), li(para('next-dots', '...'))]
+  return doc
+}
+
+describe('insertRelativeToBlock — "..." placeholder stays last', () => {
+  it('into_category adds above the placeholder', () => {
+    const nodes = buildItems('bullet_list', ['Update to Jerry 10/4'])
+    const { doc: out, insertedBlockIds } = insertRelativeToBlock(placeholderDoc(), 'cat-jerry', 'into_category', nodes)
+    expect(linesUnder(out, 'cat-jerry')).toEqual([
+      'Update to Jerry 9/20',
+      'Update to Jerry 9/27',
+      'Update to Jerry 10/4',
+      '...',
+    ])
+    expect(textOf(findById(out, insertedBlockIds[0]) ?? {})).toBe('Update to Jerry 10/4')
+  })
+
+  it('append_to_list on the list adds above the placeholder', () => {
+    const nodes = buildItems('bullet_list', ['a', 'b'])
+    const { doc: out } = insertRelativeToBlock(placeholderDoc(), 'jerry-list', 'append_to_list', nodes)
+    expect(linesUnder(out, 'cat-jerry').slice(-3)).toEqual(['a', 'b', '...'])
+  })
+
+  it('after_block on the placeholder line itself adds above it', () => {
+    const nodes = buildItems('bullet_list', ['new'])
+    const { doc: out } = insertRelativeToBlock(placeholderDoc(), 'jerry-dots', 'after_block', nodes)
+    expect(linesUnder(out, 'cat-jerry').slice(-2)).toEqual(['new', '...'])
+  })
+
+  it('treats a single ellipsis character as a placeholder too', () => {
+    const doc = placeholderDoc()
+    ;(findById(doc, 'jerry-dots')?.content?.[0] as TiptapNode).text = '…'
+    const { doc: out } = insertRelativeToBlock(doc, 'cat-jerry', 'into_category', buildItems('bullet_list', ['x']))
+    expect(linesUnder(out, 'cat-jerry').slice(-2)).toEqual(['x', '…'])
+  })
+
+  it('a new last category goes above the placeholder', () => {
+    const nodes = buildItems('bullet_list', ['x'])
+    const { doc: out } = insertRelativeToBlock(placeholderDoc(), 'next', 'new_category', nodes, { category: 'Zoo' })
+    expect(categoryTitles(out).slice(-2)).toEqual(['Zoo', '...'])
+  })
+
+  it('leaves a "..." that is not last alone', () => {
+    const doc = categoryDoc()
+    const jerryList = findById(doc, 'jerry-list') as TiptapNode
+    jerryList.content = [li(para('mid-dots', '...')), ...(jerryList.content ?? [])]
+    const { doc: out } = insertRelativeToBlock(doc, 'cat-jerry', 'into_category', buildItems('bullet_list', ['x']))
+    expect(linesUnder(out, 'cat-jerry').at(-1)).toBe('x')
+  })
+})

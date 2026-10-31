@@ -132,6 +132,22 @@ const compareTitles = (a: string, b: string): number =>
 const paragraphIds = (items: TiptapNode[]): string[] =>
   items.map(innerParagraphId).filter((v): v is string => typeof v === 'string')
 
+// The user ends lists with a "..." line as a placeholder for typing new items.
+// Anything appended to the bottom of a list goes just above it, so it stays last.
+export function isPlaceholderItem(item: TiptapNode | undefined): boolean {
+  if (!item || (item.content ?? []).some((c) => LIST_TYPES.has(c.type ?? ''))) return false
+  const text = plainText(item).trim()
+  return text === '...' || text === '…'
+}
+
+// Append `added` to a list's items, above a trailing "..." placeholder if there is one.
+function appendToItems(items: TiptapNode[], added: TiptapNode[]): TiptapNode[] {
+  if (isPlaceholderItem(items[items.length - 1])) {
+    return [...items.slice(0, -1), ...added, items[items.length - 1]]
+  }
+  return [...items, ...added]
+}
+
 // Append list items to the bottom of a list item's nested list, creating that
 // list when the item has none yet (an empty category). Returns the new item and
 // the inner paragraph ids of what was added.
@@ -143,7 +159,7 @@ function appendUnderItem(item: TiptapNode, wrapper: TiptapNode): { item: TiptapN
     return {
       item: {
         ...item,
-        content: children.map((c) => (c === sub ? { ...sub, content: [...(sub.content ?? []), ...coerced] } : c)),
+        content: children.map((c) => (c === sub ? { ...sub, content: appendToItems(sub.content ?? [], coerced) } : c)),
       },
       ids: paragraphIds(coerced),
     }
@@ -224,7 +240,9 @@ export function insertRelativeToBlock(
       list.type === 'taskList'
         ? { type: 'taskItem', attrs: { checked: false }, content: [heading, wrapper] }
         : { type: 'listItem', content: [heading, wrapper] }
-    let at = items.findIndex((item) => compareTitles(plainText(item.content?.[0] ?? {}), categoryTitle) > 0)
+    let at = items.findIndex(
+      (item) => isPlaceholderItem(item) || compareTitles(plainText(item.content?.[0] ?? {}), categoryTitle) > 0,
+    )
     if (at === -1) at = items.length
     insertedBlockIds = [heading.attrs?.id as string, ...paragraphIds(wrapper.content ?? [])]
     createdCategory = true
@@ -253,7 +271,9 @@ export function insertRelativeToBlock(
           if (sameKind) {
             const coerced = coerceItemsToListType(wrapper.content as TiptapNode[], node.type ?? '')
             insertedBlockIds = paragraphIds(coerced)
-            newContent.push(transform(child), ...coerced)
+            // Targeting the "..." line itself means "the bottom of this list": go above it.
+            if (isPlaceholderItem(child)) newContent.push(...coerced, child)
+            else newContent.push(transform(child), ...coerced)
           } else {
             insertedBlockIds = topLevelIds()
             deferred = { owner: node, nodes }
@@ -278,7 +298,7 @@ export function insertRelativeToBlock(
         if (canAppend) {
           const coerced = coerceItemsToListType(wrapper.content as TiptapNode[], child.type ?? '')
           insertedBlockIds = paragraphIds(coerced)
-          newContent.push({ ...child, content: [...(child.content ?? []), ...coerced] })
+          newContent.push({ ...child, content: appendToItems(child.content ?? [], coerced) })
           matched = true
           continue
         }
