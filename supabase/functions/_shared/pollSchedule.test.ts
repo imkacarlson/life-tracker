@@ -8,8 +8,10 @@ import {
   type ScoreboardGame,
   estimateRemainingMinutes,
   findStaleGames,
+  leagueNextPollDelays,
   nextPollDelayMinutes,
   parseClockMinutes,
+  selectDueTeams,
 } from './pollSchedule.ts'
 
 const NOW = new Date('2026-08-29T20:00:00Z')
@@ -167,5 +169,37 @@ describe('findStaleGames — the Aug 5 detector', () => {
 
   it('ignores an unparseable start time rather than alerting forever', () => {
     expect(findStaleGames([{ espn_game_id: 'x', start_time: 'soon' }], [], NOW)).toEqual([])
+  })
+})
+
+describe('selectDueTeams — same-league teams share one fetch', () => {
+  const team = (name: string, league: string, nextPollAt: string | null) => ({ name, league, next_poll_at: nextPollAt })
+  const past = '2026-08-29T19:00:00Z'
+  const future = '2026-08-30T19:00:00Z'
+
+  it('pulls a not-yet-due teammate in when its league is due', () => {
+    const teams = [team('pacers', 'nba', past), team('wizards', 'nba', future), team('caps', 'nhl', future)]
+    expect(selectDueTeams(teams, NOW).map((t) => t.name)).toEqual(['pacers', 'wizards'])
+  })
+
+  it('treats a null next_poll_at as due', () => {
+    const teams = [team('pacers', 'nba', future), team('wizards', 'nba', null)]
+    expect(selectDueTeams(teams, NOW).map((t) => t.name)).toEqual(['pacers', 'wizards'])
+  })
+
+  it('returns nothing when no team is due', () => {
+    expect(selectDueTeams([team('pacers', 'nba', future), team('wizards', 'nba', future)], NOW)).toEqual([])
+  })
+})
+
+describe('leagueNextPollDelays', () => {
+  it('gives each league the soonest delay any of its teams needs', () => {
+    const delays = leagueNextPollDelays([
+      { league: 'nba', delayMinutes: MAX_POLL_MINUTES },
+      { league: 'nba', delayMinutes: LIVE_POLL_MINUTES },
+      { league: 'nhl', delayMinutes: MIDGAME_POLL_MINUTES },
+    ])
+    expect(delays.get('nba')).toBe(LIVE_POLL_MINUTES)
+    expect(delays.get('nhl')).toBe(MIDGAME_POLL_MINUTES)
   })
 })

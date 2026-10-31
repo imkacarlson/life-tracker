@@ -12,6 +12,7 @@ export const EMAIL_RECIPIENT = OWNER_EMAIL
 const FROM_NAMES: Record<string, string> = {
   'nationals': 'MLB Scores',
   'pacers': 'NBA Scores',
+  'wizards': 'NBA Scores',
   'capitals': 'NHL Scores',
   'commanders': 'NFL Scores',
   'colts': 'NFL Scores',
@@ -25,6 +26,7 @@ const FROM_NAMES: Record<string, string> = {
 const SHORT_NAMES: Record<string, string> = {
   'nationals': 'Nats',
   'pacers': 'Pacers',
+  'wizards': 'Wizards',
   'capitals': 'Capitals',
   'commanders': 'Commanders',
   'colts': 'Colts',
