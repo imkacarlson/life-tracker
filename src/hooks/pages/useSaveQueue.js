@@ -9,6 +9,7 @@ import { sanitizeContentForSave } from '../../utils/contentHelpers'
 import { deleteImagesFromStorage, findRemovedImagePaths } from '../../utils/imageCleanup'
 import { clearPageDraft } from '../../utils/localDrafts'
 import { createSaveQueueController } from './saveQueueController'
+import { logActivity } from '../../lib/activityLog'
 
 const persistPage = (pageId, payload, knownTs) =>
   supabase
@@ -154,6 +155,10 @@ export function useSaveQueue({
         onPendingChange: setHasPendingSaves,
         onStatusChange: (pageId, status) => {
           if (pageId === activePageRef.current?.id) setSaveStatus(status)
+          // Successful saves are already covered by 'edit' events; keep the problems.
+          if (status === 'Error' || status === 'Conflict') {
+            logActivity(status === 'Error' ? 'save_error' : 'save_conflict', {}, { pageId })
+          }
         },
         onConflict: setDraftConflict,
         onError: setMessage,

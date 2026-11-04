@@ -25,6 +25,7 @@ import {
   listUpcomingReminders,
 } from './reminders.ts'
 import { parseReminderReply } from '../_shared/reminderReply.ts'
+import { logServerActivity, truncateText } from '../_shared/activityEvent.ts'
 import { classifyReminderIntent } from './geminiIntent.ts'
 import {
   closeActiveSessions,
@@ -99,6 +100,22 @@ async function getUserId(): Promise<string> {
   return data.user_id
 }
 
+// Bot events go on the same activity timeline as the web app. Awaited, not
+// fire-and-forget: the edge worker can be torn down right after the reply.
+// sessionId is the bot conversation when there is one, else a one-off id.
+async function logBotEvent(
+  eventType: string,
+  data: Record<string, unknown> = {},
+  sessionId: string = crypto.randomUUID(),
+): Promise<void> {
+  try {
+    const userId = await getUserId()
+    await logServerActivity(supabase, { userId, sessionId, eventType, data })
+  } catch {
+    // Never let logging break the bot.
+  }
+}
+
 const bot = new Bot(BOT_TOKEN)
 
 // Drop everything that isn't from the allowed user in their own private chat.
@@ -109,18 +126,23 @@ bot.use(async (ctx, next) => {
 
 // /new -> close the active session; next message starts fresh.
 bot.command('new', async (ctx) => {
+  await logBotEvent('bot_command', { command: 'new' })
   await closeActiveSessions(supabase, ctx.chat.id)
   await ctx.reply('Starting fresh ✨')
 })
 
 // /blog <recap> -> format the recap and create a WordPress draft. Registered
 // before the message:text tracker handler so it never collides with it.
-bot.command('blog', handleBlog)
+bot.command('blog', async (ctx) => {
+  await logBotEvent('bot_command', { command: 'blog', text: truncateText(ctx.match) })
+  await handleBlog(ctx)
+})
 
 // /reminders -> what's armed for the next two weeks. Pure derivation, zero AI.
 // This is the feedback loop that makes the feature trustworthy instead of the
 // user hoping their phone buzzes.
 bot.command('reminders', async (ctx) => {
+  await logBotEvent('bot_command', { command: 'reminders' })
   try {
     const userId = await getUserId()
     const text = await listUpcomingReminders(supabase, userId, new Date(), USER_TIMEZONE)
@@ -147,6 +169,8 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
   const replyToMessageId = ctx.message.reply_to_message?.message_id ?? null
 
   const stopTyping = startTyping(ctx.api, chatId, TYPING_INTERVAL_MS)
+  // Set once the session resolves, so later events (and errors) group with it.
+  let logSessionId: string = crypto.randomUUID()
   try {
     const userId = await getUserId()
     const now = new Date()
@@ -168,6 +192,12 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     // Dedup: if Telegram retried this exact message, stop after the first time.
     const { duplicate } = await persistUserTurn(supabase, sessionId, text, messageId)
     if (duplicate) return
+    logSessionId = sessionId
+    await logBotEvent(
+      'bot_message',
+      { text: truncateText(text), mode, command: forceMode === 'think' ? 'think' : null },
+      sessionId,
+    )
 
     // A pending preview owns bare confirmations ("done" could mean "yes, add it"),
     // so it's resolved first and reused by the capture block below — same query,
@@ -200,6 +230,11 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
             now,
             USER_TIMEZONE,
           )
+          await logBotEvent(
+            'bot_reminder_action',
+            { action, via: keywordAction ? 'keyword' : 'classifier' },
+            sessionId,
+          )
           await persistAssistantTurn(supabase, sessionId, reply)
           await sendReply(ctx.api, chatId, reply)
           return
@@ -210,10 +245,18 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
     // --- Capture: is this message responding to a pending proposal? ---
     if (pendingJob) {
       const { decision } = await classifyReply(text, CLASSIFY_MODEL)
+      await logBotEvent('bot_proposal_reply', { decision, job_id: pendingJob.id }, sessionId)
 
       if (decision === 'confirm') {
         const result = await applyPendingJob(supabase, pendingJob, now)
         let reply: string
+        await logBotEvent(
+          'bot_proposal_applied',
+          result.ok
+            ? { ok: true, page_title: result.pageTitle }
+            : { ok: false, reason: result.reason },
+          sessionId,
+        )
         if (result.ok) {
           await deleteJob(supabase, pendingJob.id)
           // Derived, never asserted: this runs the same parser the cron sweep
@@ -268,20 +311,37 @@ async function handleUserMessage(ctx: any, text: string, forceMode?: SessionMode
       renderPreview: renderProposedPreview,
     })
 
+    // Record which tools the model used, for the activity log.
+    const toolsUsed: string[] = []
+    const startedAt = Date.now()
     const reply = await callClaude({
       system: buildSystemPrompt(true, nowDisplay, deep),
       messages: turns.map((t) => ({ role: t.role, content: t.content })),
       tools: tools.defs,
-      runTool: tools.runTool,
+      runTool: (name, input) => {
+        toolsUsed.push(name)
+        return tools.runTool(name, input)
+      },
       model: deep ? THINK_MODEL : MODEL,
       effort: deep ? THINK_EFFORT : EFFORT,
       ...(deep ? { maxTokens: THINK_MAX_TOKENS, thinking: { type: 'adaptive' as const } } : {}),
     })
 
+    await logBotEvent(
+      'bot_reply',
+      {
+        text: truncateText(reply),
+        mode,
+        tools_used: toolsUsed,
+        duration_ms: Date.now() - startedAt,
+      },
+      sessionId,
+    )
     await persistAssistantTurn(supabase, sessionId, reply)
     await sendReply(ctx.api, chatId, reply)
   } catch (err) {
     console.error('telegram-bot handler error:', String(err))
+    await logBotEvent('bot_error', { message: truncateText(String(err)) }, logSessionId)
     await sendReply(ctx.api, chatId, 'Sorry — something went wrong on my end. Please try again.')
   } finally {
     stopTyping()

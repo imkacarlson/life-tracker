@@ -1,3 +1,5 @@
+import { useActivityRecordingEnabled } from '../hooks/useActivityRecordingEnabled'
+
 function SettingsHub({
   onEditDailyTemplate,
   onBackToPages,
@@ -5,6 +7,8 @@ function SettingsHub({
   sportsScoresEnabled = true,
   onToggleSportsScores,
 }) {
+  const [recordingEnabled, setRecordingEnabled] = useActivityRecordingEnabled()
+
   return (
     <section className="settings-hub">
       <div className="settings-header">
@@ -57,6 +61,26 @@ function SettingsHub({
               onClick={() => onToggleSportsScores?.(!sportsScoresEnabled)}
             >
               {sportsScoresEnabled ? 'On' : 'Off'}
+            </button>
+          </div>
+
+          <div className="settings-card">
+            <div>
+              <h3 id="activity-recording-label">Activity Recording</h3>
+              <p className="subtle">
+                Records how you use the app on this device (pages opened, edits, taps, errors) to
+                help debug glitches. The flag button still works when this is off.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={recordingEnabled}
+              aria-labelledby="activity-recording-label"
+              className={`settings-toggle ${recordingEnabled ? 'active' : ''}`}
+              onClick={() => setRecordingEnabled(!recordingEnabled)}
+            >
+              {recordingEnabled ? 'On' : 'Off'}
             </button>
           </div>
         </div>

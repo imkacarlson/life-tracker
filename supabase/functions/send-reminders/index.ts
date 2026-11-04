@@ -17,6 +17,7 @@ import {
   type DerivedReminder,
 } from '../_shared/deriveReminders.ts'
 import { buildDeepLink } from '../_shared/deepLink.ts'
+import { logServerActivity, truncateText } from '../_shared/activityEvent.ts'
 import { buildReminderText, cleanLineText } from '../_shared/reminderMessage.ts'
 import { localIsoDate } from '../_shared/wallClock.ts'
 
@@ -123,6 +124,8 @@ Deno.serve(async (req) => {
   )
 
   const now = Date.now()
+  // Groups this tick's activity-log rows.
+  const runId = crypto.randomUUID()
   const summary = {
     ok: true,
     dryRun: DRY_RUN,
@@ -151,7 +154,7 @@ Deno.serve(async (req) => {
 
     // --- 3. Any snoozes that have come due go out first. ---
     if (!DRY_RUN) {
-      summary.snoozesSent = await sendDueSnoozes(supabase, now)
+      summary.snoozesSent = await sendDueSnoozes(supabase, now, userId, runId)
     }
 
     // --- 5. Stability guard. ---
@@ -263,6 +266,13 @@ Deno.serve(async (req) => {
             telegram_message_id: messageId,
           })
           .eq('id', claimed)
+        await logServerActivity(supabase, {
+          userId,
+          sessionId: runId,
+          eventType: 'reminder_sent',
+          pageId: reminder.pageId ?? null,
+          data: { text: truncateText(reminder.lineText), source: 'derived' },
+        })
         summary.sent += 1
       } catch (err) {
         // Drop the claim so the next tick retries rather than silently losing it.
@@ -318,6 +328,8 @@ async function claim(
 async function sendDueSnoozes(
   supabase: ReturnType<typeof createClient>,
   now: number,
+  userId: string,
+  runId: string,
 ): Promise<number> {
   const { data, error } = await supabase
     .from('bot_reminders')
@@ -347,6 +359,13 @@ async function sendDueSnoozes(
         .from('bot_reminders')
         .update({ status: 'sent', sent_at: new Date().toISOString(), telegram_message_id: messageId })
         .eq('id', row.id)
+      await logServerActivity(supabase, {
+        userId,
+        sessionId: runId,
+        eventType: 'reminder_sent',
+        pageId: row.page_id,
+        data: { text: truncateText(row.line_text), source: 'snooze' },
+      })
       sent += 1
       await sleep(SEND_GAP_MS)
     } catch (err) {

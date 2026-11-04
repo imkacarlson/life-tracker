@@ -1,4 +1,6 @@
 import { Component } from 'react'
+import { flushActivity, logActivity } from '../lib/activityLog'
+import { truncate } from '../utils/activityHelpers'
 
 // Palette mirrors DESIGN.md. Inlined so the fallback renders even if a
 // stylesheet failed to load during a fragile resume/re-init.
@@ -54,6 +56,13 @@ export class ErrorBoundary extends Component {
       window.__removeAppSplash()
     }
     console.error('App crashed:', error, info?.componentStack)
+    logActivity('crash', {
+      message: truncate(error?.message, 500),
+      stack: truncate(error?.stack, 2000),
+      component_stack: truncate(info?.componentStack, 2000),
+    })
+    // Upload right away: the next thing the user does is probably reload.
+    flushActivity()
   }
 
   handleReload = () => {
