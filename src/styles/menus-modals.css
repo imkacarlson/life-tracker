@@ -39,6 +39,25 @@
   color: var(--text);
 }
 
+.glitch-flag-modal {
+  width: min(420px, 100%);
+}
+
+.glitch-flag-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  font: inherit;
+}
+
+.glitch-flag-error {
+  margin: 0.5rem 0 0;
+  color: var(--danger, #b91c1c);
+  font-size: 0.875rem;
+}
+
 .ai-insert-actions {
   margin-top: 0.75rem;
   display: flex;

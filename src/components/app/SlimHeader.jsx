@@ -1,4 +1,5 @@
 import GearMenu from './GearMenu'
+import GlitchFlagButton from './GlitchFlagButton'
 
 function SlimHeader({
   notebookTitle,
@@ -38,7 +39,10 @@ function SlimHeader({
           </p>
         </div>
       </div>
-      <GearMenu settingsActive={settingsActive} onOpenSettings={onOpenSettings} onSignOut={onSignOut} />
+      <div className="slim-header-right">
+        <GlitchFlagButton />
+        <GearMenu settingsActive={settingsActive} onOpenSettings={onOpenSettings} onSignOut={onSignOut} />
+      </div>
     </header>
   )
 }

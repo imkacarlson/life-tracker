@@ -64,7 +64,15 @@
   display: none;
 }
 
+.slim-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-shrink: 0;
+}
+
 .hamburger,
+.glitch-flag-button,
 .gear-menu-button {
   width: 2rem;
   height: 2rem;
@@ -77,6 +85,7 @@
 }
 
 .hamburger svg,
+.glitch-flag-button svg,
 .gear-menu-button svg {
   width: 1.1rem;
   height: 1.1rem;

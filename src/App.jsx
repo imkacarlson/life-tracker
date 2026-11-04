@@ -8,6 +8,7 @@ import { useNavigation } from './hooks/useNavigation'
 import { useNavigationHistory } from './hooks/useNavigationHistory'
 import { useContentHydration } from './hooks/useContentHydration'
 import { useImageUpload } from './hooks/useImageUpload'
+import { useActivityTracking } from './hooks/useActivityTracking'
 import { useEditorSetup } from './hooks/useEditorSetup'
 import { useCustomDictionary } from './hooks/useCustomDictionary'
 import { useEditorSession } from './hooks/useEditorSession'
@@ -443,6 +444,8 @@ function App() {
   })
 
   const finalUploadImageAndInsert = useImageUpload(session, editor, setMessage)
+
+  useActivityTracking({ userId, activePage, editor })
 
   useEffect(() => {
     uploadImageRef.current = finalUploadImageAndInsert
