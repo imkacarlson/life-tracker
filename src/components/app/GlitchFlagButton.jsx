@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { addGlitchNote, flagGlitch } from '../../lib/activityLog'
+import { flushRecording } from '../../lib/sessionRecorder'
 
 /**
  * Header button for "something weird just happened". One tap saves the flag
@@ -18,6 +19,9 @@ function GlitchFlagButton() {
     // The id is created locally, so the note can be attached even while the
     // flag is still uploading.
     setFlag(flagGlitch())
+    // Upload the screen recording up to this moment right away, in case the
+    // app is about to misbehave further.
+    flushRecording()
   }
 
   const close = () => {

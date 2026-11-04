@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useActivityRecordingEnabled } from '../hooks/useActivityRecordingEnabled'
+import RecordingsPanel from './settings/RecordingsPanel'
 
 function SettingsHub({
   onEditDailyTemplate,
@@ -8,6 +10,9 @@ function SettingsHub({
   onToggleSportsScores,
 }) {
   const [recordingEnabled, setRecordingEnabled] = useActivityRecordingEnabled()
+  const [showRecordings, setShowRecordings] = useState(false)
+
+  if (showRecordings) return <RecordingsPanel onBack={() => setShowRecordings(false)} />
 
   return (
     <section className="settings-hub">
@@ -68,8 +73,9 @@ function SettingsHub({
             <div>
               <h3 id="activity-recording-label">Activity Recording</h3>
               <p className="subtle">
-                Records how you use the app on this device (pages opened, edits, taps, errors) to
-                help debug glitches. The flag button still works when this is off.
+                Records how you use the app on this device (pages opened, edits, taps, keystrokes,
+                errors, and a screen recording) to help debug glitches. Password fields are never
+                recorded. The flag button still works when this is off.
               </p>
             </div>
             <button
@@ -81,6 +87,18 @@ function SettingsHub({
               onClick={() => setRecordingEnabled(!recordingEnabled)}
             >
               {recordingEnabled ? 'On' : 'Off'}
+            </button>
+          </div>
+
+          <div className="settings-card">
+            <div>
+              <h3>Flags &amp; Recordings</h3>
+              <p className="subtle">
+                Glitches you flagged and recorded sessions. Open one to watch it back.
+              </p>
+            </div>
+            <button type="button" onClick={() => setShowRecordings(true)}>
+              Open
             </button>
           </div>
         </div>

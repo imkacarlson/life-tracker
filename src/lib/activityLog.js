@@ -1,5 +1,6 @@
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY, getAccessTokenSync } from './supabase'
 import { isTouchOnlyDevice } from '../utils/device'
+import { withTimeout } from '../utils/promiseTimeout'
 import {
   describeClickTarget,
   describeShortcut,
@@ -19,6 +20,7 @@ const PENDING_KEY = 'activityRecording:pending'
 const PENDING_FLAGS_KEY = 'activityRecording:pendingFlags'
 
 const FLUSH_INTERVAL_MS = 10_000
+const FLUSH_TIMEOUT_MS = 20_000
 const PERSIST_THROTTLE_MS = 2_000
 const MAX_PENDING = 2000
 const BATCH_SIZE = 500
@@ -121,7 +123,13 @@ export async function flushActivity() {
     await flushPendingFlags()
     while (pending.length > 0) {
       const batch = pending.slice(0, BATCH_SIZE)
-      const { error } = await supabase.from('activity_events').insert(batch)
+      // A request started while the app was backgrounded can hang forever;
+      // without a timeout `flushing` would stay true and block every flush.
+      const { error } = await withTimeout(
+        supabase.from('activity_events').insert(batch),
+        FLUSH_TIMEOUT_MS,
+        () => ({ error: 'timeout' }),
+      )
       if (error) break
       // Events logged during the await were appended after the batch.
       pending = pending.slice(batch.length)
@@ -196,7 +204,11 @@ async function flushPendingFlags() {
   while (pendingFlags.length > 0) {
     const flag = pendingFlags[0]
     const sentNote = flag.note
-    const { error } = await supabase.from('glitch_flags').upsert({ ...flag })
+    const { error } = await withTimeout(
+      supabase.from('glitch_flags').upsert({ ...flag }),
+      FLUSH_TIMEOUT_MS,
+      () => ({ error: 'timeout' }),
+    )
     if (error) return
     // A note typed while the upload was in flight changes the queued flag;
     // keep it queued so the loop upserts again with the note.
@@ -268,6 +280,10 @@ export const setActivityUser = (id) => {
 export const setActivityPage = (pageId) => {
   currentPageId = pageId ?? null
 }
+
+// Shared with the session recorder so recordings line up with events.
+export const getActivitySessionId = () => sessionId
+export const getActivityDevice = () => device
 
 // ---------------------------------------------------------------------------
 // On/off switch (per device, in Settings)

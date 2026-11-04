@@ -29,6 +29,13 @@ enabled = true
 verify_jwt = false
 entrypoint = "./functions/auth-alerts/index.ts"
 
+[functions.storage-alerts]
+enabled = true
+# verify_jwt = false is deliberate: pg_cron can't send a Supabase JWT.
+# Auth is the x-cron-secret header, same as send-reminders.
+verify_jwt = false
+entrypoint = "./functions/storage-alerts/index.ts"
+
 [functions.telegram-bot]
 enabled = true
 # verify_jwt = false is deliberate: Telegram can't send a Supabase JWT.

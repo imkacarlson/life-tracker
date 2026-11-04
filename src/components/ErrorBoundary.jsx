@@ -1,5 +1,6 @@
 import { Component } from 'react'
 import { flushActivity, logActivity } from '../lib/activityLog'
+import { flushRecording } from '../lib/sessionRecorder'
 import { truncate } from '../utils/activityHelpers'
 
 // Palette mirrors DESIGN.md. Inlined so the fallback renders even if a
@@ -63,6 +64,7 @@ export class ErrorBoundary extends Component {
     })
     // Upload right away: the next thing the user does is probably reload.
     flushActivity()
+    flushRecording()
   }
 
   handleReload = () => {
