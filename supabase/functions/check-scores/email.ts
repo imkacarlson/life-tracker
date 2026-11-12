@@ -2,6 +2,7 @@
 
 import type { GameResult, Team } from './espn.ts'
 import { OWNER_EMAIL } from '../_shared/resendEmail.ts'
+import { type CardData, buildCardHtml } from './emailCard.ts'
 
 // Delivery lives in _shared so auth-alerts can reuse it.
 export { sendEmail } from '../_shared/resendEmail.ts'
@@ -38,13 +39,8 @@ const SHORT_NAMES: Record<string, string> = {
 
 export const fromNameForTeam = (team: Team): string => FROM_NAMES[team.name] ?? 'Sports Scores'
 
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
+// alerts.ts imports escapeHtml from here; the card owns the one copy.
+export { escapeHtml } from './emailCard.ts'
 
 export function buildEmailSubject(team: Team, game: GameResult): string {
   const emoji = game.result === 'win' ? team.emoji_win
@@ -60,16 +56,7 @@ export function buildEmailSubject(team: Team, game: GameResult): string {
   return `${emoji} ${shortName} ${resultLabel} ${game.teamScore}-${game.opponentScore} vs ${game.opponentName}`
 }
 
-export function buildEmailHtml(team: Team, game: GameResult, aiSummary: string | null): string {
-  const resultLabel = game.result === 'win' ? 'Win' : game.result === 'loss' ? 'Loss' : 'Tie'
-  const location = game.homeAway === 'home' ? 'Home' : 'Away'
-
-  // Convert markdown-style bold (**text**) to <b> tags in the AI summary.
-  const summaryHtml = aiSummary
-    ? '<br><br>' + escapeHtml(aiSummary)
-        .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-        .replace(/\n/g, '<br>')
-    : ''
-
-  return `<b>${escapeHtml(team.display_name)} ${resultLabel} ${game.teamScore}-${game.opponentScore}</b> vs ${escapeHtml(game.opponentName)} (${location})<br>${game.gameDate}${summaryHtml}`
+/** The email body is the scoreboard card; see emailCard.ts. */
+export function buildEmailHtml(team: Team, game: GameResult, data: CardData): string {
+  return buildCardHtml(team, game, data)
 }
