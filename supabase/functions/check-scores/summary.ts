@@ -66,12 +66,105 @@ export type GeminiAttempt = {
 
 export type AttemptRecorder = (attempt: GeminiAttempt) => void
 
-const GEMINI_PROMPT_TEMPLATE = (teamFullName: string, sport: string) =>
-  `Give me a current 3-bullet update on the ${teamFullName} ${sport} team in the following format: \n` +
-  ` Record & Standings: Include win-loss record, division standing, and a note on playoff chances. \n` +
-  ` Recent News: One or two notable updates. \n` +
-  ` Next Game (not counting any games currently happening or recently ended): Date, opponent, location and start time (in eastern time zone).\n` +
-  `Keep the tone neutral and concise, and be sure to rely on sources and not hallucinate.`
+/**
+ * Gemini supplies only two things for the email card: playoff odds and one line
+ * of news. Record, standings and the next game come from ESPN (teamContext.ts).
+ *
+ * The answer must be JSON, but the API rejects `responseMimeType: json` when the
+ * search tool is on ("Tool use with a response mime type: 'application/json' is
+ * unsupported", verified 2026-11-12). So the prompt asks for JSON and
+ * parseInsight() checks what comes back.
+ */
+const GEMINI_PROMPT_TEMPLATE = (teamFullName: string, sport: string, playoffs: string, today: string) =>
+  `Search the web for the latest on the ${teamFullName} (${sport}). Today is ${today}.\n` +
+  `Reply with ONLY one JSON object, no markdown, no code fences, no other text:\n` +
+  `{"playoff_odds_pct": <number 0-100 or null>, "news": <string>}\n` +
+  `playoff_odds_pct: the current chance they make ${playoffs}. Prefer a published projection model ` +
+  `(e.g. ESPN BPI/FPI, MoneyPuck, FanGraphs). If there is none, convert current sportsbook or prediction-market ` +
+  `odds (e.g. DraftKings, FanDuel, Kalshi) to an implied probability. If they have already clinched, use 100. ` +
+  `If they are eliminated, or the season is over, or no number is published, use null. Never estimate it yourself.\n` +
+  `news: ONE sentence, at most 140 characters, the most notable recent team news (injuries, trades, streaks, milestones). ` +
+  `Do not restate a game score or the team's record.`
+
+/** What each league's "playoffs" means, for the odds question. */
+const PLAYOFF_TARGETS: Record<string, string> = {
+  'mlb': 'the MLB postseason',
+  'nba': 'the NBA playoffs (including by winning the play-in tournament)',
+  'nhl': 'the Stanley Cup playoffs',
+  'nfl': 'the NFL playoffs',
+  'college-football': 'the College Football Playoff',
+  'mens-college-basketball': 'the NCAA tournament',
+  'womens-college-basketball': 'the NCAA tournament',
+  'usa.nwsl': 'the NWSL playoffs',
+}
+
+const playoffTarget = (team: Team): string => PLAYOFF_TARGETS[team.league] ?? 'the playoffs'
+
+/** "November 12, 2026" in Eastern time, so the model knows how fresh to be. */
+const easternToday = (now: Date): string =>
+  now.toLocaleDateString('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+
+/** The two facts the email card takes from Gemini. Either may be missing. */
+export type Insight = {
+  playoff_odds_pct: number | null
+  news: string | null
+}
+
+/** Longest news line the card will show. Gemini is asked for 140. */
+export const NEWS_MAX_CHARS = 160
+
+/** Keep the first sentence if the whole thing is too long; drop it if that is too. */
+function cleanNews(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  let news = raw.replace(/\s+/g, ' ').trim()
+  if (!news) return null
+  if (news.length > NEWS_MAX_CHARS) {
+    const firstSentence = news.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? ''
+    news = firstSentence
+  }
+  return news && news.length <= NEWS_MAX_CHARS ? news : null
+}
+
+function cleanOdds(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null
+  // Tolerate "49%" as well as 49.
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw))
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null
+  return Math.round(n)
+}
+
+/**
+ * Read Gemini's answer (or a stored ai_summary) into an Insight.
+ *
+ * Returns null when there is nothing usable: no JSON object, unparseable JSON,
+ * or neither field survived cleaning. Old plain-text summaries also land here.
+ */
+export function parseInsight(text: string | null | undefined): Insight | null {
+  if (!text) return null
+  // Gemini sometimes wraps the object in prose or ``` fences despite the prompt.
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return null
+
+  let obj: any
+  try {
+    obj = JSON.parse(match[0])
+  } catch {
+    return null
+  }
+  if (!obj || typeof obj !== 'object') return null
+
+  const insight: Insight = {
+    playoff_odds_pct: cleanOdds(obj.playoff_odds_pct),
+    news: cleanNews(obj.news),
+  }
+  if (insight.playoff_odds_pct === null && insight.news === null) return null
+  return insight
+}
 
 const SPORT_LABELS: Record<string, string> = {
   'baseball': 'MLB baseball',
@@ -159,8 +252,9 @@ async function probeUngrounded(
 }
 
 /**
- * Best-effort team blurb. Returns null — never throws, never blocks the email —
- * when Gemini is slow, erroring, or out of budget.
+ * Best-effort playoff odds and news line, returned as an Insight JSON string
+ * (read it with parseInsight). Returns null — never throws, never blocks the
+ * email — when Gemini is slow, erroring, out of budget, or not answering in JSON.
  *
  * `deadlineMs` is an epoch-ms cutoff for the WHOLE call, including retries and
  * backoff. Omit it only in tests; the function passes one on every real run.
@@ -175,7 +269,12 @@ export async function generateSummary(
   deadlineMs?: number,
   record?: AttemptRecorder,
 ): Promise<string | null> {
-  const prompt = GEMINI_PROMPT_TEMPLATE(team.display_name, sportLabel(team))
+  const prompt = GEMINI_PROMPT_TEMPLATE(
+    team.display_name,
+    sportLabel(team),
+    playoffTarget(team),
+    easternToday(new Date()),
+  )
   const url = endpoint(apiKey)
 
   /** Milliseconds left in the budget, or null when running unbounded. */
@@ -214,9 +313,12 @@ export async function generateSummary(
 
       if (resp.ok) {
         const data = await resp.json()
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? null
+        // Grounded answers can come back split across several parts.
+        const parts: any[] = data.candidates?.[0]?.content?.parts ?? []
+        const text = parts.map((p) => p?.text ?? '').join('') || null
+        const insight = parseInsight(text)
 
-        if (text) {
+        if (insight) {
           record?.({
             attempt,
             grounded: true,
@@ -227,10 +329,13 @@ export async function generateSummary(
             errorName: null,
             errorDetail: null,
           })
-          return text
+          // Stored in score_history.ai_summary in the same shape Gemini uses,
+          // so parseInsight() reads it back unchanged.
+          return JSON.stringify(insight)
         }
 
-        // 200 but no usable text — transient grounding hiccup, worth retrying.
+        // 200 but nothing usable: no text, or text that was not the JSON we
+        // asked for. Both are transient enough to be worth a retry.
         record?.({
           attempt,
           grounded: true,
@@ -239,7 +344,7 @@ export async function generateSummary(
           headersMs,
           totalMs: Date.now() - attemptStart,
           errorName: null,
-          errorDetail: null,
+          errorDetail: text ? `unparseable: ${text.slice(0, 280)}` : null,
         })
         console.error(`Gemini empty response for ${team.display_name} after ${Date.now() - attemptStart}ms (attempt ${attempt}/${GEMINI_MAX_ATTEMPTS})`)
       } else {

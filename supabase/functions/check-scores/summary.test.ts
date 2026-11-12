@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Team } from './espn.ts'
 import {
+  NEWS_MAX_CHARS,
   SUMMARY_ATTEMPT_TIMEOUT_MS,
   type GeminiAttempt,
   generateSummary,
+  parseInsight,
 } from './summary.ts'
 
 const TEAM = {
@@ -27,6 +29,71 @@ const geminiText = (text: string) => ({
   candidates: [{ content: { parts: [{ text }] } }],
 })
 
+/** A well-formed Gemini answer, tagged so each test's result is distinguishable. */
+const answer = (tag: string) => `{"playoff_odds_pct": 42, "news": "News ${tag}."}`
+
+/** What generateSummary returns (and index.ts stores) for answer(tag). */
+const stored = (tag: string) => JSON.stringify({ playoff_odds_pct: 42, news: `News ${tag}.` })
+
+describe('parseInsight', () => {
+  it('reads a clean JSON answer', () => {
+    expect(parseInsight('{"playoff_odds_pct": 49, "news": "Haliburton is out."}')).toEqual({
+      playoff_odds_pct: 49,
+      news: 'Haliburton is out.',
+    })
+  })
+
+  it('finds the object inside code fences or prose', () => {
+    const text = 'Here you go:\n```json\n{"playoff_odds_pct": 70, "news": "Ovechkin tied a record."}\n```'
+    expect(parseInsight(text)?.playoff_odds_pct).toBe(70)
+  })
+
+  it('rounds odds to a whole number and accepts "49%"', () => {
+    expect(parseInsight('{"playoff_odds_pct": 6.3, "news": "x"}')?.playoff_odds_pct).toBe(6)
+    expect(parseInsight('{"playoff_odds_pct": "49%", "news": "x"}')?.playoff_odds_pct).toBe(49)
+  })
+
+  it('drops odds outside 0-100', () => {
+    expect(parseInsight('{"playoff_odds_pct": 140, "news": "x"}')?.playoff_odds_pct).toBeNull()
+  })
+
+  it('keeps news when odds are null (offseason, early season)', () => {
+    expect(parseInsight('{"playoff_odds_pct": null, "news": "Signed a new deal."}')).toEqual({
+      playoff_odds_pct: null,
+      news: 'Signed a new deal.',
+    })
+  })
+
+  it('cuts overlong news to its first sentence', () => {
+    // A real 2026-11-12 Capitals answer: two items in one line, over the limit.
+    const long = 'Alex Ovechkin tied the franchise assists record (762) on Tuesday night. ' +
+      'Rookie Cole Hutson scored an overtime winner, and Rasmus Sandin is nearing a return from injury.'
+    expect(long.length).toBeGreaterThan(NEWS_MAX_CHARS)
+    expect(parseInsight(`{"playoff_odds_pct": 70, "news": ${JSON.stringify(long)}}`)?.news).toBe(
+      'Alex Ovechkin tied the franchise assists record (762) on Tuesday night.',
+    )
+  })
+
+  it('drops news that is one overlong sentence', () => {
+    const long = 'word '.repeat(50).trim()
+    expect(parseInsight(`{"playoff_odds_pct": 10, "news": "${long}"}`)).toEqual({
+      playoff_odds_pct: 10,
+      news: null,
+    })
+  })
+
+  it('returns null for old plain-text summaries and junk', () => {
+    expect(parseInsight('Record & Standings: 4-7, 10th in the East.')).toBeNull()
+    expect(parseInsight('{not json}')).toBeNull()
+    expect(parseInsight('{"playoff_odds_pct": null, "news": ""}')).toBeNull()
+    expect(parseInsight(null)).toBeNull()
+  })
+
+  it('reads back what generateSummary stores', () => {
+    expect(parseInsight(stored('A'))).toEqual({ playoff_odds_pct: 42, news: 'News A.' })
+  })
+})
+
 /** A request that never settles on its own — only the abort signal ends it. */
 const hangingFetch = vi.fn((_url: string, init: RequestInit) => {
   return new Promise<Response>((_resolve, reject) => {
@@ -47,14 +114,14 @@ describe('generateSummary', () => {
     hangingFetch.mockClear()
   })
 
-  it('returns the text on a normal response', async () => {
+  it('returns the parsed odds and news on a normal response', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => jsonResponse(geminiText('Record: 1-0. Next: Saturday.'))),
+      vi.fn(async () => jsonResponse(geminiText(answer('A')))),
     )
 
     await expect(generateSummary(TEAM, 'key', Date.now() + 5_000)).resolves.toBe(
-      'Record: 1-0. Next: Saturday.',
+      stored('A'),
     )
   })
 
@@ -77,6 +144,41 @@ describe('generateSummary', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
+  it('retries when Gemini answers in prose instead of JSON', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(geminiText('The Pacers are 4-8 and their odds are 49%.')))
+      .mockResolvedValueOnce(jsonResponse(geminiText(answer('retry'))))
+    vi.stubGlobal('fetch', fetchSpy)
+    const attempts: GeminiAttempt[] = []
+
+    await expect(
+      generateSummary(TEAM, 'key', Date.now() + 10_000, (a) => attempts.push(a)),
+    ).resolves.toBe(stored('retry'))
+    expect(attempts[0]).toMatchObject({ outcome: 'empty' })
+    expect(attempts[0].errorDetail).toContain('unparseable')
+  })
+
+  it('joins an answer split across several parts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
+      candidates: [{ content: { parts: [{ text: '{"playoff_odds_pct": 42, ' }, { text: '"news": "News split."}' }] } }],
+    })))
+
+    await expect(generateSummary(TEAM, 'key', Date.now() + 5_000)).resolves.toBe(stored('split'))
+  })
+
+  it('asks for JSON with the right playoff target and today\'s date', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(geminiText(answer('A'))))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await generateSummary(TEAM, 'key', Date.now() + 5_000)
+
+    const prompt: string = JSON.parse(fetchSpy.mock.calls[0][1].body).contents[0].parts[0].text
+    expect(prompt).toContain('"playoff_odds_pct"')
+    expect(prompt).toContain('the College Football Playoff')
+    expect(prompt).toMatch(/Today is \w+ \d+, \d{4}/)
+  })
+
   it('does not burn retries on a permanent 4xx', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse({ error: 'bad key' }, 403))
     vi.stubGlobal('fetch', fetchSpy)
@@ -89,11 +191,11 @@ describe('generateSummary', () => {
     const fetchSpy = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ error: 'unavailable' }, 503))
-      .mockResolvedValueOnce(jsonResponse(geminiText('Second attempt worked.')))
+      .mockResolvedValueOnce(jsonResponse(geminiText(answer('B'))))
     vi.stubGlobal('fetch', fetchSpy)
 
     await expect(generateSummary(TEAM, 'key', Date.now() + 10_000)).resolves.toBe(
-      'Second attempt worked.',
+      stored('B'),
     )
     expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
@@ -141,11 +243,11 @@ describe('generateSummary', () => {
     }
 
     it('records a successful call with both timings', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText('Record: 1-0.'))))
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText(answer('C')))))
       const { attempts, record } = collect()
 
       await expect(generateSummary(TEAM, 'key', Date.now() + 5_000, record)).resolves.toBe(
-        'Record: 1-0.',
+        stored('C'),
       )
 
       expect(attempts).toHaveLength(1)
@@ -210,15 +312,15 @@ describe('generateSummary', () => {
     it('works with no recorder passed', async () => {
       // The signature is additive on purpose: index.ts and every test above
       // must keep working untouched.
-      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText('no recorder'))))
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText(answer('D')))))
 
-      await expect(generateSummary(TEAM, 'key', Date.now() + 5_000)).resolves.toBe('no recorder')
+      await expect(generateSummary(TEAM, 'key', Date.now() + 5_000)).resolves.toBe(stored('D'))
     })
   })
 
   it('runs unbounded when no deadline is given', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText('no deadline'))))
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(geminiText(answer('E')))))
 
-    await expect(generateSummary(TEAM, 'key')).resolves.toBe('no deadline')
+    await expect(generateSummary(TEAM, 'key')).resolves.toBe(stored('E'))
   })
 })

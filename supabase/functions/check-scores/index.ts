@@ -34,7 +34,9 @@ import {
   fetchTeamGames,
 } from './espn.ts'
 import { decideNotifyAction, decideSendAction } from './notifyState.ts'
-import { type GeminiAttempt, generateSummary } from './summary.ts'
+import { type CardData, lastOpponentId } from './emailCard.ts'
+import { type GeminiAttempt, generateSummary, parseInsight } from './summary.ts'
+import { fetchTeamContext } from './teamContext.ts'
 
 const HEALTH_ID = 'espn'
 const RETENTION_DAYS = 7
@@ -89,6 +91,16 @@ const SUMMARY_GAME_BUDGET_MS = 50_000
  * a plain one.
  */
 const SUMMARY_HOLD_MINUTES = 5
+
+/**
+ * After this long into a run, emails skip the ESPN standings/next-game fetch.
+ *
+ * That fetch adds up to 5s per email (teamContext.ts). The summary budget
+ * already ends at 90s, so normal runs never hit this; it only matters when
+ * several emails go out in one tick, and keeps the last of them well clear of
+ * the 150s worker limit.
+ */
+const CARD_DATA_CUTOFF_MS = 120_000
 
 /** Most held games to finish per run, so a backlog cannot blow the worker. */
 const PENDING_BATCH_LIMIT = 5
@@ -622,7 +634,7 @@ async function finishGame(
     keys.resendApiKey,
     EMAIL_RECIPIENT,
     subject,
-    buildEmailHtml(team, game, aiSummary),
+    buildEmailHtml(team, game, await gatherCardData(supabase, team, game, scoreHistoryId, aiSummary, keys)),
     fromNameForTeam(team),
   )
 
@@ -648,6 +660,47 @@ async function finishGame(
     ok: emailResult.ok,
     skipped: false,
     error: emailResult.ok ? undefined : `Email failed: ${emailResult.error}`,
+  }
+}
+
+/**
+ * Everything the email card needs beyond the score: ESPN standings and next
+ * game, Gemini's odds and news, and last email's odds for the ▲▼ change.
+ *
+ * Best-effort throughout. Each failure only removes a section from the card;
+ * none of it can stop the email.
+ */
+async function gatherCardData(
+  supabase: SupabaseClient,
+  team: Team,
+  game: GameResult,
+  scoreHistoryId: string,
+  aiSummary: string | null,
+  keys: NotifyKeys,
+): Promise<CardData> {
+  // Late in a long run, send the card without standings rather than risk the
+  // worker being killed before the email goes out.
+  const skipEspn = Date.now() - keys.runStartedAtMs > CARD_DATA_CUTOFF_MS
+
+  const [context, previous] = await Promise.all([
+    skipEspn
+      ? Promise.resolve({ standings: null, nextGame: null })
+      : fetchTeamContext(team, game.espnGameId, lastOpponentId(team, game), new Date()),
+    supabase
+      .from('score_history')
+      .select('ai_summary')
+      .eq('team_id', team.id)
+      .neq('id', scoreHistoryId)
+      .not('ai_summary', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+
+  return {
+    insight: parseInsight(aiSummary),
+    previousOddsPct: parseInsight(previous.data?.ai_summary)?.playoff_odds_pct ?? null,
+    context,
   }
 }
 
