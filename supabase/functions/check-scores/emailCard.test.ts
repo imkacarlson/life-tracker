@@ -94,6 +94,12 @@ describe('buildCardHtml', () => {
     expect(buildCardHtml(WIZARDS, GAME, full())).toContain('background:#e31837')
   })
 
+  it('draws the result pill white so it reads on a red band', () => {
+    // The 2026-11-12 test email: a solid red Loss pill on the Wizards' red band.
+    const html = buildCardHtml(WIZARDS, GAME, full())
+    expect(html).toMatch(/background:#ffffff;color:#d64545;[^>]*>Loss</)
+  })
+
   it('escapes Gemini text', () => {
     const html = buildCardHtml(WIZARDS, GAME, full())
     expect(html).toContain('44 &amp; 13')

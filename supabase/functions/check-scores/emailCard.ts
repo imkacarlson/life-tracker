@@ -137,6 +137,8 @@ export function lastOpponentId(team: Team, game: GameResult): string | null {
 // --- Sections ------------------------------------------------------------------
 
 function scoreBand(team: Team, game: GameResult, g: ReturnType<typeof readGame>): string {
+  // White pill with result-colored text. A solid red or green pill vanished on
+  // red and green team bands (Wizards, Capitals, Spirit); white reads on all of them.
   const pill = game.result === 'win'
     ? { text: 'Win', bg: C.win }
     : game.result === 'loss'
@@ -156,7 +158,7 @@ function scoreBand(team: Team, game: GameResult, g: ReturnType<typeof readGame>)
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
         <td style="font-family:${FONT};font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${g.colors.fgDim};">Final · ${where} · ${escapeHtml(g.dateLabel)}</td>
-        <td align="right"><span style="font-family:${FONT};background:${pill.bg};color:#ffffff;font-size:11px;font-weight:bold;letter-spacing:0.06em;text-transform:uppercase;padding:3px 8px;border-radius:3px;">${pill.text}</span></td>
+        <td align="right"><span style="font-family:${FONT};background:#ffffff;color:${pill.bg};font-size:11px;font-weight:bold;letter-spacing:0.06em;text-transform:uppercase;padding:3px 8px;border-radius:3px;">${pill.text}</span></td>
       </tr>
       ${row(g.rows[0], false)}
       ${row(g.rows[1], true)}
